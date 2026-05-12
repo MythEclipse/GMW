@@ -8,6 +8,16 @@ interface EventMetadata {
     userId: string;
     username: string;
     tag: string;
+    displayName?: string;
+    avatarUrl?: string;
+    bot?: boolean;
+    roles?: Array<{ id: string; name: string; position: number }>;
+    highestRole?: { id: string; name: string; position: number } | null;
+    joinedTimestamp?: number | null;
+    sessionId?: string;
+    sessionStartTime?: number;
+    segmentIndex?: number;
+    segmentMs?: number;
     startTime: number;
     endTime: number;
     durationMs: number;
