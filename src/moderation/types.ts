@@ -13,6 +13,13 @@ export interface MessageRecord {
   deleted_at: number | null;
   type: "text" | "edited" | "deleted";
   metadata: string | null;
+  ai_status?: "pending" | "clean" | "flagged" | "error" | null;
+  ai_moderation_flags?: string | null;
+  ai_moderation_score?: number | null;
+  ai_moderation_raw?: string | null;
+  ai_analysis?: string | null;
+  ai_analyzed_at?: number | null;
+  ai_error?: string | null;
 }
 
 export interface AttachmentRecord {

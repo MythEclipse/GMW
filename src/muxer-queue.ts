@@ -71,7 +71,14 @@ function initializeDatabase(): SqliteDatabase {
       edited_at INTEGER,
       deleted_at INTEGER,
       type TEXT NOT NULL DEFAULT 'text',
-      metadata TEXT
+      metadata TEXT,
+      ai_status TEXT NOT NULL DEFAULT 'pending',
+      ai_moderation_flags TEXT,
+      ai_moderation_score REAL,
+      ai_moderation_raw TEXT,
+      ai_analysis TEXT,
+      ai_analyzed_at INTEGER,
+      ai_error TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id);
@@ -103,10 +110,23 @@ function initializeDatabase(): SqliteDatabase {
     CREATE INDEX IF NOT EXISTS idx_attachments_status ON attachments(upload_status);
   `);
 
-  try {
-    database.exec("ALTER TABLE attachments ADD COLUMN thread_id TEXT");
-  } catch {
-    // Column already exists on databases initialized after the moderation schema was added.
+  const migrations = [
+    "ALTER TABLE attachments ADD COLUMN thread_id TEXT",
+    "ALTER TABLE messages ADD COLUMN ai_status TEXT NOT NULL DEFAULT 'pending'",
+    "ALTER TABLE messages ADD COLUMN ai_moderation_flags TEXT",
+    "ALTER TABLE messages ADD COLUMN ai_moderation_score REAL",
+    "ALTER TABLE messages ADD COLUMN ai_moderation_raw TEXT",
+    "ALTER TABLE messages ADD COLUMN ai_analysis TEXT",
+    "ALTER TABLE messages ADD COLUMN ai_analyzed_at INTEGER",
+    "ALTER TABLE messages ADD COLUMN ai_error TEXT",
+  ];
+
+  for (const migration of migrations) {
+    try {
+      database.exec(migration);
+    } catch {
+      // Column already exists on databases initialized after schema updates.
+    }
   }
 
   return database;

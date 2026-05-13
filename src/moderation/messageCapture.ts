@@ -5,6 +5,7 @@ import { config } from "../config";
 import { insertMessage, insertAttachment } from "./messageStore";
 import { processAttachmentUpload } from "./attachmentUploader";
 import { getDisplayContent, getMessageLocation, getMessageMetadata } from "./messageMetadata";
+import { queueMessageAnalysis } from "./aiAnalyzer";
 import type { MessageRecord, AttachmentRecord } from "./types";
 
 const logger = createChildLogger("message-capture");
@@ -35,6 +36,7 @@ export async function captureMessage(
   };
 
   insertMessage(db, messageRecord);
+  queueMessageAnalysis(db, message.id);
 
   const broadcaster = globalThis as any;
   if (broadcaster.broadcastMessageCreated) {
@@ -126,6 +128,7 @@ export function registerMessageCapture(client: Client, db: SqliteDatabase): void
       if (existing) {
         const editedAt = Date.now();
         updateMessageAsEdited(db, newMessage.id, getDisplayContent(newMessage as Message), editedAt);
+        queueMessageAnalysis(db, newMessage.id);
 
         const broadcaster = globalThis as any;
         if (broadcaster.broadcastMessageUpdated) {

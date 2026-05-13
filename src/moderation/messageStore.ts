@@ -220,3 +220,76 @@ export function updateAttachmentAsFailedUpload(
     throw error;
   }
 }
+
+interface AIAnalysisUpdate {
+  status: "pending" | "clean" | "flagged" | "error";
+  flags?: string | null;
+  score?: number | null;
+  raw?: string | null;
+  analysis?: string | null;
+  analyzedAt?: number | null;
+  error?: string | null;
+}
+
+export function updateMessageAIAnalysis(
+  db: SqliteDatabase,
+  messageId: string,
+  result: AIAnalysisUpdate,
+): MessageRecord | null {
+  try {
+    const stmt = db.prepare(`
+      UPDATE messages
+      SET ai_status = ?, ai_moderation_flags = ?, ai_moderation_score = ?,
+          ai_moderation_raw = ?, ai_analysis = ?, ai_analyzed_at = ?, ai_error = ?
+      WHERE id = ?
+    `);
+
+    stmt.run(
+      result.status,
+      result.flags ?? null,
+      result.score ?? null,
+      result.raw ?? null,
+      result.analysis ?? null,
+      result.analyzedAt ?? Date.now(),
+      result.error ?? null,
+      messageId,
+    );
+
+    const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId) as MessageRecord | undefined;
+    return row ?? null;
+  } catch (error) {
+    logger.error(
+      { messageId, error: error instanceof Error ? error.message : String(error) },
+      "Failed to update message AI analysis",
+    );
+    throw error;
+  }
+}
+
+export function getPendingAIAnalysisMessages(
+  db: SqliteDatabase,
+  limit: number = 25,
+): MessageRecord[] {
+  try {
+    const stmt = db.prepare(`
+      SELECT * FROM messages
+      WHERE ai_status = 'pending'
+        AND deleted_at IS NULL
+        AND COALESCE(edited_content, content) != ''
+      ORDER BY created_at ASC
+      LIMIT ?
+    `);
+    return stmt.all(limit) as MessageRecord[];
+  } catch (error) {
+    logger.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Failed to get pending AI analysis messages",
+    );
+    throw error;
+  }
+}
+
+export function getMessageById(db: SqliteDatabase, messageId: string): MessageRecord | null {
+  const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId) as MessageRecord | undefined;
+  return row ?? null;
+}

@@ -324,6 +324,10 @@ export function startWebserver(
     broadcastMessageEvent("attachment_uploaded", data);
   };
 
+  (global as any).broadcastMessageAnalyzed = (data: any) => {
+    broadcastMessageEvent("message_analyzed", data);
+  };
+
   // --- Outbound: browser PCM (24kHz mono) → Opus → Discord ---
   const RATE = 48000;
   const CHANNELS = 2;
