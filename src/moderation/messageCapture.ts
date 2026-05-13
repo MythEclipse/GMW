@@ -1,9 +1,8 @@
 import type { Client, Message } from "discord.js-selfbot-v13";
 import { createChildLogger } from "../logger";
-import type { SqliteDatabase } from "../muxer-queue";
 import { config } from "../config";
+import type { SqliteDatabase } from "../muxer-queue";
 import { insertMessage, insertAttachment } from "./messageStore";
-import { processAttachmentUpload } from "./attachmentUploader";
 import { getDisplayContent, getMessageLocation, getMessageMetadata } from "./messageMetadata";
 import { queueMessageAnalysis } from "./aiAnalyzer";
 import type { MessageRecord, AttachmentRecord } from "./types";
@@ -59,33 +58,24 @@ export async function captureMessage(
         size: attachment.size,
         type: attachment.contentType || "application/octet-stream",
         discord_url: attachment.url,
-        uploaded_url: null,
-        upload_status: "pending",
+        uploaded_url: attachment.url,
+        upload_status: "uploaded",
         upload_error: null,
         created_at: Date.now(),
-        uploaded_at: null,
+        uploaded_at: Date.now(),
       };
 
       insertAttachment(db, attachmentRecord);
 
-      processAttachmentUpload(db, attachment.id, attachment.url, attachment.name || "unknown")
-        .then(() => {
-          if (broadcaster.broadcastAttachmentUploaded) {
-            broadcaster.broadcastAttachmentUploaded({
-              id: attachment.id,
-              message_id: message.id,
-              filename: attachment.name || "unknown",
-              channel_id: location.channelId,
-              created_at: Date.now(),
-            });
-          }
-        })
-        .catch((error) => {
-          logger.error(
-            { attachmentId: attachment.id, error: error instanceof Error ? error.message : String(error) },
-            "Background attachment upload failed",
-          );
+      if (broadcaster.broadcastAttachmentUploaded) {
+        broadcaster.broadcastAttachmentUploaded({
+          id: attachment.id,
+          message_id: message.id,
+          filename: attachment.name || "unknown",
+          channel_id: location.channelId,
+          created_at: Date.now(),
         });
+      }
     }
   }
 
