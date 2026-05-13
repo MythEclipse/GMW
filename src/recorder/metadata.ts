@@ -18,8 +18,11 @@ export async function collectUserMetadata(
     member?.roles.cache
       .filter((role) => role.id !== channel.guild.id)
       .sort((a, b) => b.position - a.position)
-      .map((role) => ({ id: role.id, name: role.name, position: role.position })) ??
-    [];
+      .map((role) => ({
+        id: role.id,
+        name: role.name,
+        position: role.position,
+      })) ?? [];
 
   return {
     userId,

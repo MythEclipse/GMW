@@ -33,7 +33,10 @@ export class SegmentManager {
   open(oggPacketStream: NodeJS.ReadableStream): SegmentState {
     const index = this.segmentIndex++;
     const startTime = Date.now();
-    const { filename, jsonFilename } = buildSegmentPaths(this.userDir, startTime);
+    const { filename, jsonFilename } = buildSegmentPaths(
+      this.userDir,
+      startTime,
+    );
     const oggStream = new prism.opus.OggLogicalBitstream({
       opusHead: new prism.opus.OpusHead({ channelCount: 2, sampleRate: 48000 }),
       pageSizeControl: { maxPackets: 10 },

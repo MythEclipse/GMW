@@ -22,7 +22,8 @@ export class OpusDecoder {
     this.onData = options.onData;
     this.createDecoderFn =
       options.createDecoder ??
-      (() => new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 }));
+      (() =>
+        new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 }));
   }
 
   rotateIfNeeded(): void {
@@ -38,7 +39,10 @@ export class OpusDecoder {
     try {
       decoder.write(chunk);
     } catch (error) {
-      console.warn("[recorder] Opus decoder write failed, cooling down:", error);
+      console.warn(
+        "[recorder] Opus decoder write failed, cooling down:",
+        error,
+      );
       this.coolDown();
     }
   }
