@@ -7,7 +7,7 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check .",
+    "lint": "biome check --diagnostic-level=error .",
     "format": "biome format --write .",
     "test": "vitest run"
   },

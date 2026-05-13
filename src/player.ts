@@ -1,57 +1,56 @@
-import { 
-    createAudioPlayer, 
-    createAudioResource, 
-    AudioPlayerStatus, 
-    VoiceConnection, 
-    AudioPlayer,
-    StreamType
+import {
+  AudioPlayer,
+  AudioPlayerStatus,
+  createAudioPlayer,
+  createAudioResource,
+  StreamType,
+  VoiceConnection,
 } from "@discordjs/voice";
+import prism from "prism-media";
 import { Readable } from "stream";
 
-import prism from "prism-media";
-
 export class DiscordPlayer {
-    private player: AudioPlayer;
-    private connection: VoiceConnection | null = null;
+  private player: AudioPlayer;
+  private connection: VoiceConnection | null = null;
 
-    constructor() {
-        this.player = createAudioPlayer();
-        
-        this.player.on(AudioPlayerStatus.Playing, () => {
-            console.log("[player] Audio player is now playing!");
-        });
+  constructor() {
+    this.player = createAudioPlayer();
 
-        this.player.on("error", error => {
-            console.error(`[player] Error: ${error.message}`);
-        });
-    }
+    this.player.on(AudioPlayerStatus.Playing, () => {
+      console.log("[player] Audio player is now playing!");
+    });
 
-    public setConnection(connection: VoiceConnection) {
-        this.connection = connection;
-        this.connection.subscribe(this.player);
-    }
+    this.player.on("error", (error) => {
+      console.error(`[player] Error: ${error.message}`);
+    });
+  }
 
-    public playStream(stream: Readable) {
-        console.log("[player] Starting new audio stream...");
-        
-        const resource = createAudioResource(stream, {
-            inputType: StreamType.OggOpus,
-        });
-        
-        this.player.play(resource);
-    }
+  public setConnection(connection: VoiceConnection) {
+    this.connection = connection;
+    this.connection.subscribe(this.player);
+  }
 
-    public pause() {
-        this.player.pause(true);
-    }
+  public playStream(stream: Readable) {
+    console.log("[player] Starting new audio stream...");
 
-    public unpause() {
-        this.player.unpause();
-    }
+    const resource = createAudioResource(stream, {
+      inputType: StreamType.OggOpus,
+    });
 
-    public stop() {
-        this.player.stop();
-    }
+    this.player.play(resource);
+  }
+
+  public pause() {
+    this.player.pause(true);
+  }
+
+  public unpause() {
+    this.player.unpause();
+  }
+
+  public stop() {
+    this.player.stop();
+  }
 }
 
 export const discordPlayer = new DiscordPlayer();

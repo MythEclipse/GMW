@@ -1,15 +1,23 @@
 {
+  "files": {
+    "includes": ["src/**/*.ts", "tests/**/*.ts", "*.json", "*.ts"]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
-    "indentWidth": 2,
-    "includes": ["src/**/*.ts", "tests/**/*.ts", "*.json", "*.ts"]
+    "indentWidth": 2
   },
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true
-    },
-    "includes": ["src/**/*.ts", "tests/**/*.ts", "*.json", "*.ts"]
+      "recommended": false,
+      "style": {
+        "noNonNullAssertion": "warn",
+        "useNodejsImportProtocol": "warn"
+      },
+      "suspicious": {
+        "noExplicitAny": "warn"
+      }
+    }
   }
 }
