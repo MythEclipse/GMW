@@ -222,7 +222,7 @@ export function updateAttachmentAsFailedUpload(
 }
 
 interface AIAnalysisUpdate {
-  status: "pending" | "clean" | "flagged" | "error";
+  status: "pending" | "clean" | "warn" | "flagged" | "error";
   flags?: string | null;
   score?: number | null;
   raw?: string | null;

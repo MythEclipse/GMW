@@ -20,7 +20,7 @@ interface ChatCompletionResponse {
 }
 
 interface LLMAnalysis {
-  status: "clean" | "flagged";
+  status: "clean" | "warn" | "flagged";
   flags: string[];
   score: number;
   analysis: string;
@@ -68,7 +68,7 @@ function parseLLMAnalysis(content: string): LLMAnalysis {
   if (jsonStart >= 0 && jsonEnd > jsonStart) {
     try {
       const parsed = JSON.parse(content.slice(jsonStart, jsonEnd + 1));
-      const status = parsed.status === "flagged" ? "flagged" : "clean";
+      const status = parsed.status === "flagged" ? "flagged" : parsed.status === "warn" ? "warn" : "clean";
       const flags = Array.isArray(parsed.flags) ? parsed.flags.map(String) : [];
       const score = Math.max(0, Math.min(1, Number(parsed.score) || 0));
       const analysis = typeof parsed.analysis === "string" ? parsed.analysis : content;
@@ -79,7 +79,7 @@ function parseLLMAnalysis(content: string): LLMAnalysis {
   }
 
   return {
-    status: /flagged|bahaya|berisiko|toxic|hate|harassment|violence|sexual|self-harm/i.test(content) ? "flagged" : "clean",
+    status: /flagged|bahaya|berisiko|toxic|hate|harassment|violence|sexual|self-harm|illegal|scam|hacking/i.test(content) ? "flagged" : /warn|profanity|oot|tone|sopan/i.test(content) ? "warn" : "clean",
     flags: [],
     score: 0,
     analysis: content.trim() || "Tidak ada analisis dari LLM.",
@@ -99,7 +99,25 @@ async function runLLMAnalysis(texts: string[]): Promise<{ results: LLMAnalysis[]
         messages: [
           {
             role: "system",
-            content: "Kamu analis moderation Discord. Nilai setiap pesan untuk toxic, harassment, hate, violence, sexual, self-harm, spam, scam, atau unsafe content. Balas JSON array dengan schema: [{\"status\":\"clean|flagged\",\"flags\":[\"...\"],\"score\":0..1,\"analysis\":\"ringkasan singkat Bahasa Indonesia + alasan + aksi disarankan\"}]. Satu JSON object per pesan dalam array.",
+            content: `Kamu moderator Discord komunitas. Analisis setiap pesan dengan 3 kategori:
+- CLEAN: Pesan normal, tidak melanggar aturan
+- WARN: Melanggar aturan minor (profanity ringan, OOT, tone kurang sopan) - butuh peringatan tapi tidak dihapus
+- FLAGGED: Melanggar aturan berat (NSFW, ilegal, hacking, scam, harassment, violence, SARA, gore, spam) - butuh review moderator untuk penghapusan
+
+Aturan komunitas:
+1. Jaga Sikap: Bahasa sopan, hormati semua tanpa diskriminasi
+2. Hindari Konflik: Jangan pancing keributan, selesaikan masalah pribadi
+3. Sesuai Channel: Jangan OOT (Out of Topic)
+4. Konten Eksplisit Dilarang: NSFW, ilegal, pornografi, kekerasan, SARA
+5. Tidak Ada Ruang LGBT: Komunitas tidak toleran terhadap LGBT
+6. Jaga Privasi: Jangan sebarkan info pribadi
+7. Profil Sopan: Username, foto, tag harus pantas
+8. Jangan Spam/Scam: Hoaks, phishing, spam, promosi, judi, referral dilarang
+9. Pertanyaan Jelas: Langsung ke inti, jangan "Boleh nanya?"
+10. Diskusi Berkualitas: Jawaban relevan, akurat, tidak menyesatkan
+
+Balas JSON array dengan schema: [{"status":"clean|warn|flagged","flags":["..."],"score":0..1,"analysis":"ringkasan Bahasa Indonesia + alasan + aksi disarankan"}]
+Satu JSON object per pesan dalam array.`,
           },
           {
             role: "user",
@@ -124,12 +142,15 @@ async function runLLMAnalysis(texts: string[]): Promise<{ results: LLMAnalysis[]
     try {
       const parsed = JSON.parse(content.substring(jsonStart, jsonEnd + 1));
       if (Array.isArray(parsed)) {
-        results = parsed.map((item: any) => ({
-          status: item.status === "flagged" ? "flagged" : "clean",
-          flags: Array.isArray(item.flags) ? item.flags.map(String) : [],
-          score: Math.max(0, Math.min(1, Number(item.score) || 0)),
-          analysis: typeof item.analysis === "string" ? item.analysis : content,
-        }));
+        results = parsed.map((item: any) => {
+          const status = item.status === "flagged" ? "flagged" : item.status === "warn" ? "warn" : "clean";
+          return {
+            status,
+            flags: Array.isArray(item.flags) ? item.flags.map(String) : [],
+            score: Math.max(0, Math.min(1, Number(item.score) || 0)),
+            analysis: typeof item.analysis === "string" ? item.analysis : content,
+          };
+        });
       }
     } catch {
       // Fall through to individual parsing
@@ -159,7 +180,7 @@ async function analyzeAndStoreBatch(db: SqliteDatabase, messages: MessageRecord[
       const result = results[i] || parseLLMAnalysis("");
 
       const row = updateMessageAIAnalysis(db, message.id, {
-        status: result.status,
+        status: result.status as "pending" | "clean" | "warn" | "flagged" | "error",
         flags: JSON.stringify(result.flags),
         score: result.score,
         raw: JSON.stringify(raw),
