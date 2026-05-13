@@ -10,7 +10,6 @@ import { AppError } from "./errors";
 import { createChildLogger, logger } from "./logger";
 import { getMetrics, uptimeGauge } from "./metrics";
 import { discordPlayer } from "./player";
-import { renderDashboardPage } from "./web/dashboardPage";
 import type { VoiceController } from "./voiceController";
 import { getDatabase } from "./muxer-queue";
 import { getMessagesByChannel, getAttachmentsByChannel } from "./moderation/messageStore";
@@ -71,40 +70,11 @@ export function startWebserver(
   app.use(pinoHttp({ logger }));
   app.use(express.json());
 
-  app.get("/", async (req, res, next) => {
-    try {
-      const guilds = voiceController.listGuilds();
-      const selectedGuildId =
-        typeof req.query.guild === "string" ? req.query.guild : guilds[0]?.id || "";
-      const selectedChannelId =
-        typeof req.query.channel === "string" ? req.query.channel : "";
-      const [voiceChannels, watchChannels] = selectedGuildId
-        ? await Promise.all([
-            voiceController.listVoiceChannels(selectedGuildId),
-            voiceController.listWatchableChannels(selectedGuildId),
-          ])
-        : [[], []];
-      const messages = selectedChannelId
-        ? getMessagesByChannel(getDatabase(), selectedChannelId, 80, 0)
-        : [];
-
-      res.type("html").send(
-        renderDashboardPage({
-          guilds,
-          voiceChannels,
-          watchChannels,
-          selectedGuildId,
-          selectedChannelId,
-          messages,
-          status: voiceController.getStatus(),
-        }),
-      );
-    } catch (error) {
-      next(error);
-    }
-  });
-
   app.use(express.static(path.join(__dirname, "../public")));
+
+  app.get("/", (_req, res) => {
+    res.sendFile(path.join(__dirname, "../public/index.html"));
+  });
 
   // Health check endpoint
   app.get("/health", (_req, res) => {

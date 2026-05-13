@@ -1,1 +1,101 @@
-<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url=/"></head><body></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discord Moderation Watcher</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="brand-card">
+        <div class="eyebrow"><span class="pulse"></span> Discord moderation watcher</div>
+        <h1>Voice. Text. One Watch Floor.</h1>
+        <p class="subtitle">Static client with legacy working voice bridge plus captured Discord messages, stickers, embeds, replies, and attachments.</p>
+      </div>
+      <div class="status-card">
+        <div class="status-row"><span class="status-label">WebSocket</span><span class="status-value"><span id="wsDot" class="dot"></span><span id="wsStatusText">Connecting</span></span></div>
+        <div class="status-row"><span class="status-label">Voice Link</span><span id="voiceStatusText" class="status-value">Not connected</span></div>
+        <div class="status-row"><span class="status-label">Active Tab</span><span id="activeTabLabel" class="status-value">Voice</span></div>
+      </div>
+    </section>
+
+    <nav class="tab-panel">
+      <div class="tabs"><button class="tab-btn active" data-tab="voice">Voice</button><button class="tab-btn" data-tab="text">Text</button></div>
+      <div class="filter-row"><span>Channel / Thread</span><select id="channelFilter"><option value="">Select channel</option></select></div>
+    </nav>
+
+    <div id="errorBox" class="error"></div>
+
+    <section id="voice" class="tab-content active">
+      <div class="voice-layout">
+        <div class="content-card">
+          <div class="card-title"><h2>Voice Control</h2><span class="mini">bridge</span></div>
+          <div class="field-group"><label for="guildSelect">Guild</label><select id="guildSelect"><option value="">Select guild</option></select></div>
+          <div class="field-group"><label for="channelSelect">Voice Channel</label><select id="channelSelect"><option value="">Select voice channel</option></select></div>
+          <div class="button-row"><button id="joinVoiceBtn" class="btn btn-success">Join</button><button id="disconnectVoiceBtn" class="btn btn-danger">Disconnect</button></div>
+          <div class="voice-status" id="voiceStatusNote">Idle</div>
+        </div>
+        <div class="content-card">
+          <div class="card-title"><h2>Live Audio</h2><span class="mini" id="listenStatus">Speaker Off</span></div>
+          <div style="display:grid;gap:12px;grid-template-columns:1fr 1fr;margin-bottom:14px"><button id="toggleBtn" class="btn btn-primary">Start Transmitting</button><button id="listenBtn" class="btn btn-success">Join Listen Channel</button></div>
+          <div class="visualizer" id="visualizer"></div>
+        </div>
+      </div>
+      <div class="content-card" style="margin-top:18px"><div class="card-title"><h2>Participants</h2><span class="mini">speaking now</span></div><div id="userList" class="participants"></div></div>
+    </section>
+
+    <section id="text" class="tab-content"><div class="content-card"><div class="card-title"><h2>Text Watch</h2><span class="mini">create / edit / delete</span></div><div id="textList" class="feed"><div class="empty">Select channel to view text captures</div></div></div></section>
+  </main>
+
+  <script>
+    const state = { socket: null, activeTab: 'voice', selectedChannel: new URLSearchParams(location.search).get('channel') || '', selectedGuild: new URLSearchParams(location.search).get('guild') || '', text: [], isStreaming: false, isListening: false, audioContextTransmit: null, audioContextListen: null, processor: null, userTimelines: new Map() };
+    const SAMPLE_RATE = 24000;
+    const CHANNELS = 1;
+    const el = {
+      wsDot: document.getElementById('wsDot'), wsStatusText: document.getElementById('wsStatusText'), activeTabLabel: document.getElementById('activeTabLabel'), errorBox: document.getElementById('errorBox'), guildSelect: document.getElementById('guildSelect'), channelSelect: document.getElementById('channelSelect'), channelFilter: document.getElementById('channelFilter'), joinVoiceBtn: document.getElementById('joinVoiceBtn'), disconnectVoiceBtn: document.getElementById('disconnectVoiceBtn'), voiceStatusText: document.getElementById('voiceStatusText'), voiceStatusNote: document.getElementById('voiceStatusNote'), toggleBtn: document.getElementById('toggleBtn'), listenBtn: document.getElementById('listenBtn'), listenStatus: document.getElementById('listenStatus'), visualizer: document.getElementById('visualizer'), userList: document.getElementById('userList'), textList: document.getElementById('textList')
+    };
+    for (let i = 0; i < 32; i++) { const bar = document.createElement('div'); bar.className = 'bar'; el.visualizer.appendChild(bar); }
+    const bars = [...document.querySelectorAll('.bar')];
+
+    async function apiRequest(url, options = {}) { const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options }); if (!response.ok) { const error = await response.json().catch(() => ({ message: response.statusText })); throw new Error(error.message || response.statusText); } return response.json(); }
+    function showError(message) { el.errorBox.textContent = message; el.errorBox.style.display = 'block'; setTimeout(() => { el.errorBox.style.display = 'none'; }, 4500); }
+    function renderOptions(select, items, placeholder) { select.replaceChildren(); const first = document.createElement('option'); first.value = ''; first.textContent = placeholder; select.appendChild(first); for (const item of items) { const option = document.createElement('option'); option.value = item.id; option.textContent = item.name; select.appendChild(option); } }
+    function appendOptions(select, items) { const existing = new Set([...select.options].map((option) => option.value)); for (const item of items) { if (existing.has(item.id)) continue; const option = document.createElement('option'); option.value = item.id; option.textContent = item.name; select.appendChild(option); } }
+    function appendEmpty(parent, message) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = message; parent.appendChild(empty); }
+    function appendBadge(parent, label, className) { const badge = document.createElement('span'); badge.className = `badge ${className}`; badge.textContent = label; parent.appendChild(badge); }
+    function parseMetadata(value) { if (!value) return {}; try { return JSON.parse(value); } catch { return {}; } }
+
+    async function loadGuilds() { const guilds = await apiRequest('/api/guilds'); renderOptions(el.guildSelect, guilds, 'Select guild'); const guildId = state.selectedGuild || guilds[0]?.id || ''; if (guildId) { el.guildSelect.value = guildId; await loadChannels(guildId); } }
+    async function loadChannels(guildId) { const [voiceChannels, watchChannels] = await Promise.all([apiRequest(`/api/guilds/${guildId}/voice-channels`), apiRequest(`/api/guilds/${guildId}/channels`)]); renderOptions(el.channelSelect, voiceChannels, 'Select voice channel'); renderOptions(el.channelFilter, watchChannels, 'Select channel'); el.channelFilter.value = state.selectedChannel; apiRequest(`/api/guilds/${guildId}/threads`).then((threads) => appendOptions(el.channelFilter, threads)).catch((error) => showError(`Thread discovery failed: ${error.message}`)); }
+    async function refreshStatus() { try { const status = await apiRequest('/api/status'); el.voiceStatusText.textContent = status.connected ? status.activeChannelName || 'Connected' : 'Not connected'; el.voiceStatusNote.textContent = status.connected ? `Connected to ${status.activeChannelName}` : 'Idle'; } catch (error) { showError(error.message); } }
+    async function connectVoice() { const guildId = el.guildSelect.value; const channelId = el.channelSelect.value; if (!guildId || !channelId) return showError('Select guild and voice channel first'); const status = await apiRequest('/api/connect', { method: 'POST', body: JSON.stringify({ guildId, channelId }) }); el.voiceStatusText.textContent = status.activeChannelName || 'Connected'; el.voiceStatusNote.textContent = `Connected to ${status.activeChannelName}`; }
+    async function disconnectVoice() { await apiRequest('/api/disconnect', { method: 'POST' }); await refreshStatus(); }
+
+    function connectWebSocket() { const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; state.socket = new WebSocket(`${protocol}//${location.host}/ws`); state.socket.binaryType = 'arraybuffer'; state.socket.onopen = () => { el.wsDot.classList.add('on'); el.wsStatusText.textContent = 'Connected'; }; state.socket.onclose = () => { el.wsDot.classList.remove('on'); el.wsStatusText.textContent = 'Reconnecting'; setTimeout(connectWebSocket, 2500); }; state.socket.onerror = () => { el.wsDot.classList.remove('on'); el.wsDot.classList.add('warn'); el.wsStatusText.textContent = 'Socket error'; }; state.socket.onmessage = (event) => { if (event.data instanceof ArrayBuffer) { handleIncomingPCM(event.data); return; } try { handleJsonEvent(event.data); } catch {} }; }
+    function handleJsonEvent(raw) { const message = JSON.parse(raw); if (message.type === 'user_state') return renderUsers(message.users || []); if (message.type === 'message_created') { state.text.unshift(message.data); renderText(); } if (message.type === 'message_updated') { const item = state.text.find((entry) => entry.id === message.data.id); if (item) Object.assign(item, { edited_content: message.data.edited_content, edited_at: message.data.edited_at, type: 'edited' }); renderText(); } if (message.type === 'message_deleted') { const item = state.text.find((entry) => entry.id === message.data.id); if (item) Object.assign(item, { deleted_at: message.data.deleted_at, type: 'deleted' }); renderText(); } if (message.type === 'attachment_uploaded') fetchText(); }
+    function renderUsers(users) { el.userList.replaceChildren(); if (users.length === 0) return appendEmpty(el.userList, 'No active speakers'); for (const user of users) { const row = document.createElement('div'); row.className = `user-item${user.speaking ? ' speaking' : ''}`; const img = document.createElement('img'); img.src = user.avatar || ''; img.alt = ''; const name = document.createElement('span'); name.textContent = user.username; row.append(img, name); el.userList.appendChild(row); } }
+
+    async function fetchText() { if (!state.selectedChannel) return renderText(); const result = await apiRequest(`/api/messages?channel=${encodeURIComponent(state.selectedChannel)}&type=text&limit=80`); state.text = result.data || []; renderText(); }
+    function renderText() { el.textList.replaceChildren(); if (!state.selectedChannel) return appendEmpty(el.textList, 'Select channel to view text captures'); if (state.text.length === 0) return appendEmpty(el.textList, 'No text captures yet'); for (const msg of state.text) { const metadata = parseMetadata(msg.metadata); const card = document.createElement('article'); card.className = 'event-card'; const head = document.createElement('div'); head.className = 'event-head'; const author = document.createElement('div'); author.className = 'author'; const avatar = document.createElement('div'); avatar.className = 'avatar'; if (msg.avatar_url) { const img = document.createElement('img'); img.src = msg.avatar_url; img.alt = ''; avatar.appendChild(img); } const name = document.createElement('div'); name.className = 'name'; name.textContent = msg.username || msg.user_id; author.append(avatar, name); const time = document.createElement('div'); time.className = 'time'; time.textContent = new Date(msg.created_at).toLocaleString(); head.append(author, time); const text = document.createElement('div'); text.className = 'message-text'; text.textContent = msg.edited_content || msg.content || '(empty message)'; card.append(head, text); appendMedia(card, metadata); const badges = document.createElement('div'); badges.className = 'badges'; if (metadata.reference?.messageId) appendBadge(badges, 'reply', ''); if (msg.thread_id) appendBadge(badges, metadata.channel?.threadName ? `thread: ${metadata.channel.threadName}` : 'thread', ''); if (msg.edited_at) appendBadge(badges, 'edited', 'edit'); if (msg.deleted_at) appendBadge(badges, 'deleted', 'delete'); card.appendChild(badges); el.textList.appendChild(card); } }
+    function appendMedia(card, metadata) { const stickers = document.createElement('div'); stickers.className = 'sticker-strip'; for (const sticker of metadata.stickers || []) { const img = document.createElement('img'); img.className = 'sticker-img'; img.src = sticker.url; img.alt = sticker.name; stickers.appendChild(img); } if (stickers.childElementCount) card.appendChild(stickers); const embeds = document.createElement('div'); embeds.className = 'feed'; for (const embed of metadata.embeds || []) { const item = document.createElement('div'); item.className = 'embed-card'; if (embed.title) { const title = document.createElement(embed.url ? 'a' : 'div'); title.className = 'embed-title'; title.textContent = embed.title; if (embed.url) { title.href = embed.url; title.target = '_blank'; title.rel = 'noreferrer'; } item.appendChild(title); } if (embed.description) { const desc = document.createElement('div'); desc.className = 'embed-description'; desc.textContent = embed.description; item.appendChild(desc); } if (embed.image || embed.thumbnail) { const img = document.createElement('img'); img.className = 'embed-image'; img.src = embed.image || embed.thumbnail; img.alt = embed.title || 'embed image'; item.appendChild(img); } embeds.appendChild(item); } if (embeds.childElementCount) card.appendChild(embeds); const attachments = document.createElement('div'); attachments.className = 'attachment-strip'; for (const attachment of metadata.attachments || []) { const link = document.createElement('a'); link.className = 'attachment-chip'; link.href = attachment.url; link.target = '_blank'; link.rel = 'noreferrer'; link.textContent = `${attachment.name} (${(attachment.size / 1024).toFixed(1)}KB)`; attachments.appendChild(link); } if (attachments.childElementCount) card.appendChild(attachments); }
+
+    function handleIncomingPCM(data) { if (!state.isListening || !state.audioContextListen) return; const headerView = new DataView(data, 0, 4); const userIdHash = headerView.getInt32(0, true); const audioData = data.slice(4); const int16Array = new Int16Array(audioData); const float32Array = new Float32Array(int16Array.length); for (let i = 0; i < int16Array.length; i++) float32Array[i] = int16Array[i] / 32768; const audioBuffer = state.audioContextListen.createBuffer(CHANNELS, float32Array.length / CHANNELS, SAMPLE_RATE); const nowBuffering = audioBuffer.getChannelData(0); for (let i = 0; i < audioBuffer.length; i++) nowBuffering[i] = float32Array[i]; const source = state.audioContextListen.createBufferSource(); source.buffer = audioBuffer; source.connect(state.audioContextListen.destination); const currentTime = state.audioContextListen.currentTime; let userNextStartTime = state.userTimelines.get(userIdHash) || 0; if (userNextStartTime < currentTime) userNextStartTime = currentTime + 0.05; source.start(userNextStartTime); userNextStartTime += audioBuffer.duration; state.userTimelines.set(userIdHash, userNextStartTime); }
+    async function startStreaming() { try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); state.isStreaming = true; el.toggleBtn.textContent = 'Stop Transmitting'; state.audioContextTransmit = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE }); const source = state.audioContextTransmit.createMediaStreamSource(stream); const analyser = state.audioContextTransmit.createAnalyser(); analyser.fftSize = 64; source.connect(analyser); const dataArray = new Uint8Array(analyser.frequencyBinCount); state.processor = state.audioContextTransmit.createScriptProcessor(4096, 1, 1); source.connect(state.processor); state.processor.connect(state.audioContextTransmit.destination); state.processor.onaudioprocess = (event) => { if (!state.isStreaming || state.socket.readyState !== WebSocket.OPEN) return; const inputData = event.inputBuffer.getChannelData(0); const pcmData = new Int16Array(inputData.length); for (let i = 0; i < inputData.length; i++) pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 32767; state.socket.send(pcmData.buffer); analyser.getByteFrequencyData(dataArray); bars.forEach((bar, index) => { const percent = (dataArray[index] / 255) * 100; bar.style.height = `${Math.max(2, percent)}%`; }); }; } catch (error) { showError(`Microphone access denied: ${error.message}`); } }
+    function stopStreaming() { state.isStreaming = false; if (state.processor) state.processor.disconnect(); if (state.audioContextTransmit) state.audioContextTransmit.close(); state.processor = null; state.audioContextTransmit = null; el.toggleBtn.textContent = 'Start Transmitting'; bars.forEach((bar) => { bar.style.height = '2px'; }); }
+    function toggleListen() { if (!state.audioContextListen) state.audioContextListen = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE }); if (state.isListening) { state.audioContextListen.suspend(); el.listenBtn.textContent = 'Join Listen Channel'; el.listenStatus.textContent = 'Speaker Off'; state.isListening = false; } else { state.audioContextListen.resume(); el.listenBtn.textContent = 'Stop Listening'; el.listenStatus.textContent = 'Listening Live...'; state.isListening = true; } }
+    function updateVisualizer(level) { bars.forEach((bar, index) => { const wave = Math.sin(index * 0.55 + Date.now() / 140) * 0.35 + 0.65; bar.style.height = `${Math.max(3, level * 190 * wave)}px`; }); }
+
+    document.querySelectorAll('.tab-btn').forEach((button) => { button.addEventListener('click', async () => { document.querySelectorAll('.tab-btn').forEach((item) => item.classList.remove('active')); document.querySelectorAll('.tab-content').forEach((item) => item.classList.remove('active')); button.classList.add('active'); state.activeTab = button.dataset.tab; document.getElementById(state.activeTab).classList.add('active'); el.activeTabLabel.textContent = button.textContent; if (state.activeTab === 'text') await fetchText(); }); });
+    el.guildSelect.addEventListener('change', () => loadChannels(el.guildSelect.value).catch((error) => showError(error.message)));
+    el.joinVoiceBtn.addEventListener('click', () => connectVoice().catch((error) => showError(error.message)));
+    el.disconnectVoiceBtn.addEventListener('click', () => disconnectVoice().catch((error) => showError(error.message)));
+    el.toggleBtn.addEventListener('click', () => state.isStreaming ? stopStreaming() : startStreaming());
+    el.listenBtn.addEventListener('click', toggleListen);
+    el.channelFilter.addEventListener('change', async () => { state.selectedChannel = el.channelFilter.value; const url = new URL(location.href); if (state.selectedChannel) url.searchParams.set('channel', state.selectedChannel); else url.searchParams.delete('channel'); if (el.guildSelect.value) url.searchParams.set('guild', el.guildSelect.value); history.replaceState({}, '', url); await fetchText().catch((error) => showError(error.message)); });
+    connectWebSocket(); loadGuilds().then(refreshStatus).then(fetchText).catch((error) => showError(error.message)); setInterval(() => { if (state.activeTab === 'text') fetchText().catch(() => {}); }, 7000);
+  </script>
+</body>
+</html>
