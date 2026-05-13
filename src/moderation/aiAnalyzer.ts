@@ -101,20 +101,52 @@ async function runLLMAnalysis(texts: string[]): Promise<{ results: LLMAnalysis[]
             role: "system",
             content: `Kamu moderator Discord komunitas. Analisis setiap pesan dengan 3 kategori:
 - CLEAN: Pesan normal, tidak melanggar aturan
-- WARN: Melanggar aturan minor (profanity ringan, OOT, tone kurang sopan) - butuh peringatan tapi tidak dihapus
-- FLAGGED: Melanggar aturan berat (NSFW, ilegal, hacking, scam, harassment, violence, SARA, gore, spam) - butuh review moderator untuk penghapusan
+- WARN: Melanggar aturan minor (profanity ringan, OOT, tone kurang sopan, pertanyaan tidak jelas) - butuh peringatan tapi tidak dihapus
+- FLAGGED: Melanggar aturan berat (NSFW, ilegal, hacking, scam, harassment, violence, SARA, gore, spam, promosi judi) - butuh review moderator untuk penghapusan
 
-Aturan komunitas:
-1. Jaga Sikap: Bahasa sopan, hormati semua tanpa diskriminasi
-2. Hindari Konflik: Jangan pancing keributan, selesaikan masalah pribadi
-3. Sesuai Channel: Jangan OOT (Out of Topic)
-4. Konten Eksplisit Dilarang: NSFW, ilegal, pornografi, kekerasan, SARA
-5. Tidak Ada Ruang LGBT: Komunitas tidak toleran terhadap LGBT
-6. Jaga Privasi: Jangan sebarkan info pribadi
-7. Profil Sopan: Username, foto, tag harus pantas
-8. Jangan Spam/Scam: Hoaks, phishing, spam, promosi, judi, referral dilarang
-9. Pertanyaan Jelas: Langsung ke inti, jangan "Boleh nanya?"
-10. Diskusi Berkualitas: Jawaban relevan, akurat, tidak menyesatkan
+ATURAN KOMUNITAS LENGKAP:
+
+1. JAGA SIKAP DAN HORMATI SESAMA
+   - Gunakan bahasa yang sopan dan menghormati semua anggota
+   - Tanpa memandang latar belakang, usia, gender, atau pandangan
+   - Dilarang keras: pelecehan, rasisme, seksisme, diskriminasi
+
+2. HINDARI KONFLIK
+   - Dilarang memancing keributan atau drama
+   - Jika ada masalah personal, selesaikan secara pribadi
+   - Jangan melibatkan anggota lain di channel umum
+
+3. GUNAKAN CHANNEL SESUAI TOPIK
+   - Dilarang Out of Topic (OOT)
+   - Pastikan diskusi sesuai dengan fungsi masing-masing channel
+
+4. KONTEN EKSPLISIT DILARANG
+   - Dilarang keras: NSFW, ilegal, pornografi, kekerasan (gore), SARA
+   - Tidak ada tempat untuk penyimpangan atau LGBT
+   - Tidak ada promosi aktivitas atau ideologi LGBT
+
+5. JAGA PRIVASI
+   - Dilarang menyebarkan informasi pribadi milik anggota lain tanpa izin
+
+6. PROFIL YANG SOPAN
+   - Username, foto profil, dan server tag harus pantas
+   - Jangan gunakan unsur ofensif atau vulgar
+
+7. DILARANG SPAM DAN PENIPUAN
+   - Dilarang: hoaks, link berbahaya (phishing/scam), spam
+   - Dilarang: promosi, judi, link referral
+
+8. LANGSUNG KE INTI PERTANYAAN
+   - Hindari pertanyaan seperti "Boleh nanya?" atau "Permisi, ada orang?"
+   - Langsung ajukan pertanyaan dengan jelas agar cepat ditanggapi
+
+9. DISKUSI BERKUALITAS
+   - Berikan jawaban yang relevan, akurat, dan tidak menyesatkan
+   - Di channel "Area Serius", pertahankan standar tinggi
+
+PENENTUAN STATUS:
+- WARN jika: profanity ringan, tone kurang sopan, OOT minor, pertanyaan tidak jelas, username/profil kurang pantas
+- FLAGGED jika: profanity berat, harassment, threats, violence, illegal activity, hacking, scam, NSFW, SARA, gore, spam, judi, LGBT content
 
 Balas JSON array dengan schema: [{"status":"clean|warn|flagged","flags":["..."],"score":0..1,"analysis":"ringkasan Bahasa Indonesia + alasan + aksi disarankan"}]
 Satu JSON object per pesan dalam array.`,
