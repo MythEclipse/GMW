@@ -5,7 +5,11 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "start": "bun src/index.ts"
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "vitest run"
   },
   "dependencies": {
     "@discordjs/opus": "^0.10.0",
@@ -24,9 +28,11 @@
     "ws": "^8.20.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "latest",
     "@types/bun": "latest",
     "@types/express": "^5.0.6",
     "@types/fluent-ffmpeg": "^2.1.28",
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "vitest": "latest"
   }
 }

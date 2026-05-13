@@ -1,0 +1,15 @@
+{
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "includes": ["src/**/*.ts", "tests/**/*.ts", "*.json", "*.ts"]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    },
+    "includes": ["src/**/*.ts", "tests/**/*.ts", "*.json", "*.ts"]
+  }
+}
