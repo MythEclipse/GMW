@@ -485,25 +485,36 @@ const state = {
     }
 
     function playAudioData(audioData) {
-      if (!state.audioContextListen) return;
-      const sampleRate = audioData.sampleRate;
-      const frameCount = audioData.numberOfFrames;
-      const numberOfChannels = audioData.numberOfChannels;
-      const audioBuffer = state.audioContextListen.createBuffer(
-        numberOfChannels,
-        frameCount,
-        sampleRate
-      );
-      for (let ch = 0; ch < numberOfChannels; ch++) {
-        audioData.copyTo(audioBuffer.getChannelData(ch), { planeIndex: ch });
+      if (!state.audioContextListen) {
+        audioData.close();
+        return;
       }
-      const source = state.audioContextListen.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(state.audioContextListen.destination);
-      const startAt = Math.max(state.nextStartTime, state.audioContextListen.currentTime);
-      source.start(startAt);
-      state.nextStartTime = startAt + audioBuffer.duration;
-      audioData.close();
+      try {
+        const sampleRate = audioData.sampleRate;
+        const frameCount = audioData.numberOfFrames;
+        const numberOfChannels = audioData.numberOfChannels;
+        const audioBuffer = state.audioContextListen.createBuffer(
+          numberOfChannels,
+          frameCount,
+          sampleRate
+        );
+        for (let ch = 0; ch < numberOfChannels; ch++) {
+          const channelData = audioBuffer.getChannelData(ch);
+          const tempArray = new Float32Array(frameCount);
+          audioData.copyTo(tempArray, { planeIndex: ch });
+          channelData.set(tempArray);
+        }
+        const source = state.audioContextListen.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(state.audioContextListen.destination);
+        const startAt = Math.max(state.nextStartTime, state.audioContextListen.currentTime);
+        source.start(startAt);
+        state.nextStartTime = startAt + audioBuffer.duration;
+      } catch (error) {
+        console.error('Play audio error:', error);
+      } finally {
+        audioData.close();
+      }
     }
 
     function playPcm(arrayBuffer) {
