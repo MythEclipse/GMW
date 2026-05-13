@@ -212,7 +212,7 @@ export function renderDashboardPage(props: DashboardProps): string {
 <body>
   <div id="root">${app}</div>
   <script id="__DASHBOARD_DATA__" type="application/json">${bootstrap}</script>
-  <script type="module" src="/dashboard.js"></script>
+  <script src="/dashboard.js" defer></script>
 </body>
 </html>`;
 }

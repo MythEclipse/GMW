@@ -1,5 +1,4 @@
-import * as Tone from 'tone';
-
+// Tone.js loaded via CDN as global object
 const bootstrapData = JSON.parse(document.getElementById('__DASHBOARD_DATA__')?.textContent || '{}');
 const state = {
   socket: null,
