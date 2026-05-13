@@ -36,14 +36,27 @@ async function fetchJson(url: string, init: RequestInit): Promise<unknown> {
 
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
-    const body = await response.json().catch(() => ({}));
+    const text = await response.text();
+
     if (!response.ok) {
-      const message = typeof body === "object" && body && "error" in body
-        ? JSON.stringify(body)
-        : response.statusText;
+      const message = text.includes("{")
+        ? JSON.stringify(JSON.parse(text.substring(text.indexOf("{"))))
+        : text;
       throw new Error(`AI request failed (${response.status}): ${message}`);
     }
-    return body;
+
+    // Handle streaming response: extract JSON from response text
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
+    if (jsonStart >= 0 && jsonEnd > jsonStart) {
+      try {
+        return JSON.parse(text.substring(jsonStart, jsonEnd + 1));
+      } catch {
+        // Fall through to parse full text
+      }
+    }
+
+    return JSON.parse(text);
   } finally {
     clearTimeout(timeout);
   }
