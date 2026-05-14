@@ -1,3 +1,5 @@
+export type AIStatus = "pending" | "clean" | "warn" | "flagged" | "error";
+
 export interface MessageRecord {
   id: string;
   guild_id: string;
@@ -13,7 +15,7 @@ export interface MessageRecord {
   deleted_at: number | null;
   type: "text" | "edited" | "deleted";
   metadata: string | null;
-  ai_status?: "pending" | "clean" | "warn" | "flagged" | "error" | null;
+  ai_status?: AIStatus | null;
   ai_moderation_flags?: string | null;
   ai_moderation_score?: number | null;
   ai_moderation_raw?: string | null;
@@ -60,4 +62,44 @@ export interface DashboardMessage {
   content: string;
   created_at: number;
   type: "text" | "image" | "voice";
+}
+
+export interface MessageQuery {
+  guildId?: string;
+  channelId?: string;
+  threadId?: string;
+  status?: AIStatus[];
+  userId?: string;
+  q?: string;
+  cursor?: string;
+  limit: number;
+}
+
+export interface PageResult<T> {
+  data: T[];
+  nextCursor: string | null;
+}
+
+export interface AnalysisResult {
+  messageId: string;
+  status: Exclude<AIStatus, "pending" | "error">;
+  flags: string[];
+  score: number;
+  analysis: string;
+}
+
+export type ModerationWsEvent =
+  | { type: "ui_state"; state: unknown }
+  | { type: "user_state"; users: unknown[] }
+  | { type: "message_created"; data: MessageRecord }
+  | { type: "message_updated"; data: Partial<MessageRecord> & { id: string } }
+  | { type: "message_deleted"; data: { id: string; deleted_at: number } }
+  | { type: "message_analyzed"; data: MessageRecord }
+  | { type: "attachment_created"; data: AttachmentRecord }
+  | { type: "analysis_queue_status"; data: AnalysisQueueStatus };
+
+export interface AnalysisQueueStatus {
+  queuedConversations: number;
+  activeRequests: number;
+  lastError: string | null;
 }
