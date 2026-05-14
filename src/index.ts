@@ -10,7 +10,7 @@ import { VoiceController } from "./voiceController";
 import { startWebserver } from "./webserver";
 import { registerMessageCapture } from "./moderation/messageCapture";
 import { syncBacklogMessages } from "./moderation/backlogSync";
-import { getDatabase } from "./muxer-queue";
+import { getDatabase } from "./database/adapter";
 import { startPendingAIAnalysisWorker } from "./moderation/aiAnalyzer";
 
 const logger = createChildLogger("bot");
@@ -23,6 +23,7 @@ const client = new Client();
 const voiceController = new VoiceController(client);
 
 let isShuttingDown = false;
+let db: Awaited<ReturnType<typeof getDatabase>> | null = null;
 
 async function gracefulShutdown(signal: string) {
   if (isShuttingDown) {
@@ -34,6 +35,12 @@ async function gracefulShutdown(signal: string) {
   logger.info({ signal }, "Graceful shutdown initiated");
 
   try {
+    logger.info("Closing database...");
+    if (db) {
+      await db.close();
+      logger.info("Database closed");
+    }
+
     logger.info("Stopping voice connection...");
     await voiceController.disconnect();
 
@@ -55,19 +62,21 @@ async function gracefulShutdown(signal: string) {
   }
 }
 
-logger.info("Opening database");
-const dbPromise = getDatabase();
-let db: Awaited<typeof dbPromise>;
-
 async function initializeApp() {
-  db = await dbPromise;
-  logger.info("Database ready");
+  try {
+    logger.info("Initializing database adapter");
+    db = await getDatabase();
+    logger.info({ type: config.DATABASE_TYPE }, "Database initialized");
+  } catch (err) {
+    logger.error({ error: err }, "Failed to initialize database");
+    process.exit(1);
+  }
 
   client.on("ready", async () => {
     logger.info({ user: client.user?.tag }, "Bot logged in");
-    registerMessageCapture(client, db);
-    startPendingAIAnalysisWorker(db);
-    syncBacklogMessages(client, db).catch((error) => {
+    registerMessageCapture(client, db!);
+    startPendingAIAnalysisWorker(db!);
+    syncBacklogMessages(client, db!).catch((error) => {
       logger.warn({ error }, "Backlog sync failed");
     });
     await startWebserver(config.WEBSERVER_PORT, client, voiceController);
