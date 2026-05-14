@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   decodeCursor,
   encodeCursor,
@@ -58,6 +58,16 @@ describe("message query integration tests", () => {
       `);
     } catch (error) {
       logger.debug("Messages table already exists or error creating it", { error });
+    }
+  });
+
+  beforeEach(async () => {
+    // Clear messages table before each test
+    try {
+      const db = getDatabase() as any;
+      await db.run(`DELETE FROM "messages"`);
+    } catch (error) {
+      logger.debug("Could not clear messages table", { error });
     }
   });
 
