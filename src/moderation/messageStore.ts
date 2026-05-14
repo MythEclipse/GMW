@@ -57,26 +57,26 @@ export async function insertMessage(message: MessageRecord): Promise<void> {
 
 export async function upsertMessageForCapture(
   message: MessageRecord,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const db = getDatabase() as any;
-
-    // Set ai_status to pending for new or recaptured/edited text
     const messageWithAIStatus = {
       ...message,
       ai_status: "pending" as const,
     };
 
-    // Try insert first (fast path for new messages)
-    await db
+    const rows = await db
       .insert(messagesTable)
       .values(messageWithAIStatus)
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: messagesTable.id });
 
+    const inserted = rows.length > 0;
     logger.debug(
-      { messageId: message.id, channelId: message.channel_id },
-      "Message upserted for capture",
+      { messageId: message.id, channelId: message.channel_id, inserted },
+      inserted ? "Message inserted for capture" : "Message already captured",
     );
+    return inserted;
   } catch (error) {
     logger.error(
       {

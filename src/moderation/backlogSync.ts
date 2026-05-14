@@ -29,7 +29,7 @@ async function syncChannelMessages(
         continue;
       }
 
-      await captureMessage(message, "text");
+      await captureMessage(message, "text", { source: "backlog" });
       synced++;
     }
 

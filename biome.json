@@ -14,9 +14,6 @@
       "style": {
         "noNonNullAssertion": "warn",
         "useNodejsImportProtocol": "warn"
-      },
-      "suspicious": {
-        "noExplicitAny": "warn"
       }
     }
   }

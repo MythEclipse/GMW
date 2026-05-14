@@ -6,6 +6,19 @@ import type { DashboardEvent } from "./ws/client";
 import { MessageFeed } from "./components/messages/MessageFeed";
 import { ReviewPanel } from "./components/review/ReviewPanel";
 
+function mergeMessages(
+  current: MessageRecord[],
+  incoming: MessageRecord[],
+): MessageRecord[] {
+  const byId = new Map(current.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    byId.set(message.id, { ...byId.get(message.id), ...message });
+  }
+  return Array.from(byId.values())
+    .sort((a, b) => b.created_at - a.created_at || b.id.localeCompare(a.id))
+    .slice(0, 200);
+}
+
 export default function App() {
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [wsStatus, setWsStatus] = useState<string>("connecting");
@@ -17,7 +30,7 @@ export default function App() {
     listMessages(new URLSearchParams({ limit: "30" }))
       .then((result) => {
         if (!cancelled) {
-          setMessages(result.data);
+          setMessages(mergeMessages([], result.data));
         }
       })
       .catch((err) => {
@@ -29,20 +42,10 @@ export default function App() {
     const ws = connectDashboardSocket((event: DashboardEvent) => {
       switch (event.type) {
         case "message_created":
-          setMessages((prev) => {
-            const existing = prev.some((message) => message.id === event.data.id);
-            if (existing) {
-              return prev.map((message) =>
-                message.id === event.data.id ? event.data : message,
-              );
-            }
-            return [event.data, ...prev].slice(0, 200);
-          });
+          setMessages((prev) => mergeMessages(prev, [event.data]));
           break;
         case "message_analyzed":
-          setMessages((prev) =>
-            prev.map((m) => (m.id === event.data.id ? event.data : m)),
-          );
+          setMessages((prev) => mergeMessages(prev, [event.data]));
           break;
         case "message_updated":
           setMessages((prev) =>
