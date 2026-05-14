@@ -1,8 +1,5 @@
 import type { Client, Message } from "discord.js-selfbot-v13";
-import { eq } from "drizzle-orm";
 import { config } from "../config";
-import { getDatabase } from "../database/drizzle";
-import { messagesTable } from "../database/schema";
 import { createChildLogger } from "../logger";
 import { queueMessageAnalysis } from "./aiAnalyzer";
 import {
@@ -10,8 +7,18 @@ import {
   getMessageLocation,
   getMessageMetadata,
 } from "./messageMetadata";
-import { insertAttachment, insertMessage } from "./messageStore";
-import type { AttachmentRecord, MessageRecord } from "./types";
+import {
+  insertAttachment,
+  upsertMessageForCapture,
+  updateMessageAsEdited,
+  updateMessageAsDeleted,
+  getMessageById,
+} from "./messageStore";
+import type {
+  AttachmentRecord,
+  MessageRecord,
+  ModerationBroadcaster,
+} from "./types";
 
 const logger = createChildLogger("message-capture");
 
@@ -39,12 +46,14 @@ export async function captureMessage(
     metadata: JSON.stringify(metadata),
   };
 
-  await insertMessage(messageRecord);
+  await upsertMessageForCapture(messageRecord);
   queueMessageAnalysis(message.id);
 
-  const broadcaster = globalThis as any;
-  if (broadcaster.broadcastMessageCreated) {
-    broadcaster.broadcastMessageCreated({
+  const broadcaster = (globalThis as any).moderationBroadcaster as
+    | ModerationBroadcaster
+    | undefined;
+  if (broadcaster) {
+    broadcaster.messageCreated({
       ...messageRecord,
       type: "text",
     });
@@ -72,14 +81,8 @@ export async function captureMessage(
 
       await insertAttachment(attachmentRecord);
 
-      if (broadcaster.broadcastAttachmentUploaded) {
-        broadcaster.broadcastAttachmentUploaded({
-          id: attachment.id,
-          message_id: message.id,
-          filename: attachment.name || "unknown",
-          channel_id: location.channelId,
-          created_at: Date.now(),
-        });
+      if (broadcaster) {
+        broadcaster.attachmentCreated(attachmentRecord);
       }
     }
   }
@@ -118,16 +121,9 @@ export function registerMessageCapture(client: Client): void {
     if (newMessage.author?.bot) return;
 
     try {
-      const { updateMessageAsEdited } = await import("./messageStore");
-      const db = getDatabase() as any;
+      const existing = await getMessageById(newMessage.id);
 
-      const existing = await db
-        .select()
-        .from(messagesTable)
-        .where(eq(messagesTable.id, newMessage.id))
-        .limit(1);
-
-      if (existing.length > 0) {
+      if (existing) {
         const editedAt = Date.now();
         await updateMessageAsEdited(
           newMessage.id,
@@ -136,9 +132,11 @@ export function registerMessageCapture(client: Client): void {
         );
         queueMessageAnalysis(newMessage.id);
 
-        const broadcaster = globalThis as any;
-        if (broadcaster.broadcastMessageUpdated) {
-          broadcaster.broadcastMessageUpdated({
+        const broadcaster = (globalThis as any).moderationBroadcaster as
+          | ModerationBroadcaster
+          | undefined;
+        if (broadcaster) {
+          broadcaster.messageUpdated({
             id: newMessage.id,
             edited_content: getDisplayContent(newMessage as Message),
             edited_at: editedAt,
@@ -163,13 +161,14 @@ export function registerMessageCapture(client: Client): void {
     if (!message.author) return;
 
     try {
-      const { updateMessageAsDeleted } = await import("./messageStore");
       const deletedAt = Date.now();
       await updateMessageAsDeleted(message.id, deletedAt);
 
-      const broadcaster = globalThis as any;
-      if (broadcaster.broadcastMessageDeleted) {
-        broadcaster.broadcastMessageDeleted({
+      const broadcaster = (globalThis as any).moderationBroadcaster as
+        | ModerationBroadcaster
+        | undefined;
+      if (broadcaster) {
+        broadcaster.messageDeleted({
           id: message.id,
           deleted_at: deletedAt,
         });
