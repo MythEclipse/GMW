@@ -38,8 +38,8 @@ export async function captureMessage(
     metadata: JSON.stringify(metadata),
   };
 
-  insertMessage(db, messageRecord);
-  queueMessageAnalysis(db, message.id);
+  await insertMessage(messageRecord);
+  queueMessageAnalysis(message.id);
 
   const broadcaster = globalThis as any;
   if (broadcaster.broadcastMessageCreated) {
@@ -69,7 +69,7 @@ export async function captureMessage(
         uploaded_at: Date.now(),
       };
 
-      insertAttachment(db, attachmentRecord);
+      await insertAttachment(attachmentRecord);
 
       if (broadcaster.broadcastAttachmentUploaded) {
         broadcaster.broadcastAttachmentUploaded({
@@ -128,13 +128,12 @@ export function registerMessageCapture(
 
       if (existing) {
         const editedAt = Date.now();
-        updateMessageAsEdited(
-          db,
+        await updateMessageAsEdited(
           newMessage.id,
           getDisplayContent(newMessage as Message),
           editedAt,
         );
-        queueMessageAnalysis(db, newMessage.id);
+        queueMessageAnalysis(newMessage.id);
 
         const broadcaster = globalThis as any;
         if (broadcaster.broadcastMessageUpdated) {
@@ -165,7 +164,7 @@ export function registerMessageCapture(
     try {
       const { updateMessageAsDeleted } = await import("./messageStore");
       const deletedAt = Date.now();
-      updateMessageAsDeleted(db, message.id, deletedAt);
+      await updateMessageAsDeleted(message.id, deletedAt);
 
       const broadcaster = globalThis as any;
       if (broadcaster.broadcastMessageDeleted) {

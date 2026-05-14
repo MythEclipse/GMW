@@ -122,7 +122,6 @@ export async function downloadDiscordAttachment(url: string): Promise<Buffer> {
 }
 
 export async function processAttachmentUpload(
-  db: SqliteDatabase,
   attachmentId: string,
   discordUrl: string,
   filename: string,
@@ -141,14 +140,14 @@ export async function processAttachmentUpload(
 
     const result = await uploadAttachmentToPicser(buffer, filename);
 
-    updateAttachmentAsUploaded(db, attachmentId, result.url, Date.now());
+    await updateAttachmentAsUploaded(attachmentId, result.url, Date.now());
     logger.info(
       { attachmentId, uploadedUrl: result.url },
       "Attachment upload completed",
     );
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    updateAttachmentAsFailedUpload(db, attachmentId, errorMsg);
+    await updateAttachmentAsFailedUpload(attachmentId, errorMsg);
     logger.error({ attachmentId, error: errorMsg }, "Attachment upload failed");
   }
 }

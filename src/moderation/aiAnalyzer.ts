@@ -246,7 +246,6 @@ Satu JSON object per pesan dalam array.`,
 }
 
 async function analyzeAndStoreBatch(
-  db: SqliteDatabase,
   messages: MessageRecord[],
 ): Promise<void> {
   if (messages.length === 0) return;
@@ -264,7 +263,7 @@ async function analyzeAndStoreBatch(
       const message = analyzableMessages[i];
       const result = results[i] || parseLLMAnalysis("");
 
-      const row = updateMessageAIAnalysis(db, message.id, {
+      const row = await updateMessageAIAnalysis(message.id, {
         status: result.status as
           | "pending"
           | "clean"
@@ -291,14 +290,14 @@ async function analyzeAndStoreBatch(
         },
         "AI batch failed, splitting into smaller batches",
       );
-      await analyzeAndStoreBatch(db, analyzableMessages.slice(0, midpoint));
-      await analyzeAndStoreBatch(db, analyzableMessages.slice(midpoint));
+      await analyzeAndStoreBatch(analyzableMessages.slice(0, midpoint));
+      await analyzeAndStoreBatch(analyzableMessages.slice(midpoint));
       return;
     }
 
     const errorMsg = error instanceof Error ? error.message : String(error);
     for (const message of analyzableMessages) {
-      const row = updateMessageAIAnalysis(db, message.id, {
+      const row = await updateMessageAIAnalysis(message.id, {
         status: "error",
         flags: null,
         score: null,
@@ -315,7 +314,7 @@ async function analyzeAndStoreBatch(
   }
 }
 
-async function drainQueue(db: SqliteDatabase): Promise<void> {
+async function drainQueue(): Promise<void> {
   if (isProcessing) return;
   isProcessing = true;
   try {
@@ -329,7 +328,7 @@ async function drainQueue(db: SqliteDatabase): Promise<void> {
       const batch: MessageRecord[] = [];
       let tokenEstimate = 0;
       for (const messageId of Array.from(queuedMessageIds)) {
-        const message = getMessageById(db, messageId);
+        const message = await getMessageById(messageId);
         queuedMessageIds.delete(messageId);
         if (!message) continue;
 
@@ -352,7 +351,7 @@ async function drainQueue(db: SqliteDatabase): Promise<void> {
           { count: batch.length, tokenEstimate },
           "Processing AI analysis batch",
         );
-        await analyzeAndStoreBatch(db, batch);
+        await analyzeAndStoreBatch(batch);
       }
     }
   } finally {
@@ -361,29 +360,28 @@ async function drainQueue(db: SqliteDatabase): Promise<void> {
 }
 
 export function queueMessageAnalysis(
-  db: SqliteDatabase,
   messageId: string,
 ): void {
   if (!config.AI_ANALYSIS_ENABLED) return;
   logger.debug({ messageId }, "Queueing AI analysis");
   queuedMessageIds.add(messageId);
   setImmediate(() => {
-    drainQueue(db).catch((error) =>
+    drainQueue().catch((error) =>
       logger.error({ error }, "AI analysis queue failed"),
     );
   });
 }
 
-export function startPendingAIAnalysisWorker(db: SqliteDatabase): void {
+export function startPendingAIAnalysisWorker(): void {
   if (!config.AI_ANALYSIS_ENABLED) {
     logger.info("AI analysis disabled");
     return;
   }
 
   logger.info("AI analysis worker started");
-  setInterval(() => {
+  setInterval(async () => {
     if (isProcessing) return;
-    const pendingMessages = getPendingAIAnalysisMessages(db, 500);
+    const pendingMessages = await getPendingAIAnalysisMessages(500);
     if (pendingMessages.length === 0) return;
     logger.info(
       { count: pendingMessages.length },
@@ -392,7 +390,7 @@ export function startPendingAIAnalysisWorker(db: SqliteDatabase): void {
     for (const message of pendingMessages) {
       queuedMessageIds.add(message.id);
     }
-    drainQueue(db).catch((error) =>
+    drainQueue().catch((error) =>
       logger.error({ error }, "Pending AI analysis worker failed"),
     );
   }, 15000);

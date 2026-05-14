@@ -285,8 +285,7 @@ export async function startWebserver(
       const offsetNum = parseInt(offset) || 0;
 
       if (type === "image") {
-        const attachments = getAttachmentsByChannel(
-          db,
+        const attachments = await getAttachmentsByChannel(
           channel,
           limitNum,
           offsetNum,
@@ -297,7 +296,7 @@ export async function startWebserver(
           count: attachments.length,
         });
       } else {
-        const messages = getMessagesByChannel(db, channel, limitNum, offsetNum);
+        const messages = await getMessagesByChannel(channel, limitNum, offsetNum);
         res.json({
           type: "text",
           data: messages,

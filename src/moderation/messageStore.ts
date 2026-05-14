@@ -1,37 +1,17 @@
-import type { DatabaseAdapter } from "../database/adapter";
+import { getDatabase } from "../database/drizzle";
+import { messagesTable, attachmentsTable } from "../database/schema";
+import { eq, or, desc, asc, and, isNull } from "drizzle-orm";
 import { createChildLogger } from "../logger";
 import type { AttachmentRecord, MessageRecord } from "./types";
 
 const logger = createChildLogger("message-store");
 
-export function insertMessage(
-  db: DatabaseAdapter,
+export async function insertMessage(
   message: MessageRecord,
-): void {
+): Promise<void> {
   try {
-    const stmt = db.prepare(`
-      INSERT OR IGNORE INTO messages (
-        id, guild_id, channel_id, thread_id, user_id, username, avatar_url,
-        content, edited_content, created_at, edited_at, deleted_at, type, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-      message.id,
-      message.guild_id,
-      message.channel_id,
-      message.thread_id,
-      message.user_id,
-      message.username,
-      message.avatar_url,
-      message.content,
-      message.edited_content,
-      message.created_at,
-      message.edited_at,
-      message.deleted_at,
-      message.type,
-      message.metadata,
-    );
+    const db = getDatabase() as any;
+    await db.insert(messagesTable).values(message).onConflictDoNothing();
 
     logger.debug(
       { messageId: message.id, channelId: message.channel_id },
@@ -49,20 +29,22 @@ export function insertMessage(
   }
 }
 
-export function updateMessageAsEdited(
-  db: DatabaseAdapter,
+export async function updateMessageAsEdited(
   messageId: string,
   editedContent: string,
   editedAt: number,
-): void {
+): Promise<void> {
   try {
-    const stmt = db.prepare(`
-      UPDATE messages
-      SET edited_content = ?, edited_at = ?, type = 'edited'
-      WHERE id = ?
-    `);
+    const db = getDatabase() as any;
+    await db
+      .update(messagesTable)
+      .set({
+        edited_content: editedContent,
+        edited_at: editedAt,
+        type: "edited",
+      })
+      .where(eq(messagesTable.id, messageId));
 
-    stmt.run(editedContent, editedAt, messageId);
     logger.debug({ messageId }, "Message marked as edited");
   } catch (error) {
     logger.error(
@@ -76,19 +58,20 @@ export function updateMessageAsEdited(
   }
 }
 
-export function updateMessageAsDeleted(
-  db: DatabaseAdapter,
+export async function updateMessageAsDeleted(
   messageId: string,
   deletedAt: number,
-): void {
+): Promise<void> {
   try {
-    const stmt = db.prepare(`
-      UPDATE messages
-      SET deleted_at = ?, type = 'deleted'
-      WHERE id = ?
-    `);
+    const db = getDatabase() as any;
+    await db
+      .update(messagesTable)
+      .set({
+        deleted_at: deletedAt,
+        type: "deleted",
+      })
+      .where(eq(messagesTable.id, messageId));
 
-    stmt.run(deletedAt, messageId);
     logger.debug({ messageId }, "Message marked as deleted");
   } catch (error) {
     logger.error(
@@ -102,27 +85,27 @@ export function updateMessageAsDeleted(
   }
 }
 
-export function getMessagesByChannel(
-  db: DatabaseAdapter,
+export async function getMessagesByChannel(
   channelId: string,
   limit: number = 50,
   offset: number = 0,
-): MessageRecord[] {
+): Promise<MessageRecord[]> {
   try {
-    const stmt = db.prepare(`
-      SELECT * FROM messages
-      WHERE channel_id = ? OR thread_id = ?
-      ORDER BY created_at DESC
-      LIMIT ? OFFSET ?
-    `);
+    const db = getDatabase() as any;
+    const rows = await db
+      .select()
+      .from(messagesTable)
+      .where(
+        or(
+          eq(messagesTable.channel_id, channelId),
+          eq(messagesTable.thread_id, channelId),
+        ),
+      )
+      .orderBy(desc(messagesTable.created_at))
+      .limit(limit)
+      .offset(offset);
 
-    const rows = stmt.all(
-      channelId,
-      channelId,
-      limit,
-      offset,
-    ) as MessageRecord[];
-    return rows;
+    return rows as MessageRecord[];
   } catch (error) {
     logger.error(
       {
@@ -135,35 +118,12 @@ export function getMessagesByChannel(
   }
 }
 
-export function insertAttachment(
-  db: DatabaseAdapter,
+export async function insertAttachment(
   attachment: AttachmentRecord,
-): void {
+): Promise<void> {
   try {
-    const stmt = db.prepare(`
-      INSERT OR IGNORE INTO attachments (
-        id, message_id, guild_id, channel_id, thread_id, user_id, filename, size, type,
-        discord_url, uploaded_url, upload_status, upload_error, created_at, uploaded_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-      attachment.id,
-      attachment.message_id,
-      attachment.guild_id,
-      attachment.channel_id,
-      attachment.thread_id,
-      attachment.user_id,
-      attachment.filename,
-      attachment.size,
-      attachment.type,
-      attachment.discord_url,
-      attachment.uploaded_url,
-      attachment.upload_status,
-      attachment.upload_error,
-      attachment.created_at,
-      attachment.uploaded_at,
-    );
+    const db = getDatabase() as any;
+    await db.insert(attachmentsTable).values(attachment).onConflictDoNothing();
 
     logger.debug(
       { attachmentId: attachment.id, messageId: attachment.message_id },
@@ -181,27 +141,27 @@ export function insertAttachment(
   }
 }
 
-export function getAttachmentsByChannel(
-  db: DatabaseAdapter,
+export async function getAttachmentsByChannel(
   channelId: string,
   limit: number = 50,
   offset: number = 0,
-): AttachmentRecord[] {
+): Promise<AttachmentRecord[]> {
   try {
-    const stmt = db.prepare(`
-      SELECT * FROM attachments
-      WHERE channel_id = ? OR thread_id = ?
-      ORDER BY created_at DESC
-      LIMIT ? OFFSET ?
-    `);
+    const db = getDatabase() as any;
+    const rows = await db
+      .select()
+      .from(attachmentsTable)
+      .where(
+        or(
+          eq(attachmentsTable.channel_id, channelId),
+          eq(attachmentsTable.thread_id, channelId),
+        ),
+      )
+      .orderBy(desc(attachmentsTable.created_at))
+      .limit(limit)
+      .offset(offset);
 
-    const rows = stmt.all(
-      channelId,
-      channelId,
-      limit,
-      offset,
-    ) as AttachmentRecord[];
-    return rows;
+    return rows as AttachmentRecord[];
   } catch (error) {
     logger.error(
       {
@@ -214,20 +174,22 @@ export function getAttachmentsByChannel(
   }
 }
 
-export function updateAttachmentAsUploaded(
-  db: DatabaseAdapter,
+export async function updateAttachmentAsUploaded(
   attachmentId: string,
   uploadedUrl: string,
   uploadedAt: number,
-): void {
+): Promise<void> {
   try {
-    const stmt = db.prepare(`
-      UPDATE attachments
-      SET uploaded_url = ?, upload_status = 'uploaded', uploaded_at = ?
-      WHERE id = ?
-    `);
+    const db = getDatabase() as any;
+    await db
+      .update(attachmentsTable)
+      .set({
+        uploaded_url: uploadedUrl,
+        upload_status: "uploaded",
+        uploaded_at: uploadedAt,
+      })
+      .where(eq(attachmentsTable.id, attachmentId));
 
-    stmt.run(uploadedUrl, uploadedAt, attachmentId);
     logger.debug(
       { attachmentId, uploadedUrl },
       "Attachment marked as uploaded",
@@ -244,19 +206,20 @@ export function updateAttachmentAsUploaded(
   }
 }
 
-export function updateAttachmentAsFailedUpload(
-  db: DatabaseAdapter,
+export async function updateAttachmentAsFailedUpload(
   attachmentId: string,
   error: string,
-): void {
+): Promise<void> {
   try {
-    const stmt = db.prepare(`
-      UPDATE attachments
-      SET upload_status = 'failed', upload_error = ?
-      WHERE id = ?
-    `);
+    const db = getDatabase() as any;
+    await db
+      .update(attachmentsTable)
+      .set({
+        upload_status: "failed",
+        upload_error: error,
+      })
+      .where(eq(attachmentsTable.id, attachmentId));
 
-    stmt.run(error, attachmentId);
     logger.debug({ attachmentId, error }, "Attachment marked as failed upload");
   } catch (error) {
     logger.error(
@@ -280,34 +243,31 @@ interface AIAnalysisUpdate {
   error?: string | null;
 }
 
-export function updateMessageAIAnalysis(
-  db: DatabaseAdapter,
+export async function updateMessageAIAnalysis(
   messageId: string,
   result: AIAnalysisUpdate,
-): MessageRecord | null {
+): Promise<MessageRecord | null> {
   try {
-    const stmt = db.prepare(`
-      UPDATE messages
-      SET ai_status = ?, ai_moderation_flags = ?, ai_moderation_score = ?,
-          ai_moderation_raw = ?, ai_analysis = ?, ai_analyzed_at = ?, ai_error = ?
-      WHERE id = ?
-    `);
+    const db = getDatabase() as any;
+    await db
+      .update(messagesTable)
+      .set({
+        ai_status: result.status,
+        ai_moderation_flags: result.flags ?? null,
+        ai_moderation_score: result.score ?? null,
+        ai_moderation_raw: result.raw ?? null,
+        ai_analysis: result.analysis ?? null,
+        ai_analyzed_at: result.analyzedAt ?? Date.now(),
+        ai_error: result.error ?? null,
+      })
+      .where(eq(messagesTable.id, messageId));
 
-    stmt.run(
-      result.status,
-      result.flags ?? null,
-      result.score ?? null,
-      result.raw ?? null,
-      result.analysis ?? null,
-      result.analyzedAt ?? Date.now(),
-      result.error ?? null,
-      messageId,
-    );
+    const rows = await db
+      .select()
+      .from(messagesTable)
+      .where(eq(messagesTable.id, messageId));
 
-    const row = db
-      .prepare("SELECT * FROM messages WHERE id = ?")
-      .get(messageId) as MessageRecord | undefined;
-    return row ?? null;
+    return (rows[0] as MessageRecord) ?? null;
   } catch (error) {
     logger.error(
       {
@@ -320,20 +280,24 @@ export function updateMessageAIAnalysis(
   }
 }
 
-export function getPendingAIAnalysisMessages(
-  db: DatabaseAdapter,
+export async function getPendingAIAnalysisMessages(
   limit: number = 25,
-): MessageRecord[] {
+): Promise<MessageRecord[]> {
   try {
-    const stmt = db.prepare(`
-      SELECT * FROM messages
-      WHERE ai_status = 'pending'
-        AND deleted_at IS NULL
-        AND COALESCE(edited_content, content) != ''
-      ORDER BY created_at ASC
-      LIMIT ?
-    `);
-    return stmt.all(limit) as MessageRecord[];
+    const db = getDatabase() as any;
+    const rows = await db
+      .select()
+      .from(messagesTable)
+      .where(
+        and(
+          eq(messagesTable.ai_status, "pending"),
+          isNull(messagesTable.deleted_at),
+        ),
+      )
+      .orderBy(asc(messagesTable.created_at))
+      .limit(limit);
+
+    return rows as MessageRecord[];
   } catch (error) {
     logger.error(
       { error: error instanceof Error ? error.message : String(error) },
@@ -343,12 +307,25 @@ export function getPendingAIAnalysisMessages(
   }
 }
 
-export function getMessageById(
-  db: DatabaseAdapter,
+export async function getMessageById(
   messageId: string,
-): MessageRecord | null {
-  const row = db
-    .prepare("SELECT * FROM messages WHERE id = ?")
-    .get(messageId) as MessageRecord | undefined;
-  return row ?? null;
+): Promise<MessageRecord | null> {
+  try {
+    const db = getDatabase() as any;
+    const rows = await db
+      .select()
+      .from(messagesTable)
+      .where(eq(messagesTable.id, messageId));
+
+    return (rows[0] as MessageRecord) ?? null;
+  } catch (error) {
+    logger.error(
+      {
+        messageId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "Failed to get message by id",
+    );
+    throw error;
+  }
 }
