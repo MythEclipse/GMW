@@ -14,10 +14,11 @@ import {
   getMessagesByChannel,
 } from "./moderation/messageStore";
 import {
-  getDatabase,
+  getDatabase as getMuxerDatabase,
   getPersistedValue,
   setPersistedValue,
 } from "./muxer-queue";
+import { getDatabase } from "./database/drizzle";
 import { discordPlayer } from "./player";
 import type { VoiceController } from "./voiceController";
 
@@ -260,7 +261,6 @@ export async function startWebserver(
   // Moderation API endpoints
   app.get("/api/messages", async (req, res, next) => {
     try {
-      const db = await getDatabase();
       const {
         channel,
         type,
@@ -325,7 +325,6 @@ export async function startWebserver(
 
       const count = await syncSelectedChannelBacklog(
         _client,
-        await getDatabase(),
         guildId,
         channelId,
       );

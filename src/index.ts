@@ -4,7 +4,7 @@ import "@snazzah/davey";
 import "dotenv/config";
 import { Client } from "discord.js-selfbot-v13";
 import { config } from "./config";
-import { getDatabase } from "./database/adapter";
+import { initializeDatabase, closeDatabase } from "./database/drizzle";
 import { createChildLogger } from "./logger";
 import { startPendingAIAnalysisWorker } from "./moderation/aiAnalyzer";
 import { syncBacklogMessages } from "./moderation/backlogSync";
@@ -26,7 +26,6 @@ const client = new Client();
 const voiceController = new VoiceController(client);
 
 let isShuttingDown = false;
-let db: Awaited<ReturnType<typeof getDatabase>> | null = null;
 
 async function gracefulShutdown(signal: string) {
   if (isShuttingDown) {
@@ -39,10 +38,8 @@ async function gracefulShutdown(signal: string) {
 
   try {
     logger.info("Closing database...");
-    if (db) {
-      await db.close();
-      logger.info("Database closed");
-    }
+    await closeDatabase();
+    logger.info("Database closed");
 
     logger.info("Stopping voice connection...");
     await voiceController.disconnect();
@@ -67,8 +64,8 @@ async function gracefulShutdown(signal: string) {
 
 async function initializeApp() {
   try {
-    logger.info("Initializing database adapter");
-    db = await getDatabase();
+    logger.info("Initializing database");
+    await initializeDatabase();
     logger.info({ type: config.DATABASE_TYPE }, "Database initialized");
   } catch (err) {
     logger.error({ error: err }, "Failed to initialize database");
@@ -77,9 +74,9 @@ async function initializeApp() {
 
   client.on("ready", async () => {
     logger.info({ user: client.user?.tag }, "Bot logged in");
-    registerMessageCapture(client, db!);
+    registerMessageCapture(client);
     startPendingAIAnalysisWorker();
-    syncBacklogMessages(client, db!).catch((error) => {
+    syncBacklogMessages(client).catch((error) => {
       logger.warn({ error }, "Backlog sync failed");
     });
     await startWebserver(config.WEBSERVER_PORT, client, voiceController);

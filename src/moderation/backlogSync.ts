@@ -1,13 +1,11 @@
 import type { Client, Message } from "discord.js-selfbot-v13";
 import { config } from "../config";
 import { createChildLogger } from "../logger";
-import type { SqliteDatabase } from "../muxer-queue";
 import { captureMessage } from "./messageCapture";
 
 const logger = createChildLogger("backlog-sync");
 
 async function syncChannelMessages(
-  db: SqliteDatabase,
   channel: any,
   cutoffTime: number,
 ): Promise<number> {
@@ -31,7 +29,7 @@ async function syncChannelMessages(
         continue;
       }
 
-      await captureMessage(db, message, "text");
+      await captureMessage(message, "text");
       synced++;
     }
 
@@ -44,7 +42,6 @@ async function syncChannelMessages(
 
 export async function syncBacklogMessages(
   client: Client,
-  db: SqliteDatabase,
 ): Promise<void> {
   if (!config.MONITOR_GUILD_ID) {
     logger.warn("MONITOR_GUILD_ID not configured, skipping backlog sync");
@@ -68,7 +65,6 @@ export async function syncBacklogMessages(
 
 export async function syncSelectedChannelBacklog(
   client: Client,
-  db: SqliteDatabase,
   guildId: string,
   channelId: string,
 ): Promise<number> {
@@ -91,7 +87,7 @@ export async function syncSelectedChannelBacklog(
   );
 
   try {
-    const count = await syncChannelMessages(db, channel as any, cutoffTime);
+    const count = await syncChannelMessages(channel as any, cutoffTime);
     logger.info(
       { channelId, count },
       "Backlog sync completed for selected channel",

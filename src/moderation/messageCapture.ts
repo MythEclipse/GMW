@@ -1,7 +1,9 @@
 import type { Client, Message } from "discord.js-selfbot-v13";
 import { config } from "../config";
 import { createChildLogger } from "../logger";
-import type { SqliteDatabase } from "../muxer-queue";
+import { getDatabase } from "../database/drizzle";
+import { messagesTable } from "../database/schema";
+import { eq } from "drizzle-orm";
 import { queueMessageAnalysis } from "./aiAnalyzer";
 import {
   getDisplayContent,
@@ -14,7 +16,6 @@ import type { AttachmentRecord, MessageRecord } from "./types";
 const logger = createChildLogger("message-capture");
 
 export async function captureMessage(
-  db: SqliteDatabase,
   message: Message,
   type: "text" | "edited" | "deleted",
 ): Promise<void> {
@@ -95,14 +96,13 @@ export async function captureMessage(
 
 export function registerMessageCapture(
   client: Client,
-  db: SqliteDatabase,
 ): void {
   client.on("messageCreate", async (message) => {
     if (!message.guildId || message.guildId !== config.MONITOR_GUILD_ID) return;
     if (message.author?.bot) return;
 
     try {
-      await captureMessage(db, message, "text");
+      await captureMessage(message, "text");
     } catch (error) {
       logger.error(
         {
@@ -121,12 +121,15 @@ export function registerMessageCapture(
 
     try {
       const { updateMessageAsEdited } = await import("./messageStore");
+      const db = getDatabase() as any;
 
-      const existing = db
-        .prepare("SELECT id FROM messages WHERE id = ?")
-        .get(newMessage.id) as { id: string } | undefined;
+      const existing = await db
+        .select()
+        .from(messagesTable)
+        .where(eq(messagesTable.id, newMessage.id))
+        .limit(1);
 
-      if (existing) {
+      if (existing.length > 0) {
         const editedAt = Date.now();
         await updateMessageAsEdited(
           newMessage.id,
@@ -144,7 +147,7 @@ export function registerMessageCapture(
           });
         }
       } else if (newMessage.author) {
-        await captureMessage(db, newMessage as Message, "text");
+        await captureMessage(newMessage as Message, "text");
       }
     } catch (error) {
       logger.error(
