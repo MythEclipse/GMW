@@ -8,6 +8,13 @@
       "when": 1778750697764,
       "tag": "0000_rare_kitty_pryde",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778764447718,
+      "tag": "0001_curious_zodiak",
+      "breakpoints": true
     }
   ]
 }

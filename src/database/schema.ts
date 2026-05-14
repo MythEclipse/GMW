@@ -85,6 +85,27 @@ export const pgMessagesTable = pgTable(
     userIdx: pgIndex("idx_messages_user").on(table.user_id),
     createdIdx: pgIndex("idx_messages_created").on(table.created_at),
     threadIdx: pgIndex("idx_messages_thread").on(table.thread_id),
+    channelCreatedIdx: pgIndex("idx_messages_channel_created").on(
+      table.channel_id,
+      table.created_at,
+      table.id,
+    ),
+    threadCreatedIdx: pgIndex("idx_messages_thread_created").on(
+      table.thread_id,
+      table.created_at,
+      table.id,
+    ),
+    aiStatusCreatedIdx: pgIndex("idx_messages_ai_status_created").on(
+      table.ai_status,
+      table.created_at,
+      table.id,
+    ),
+    guildAiStatusCreatedIdx: pgIndex("idx_messages_guild_ai_status_created").on(
+      table.guild_id,
+      table.ai_status,
+      table.created_at,
+      table.id,
+    ),
   }),
 );
 
@@ -119,6 +140,16 @@ export const pgAttachmentsTable = pgTable(
     channelIdx: pgIndex("idx_attachments_channel").on(table.channel_id),
     messageIdx: pgIndex("idx_attachments_message").on(table.message_id),
     statusIdx: pgIndex("idx_attachments_status").on(table.upload_status),
+    channelCreatedIdx: pgIndex("idx_attachments_channel_created").on(
+      table.channel_id,
+      table.created_at,
+      table.id,
+    ),
+    threadCreatedIdx: pgIndex("idx_attachments_thread_created").on(
+      table.thread_id,
+      table.created_at,
+      table.id,
+    ),
     messageFk: pgForeignKey({
       columns: [table.message_id],
       foreignColumns: [pgMessagesTable.id],
@@ -136,6 +167,39 @@ export const pgUIStateTable = pgTable("ui_state", {
   value: pgText("value").notNull(),
   updated_at: pgBigint("updated_at", { mode: "number" }).notNull(),
 });
+
+/**
+ * AI Analysis Runs Table (PostgreSQL)
+ * Tracks AI analysis batch runs for conversation-level moderation
+ */
+export const pgAIAnalysisRunsTable = pgTable(
+  "ai_analysis_runs",
+  {
+    id: pgText("id").primaryKey(),
+    conversation_key: pgText("conversation_key").notNull(),
+    target_message_ids: pgText("target_message_ids").notNull(), // JSON array
+    model: pgText("model").notNull(),
+    request_tokens_estimate: pgInteger("request_tokens_estimate"),
+    response_raw: pgText("response_raw"),
+    status: pgText("status", {
+      enum: ["pending", "processing", "completed", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    error: pgText("error"),
+    created_at: pgBigint("created_at", { mode: "number" }).notNull(),
+    completed_at: pgBigint("completed_at", { mode: "number" }),
+  },
+  (table) => ({
+    conversationKeyIdx: pgIndex("idx_ai_analysis_runs_conversation_key").on(
+      table.conversation_key,
+    ),
+    statusIdx: pgIndex("idx_ai_analysis_runs_status").on(table.status),
+    createdAtIdx: pgIndex("idx_ai_analysis_runs_created_at").on(
+      table.created_at,
+    ),
+  }),
+);
 
 // SQLite Schema
 // =============
@@ -206,6 +270,24 @@ export const sqliteMessagesTable = sqliteTable(
     userIdx: sqliteIndex("idx_messages_user").on(table.user_id),
     createdIdx: sqliteIndex("idx_messages_created").on(table.created_at),
     threadIdx: sqliteIndex("idx_messages_thread").on(table.thread_id),
+    channelCreatedIdx: sqliteIndex("idx_messages_channel_created").on(
+      table.channel_id,
+      table.created_at,
+      table.id,
+    ),
+    threadCreatedIdx: sqliteIndex("idx_messages_thread_created").on(
+      table.thread_id,
+      table.created_at,
+      table.id,
+    ),
+    aiStatusCreatedIdx: sqliteIndex("idx_messages_ai_status_created").on(
+      table.ai_status,
+      table.created_at,
+      table.id,
+    ),
+    guildAiStatusCreatedIdx: sqliteIndex(
+      "idx_messages_guild_ai_status_created",
+    ).on(table.guild_id, table.ai_status, table.created_at, table.id),
   }),
 );
 
@@ -240,6 +322,16 @@ export const sqliteAttachmentsTable = sqliteTable(
     channelIdx: sqliteIndex("idx_attachments_channel").on(table.channel_id),
     messageIdx: sqliteIndex("idx_attachments_message").on(table.message_id),
     statusIdx: sqliteIndex("idx_attachments_status").on(table.upload_status),
+    channelCreatedIdx: sqliteIndex("idx_attachments_channel_created").on(
+      table.channel_id,
+      table.created_at,
+      table.id,
+    ),
+    threadCreatedIdx: sqliteIndex("idx_attachments_thread_created").on(
+      table.thread_id,
+      table.created_at,
+      table.id,
+    ),
   }),
 );
 
@@ -252,6 +344,39 @@ export const sqliteUIStateTable = sqliteTable("ui_state", {
   value: sqliteText("value").notNull(),
   updated_at: sqliteInteger("updated_at").notNull(),
 });
+
+/**
+ * AI Analysis Runs Table (SQLite)
+ * Tracks AI analysis batch runs for conversation-level moderation
+ */
+export const sqliteAIAnalysisRunsTable = sqliteTable(
+  "ai_analysis_runs",
+  {
+    id: sqliteText("id").primaryKey(),
+    conversation_key: sqliteText("conversation_key").notNull(),
+    target_message_ids: sqliteText("target_message_ids").notNull(), // JSON array
+    model: sqliteText("model").notNull(),
+    request_tokens_estimate: sqliteInteger("request_tokens_estimate"),
+    response_raw: sqliteText("response_raw"),
+    status: sqliteText("status", {
+      enum: ["pending", "processing", "completed", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    error: sqliteText("error"),
+    created_at: sqliteInteger("created_at").notNull(),
+    completed_at: sqliteInteger("completed_at"),
+  },
+  (table) => ({
+    conversationKeyIdx: sqliteIndex("idx_ai_analysis_runs_conversation_key").on(
+      table.conversation_key,
+    ),
+    statusIdx: sqliteIndex("idx_ai_analysis_runs_status").on(table.status),
+    createdAtIdx: sqliteIndex("idx_ai_analysis_runs_created_at").on(
+      table.created_at,
+    ),
+  }),
+);
 
 // Runtime table selection based on config
 // ========================================
@@ -270,6 +395,11 @@ export const attachmentsTable =
 export const uiStateTable =
   config.DATABASE_TYPE === "postgres" ? pgUIStateTable : sqliteUIStateTable;
 
+export const aiAnalysisRunsTable =
+  config.DATABASE_TYPE === "postgres"
+    ? pgAIAnalysisRunsTable
+    : sqliteAIAnalysisRunsTable;
+
 // Export table types for use in queries
 export type MuxerJob = typeof muxerJobsTable.$inferSelect;
 export type MuxerJobInsert = typeof muxerJobsTable.$inferInsert;
@@ -282,3 +412,6 @@ export type AttachmentInsert = typeof attachmentsTable.$inferInsert;
 
 export type UIState = typeof uiStateTable.$inferSelect;
 export type UIStateInsert = typeof uiStateTable.$inferInsert;
+
+export type AIAnalysisRun = typeof aiAnalysisRunsTable.$inferSelect;
+export type AIAnalysisRunInsert = typeof aiAnalysisRunsTable.$inferInsert;
