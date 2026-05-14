@@ -5,6 +5,8 @@ import {
   insertMessage,
   listMessages,
   listReviewMessages,
+  updateMessageAsEdited,
+  getMessageById,
 } from "../../src/moderation/messageStore";
 import {
   getDatabase,
@@ -504,6 +506,69 @@ describe("message query integration tests", () => {
       const page2Ids = page2.data.map((m) => m.id);
       const overlap = page1Ids.filter((id) => page2Ids.includes(id));
       expect(overlap).toHaveLength(0);
+    });
+  });
+
+  describe("updateMessageAsEdited", () => {
+    const createTestMessage = (
+      overrides: Partial<MessageRecord> = {},
+    ): MessageRecord => ({
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      guild_id: "guild-123",
+      channel_id: "channel-456",
+      thread_id: null,
+      user_id: "user-789",
+      username: "testuser",
+      avatar_url: null,
+      content: "Test message",
+      edited_content: null,
+      created_at: Date.now(),
+      edited_at: null,
+      deleted_at: null,
+      type: "text",
+      metadata: null,
+      ai_status: "pending",
+      ...overrides,
+    });
+
+    it("resets ai_status to pending and clears AI fields when message is edited", async () => {
+      const messageId = `msg-edit-test-${Date.now()}`;
+      const msg = createTestMessage({
+        id: messageId,
+        content: "original content",
+        ai_status: "clean",
+        ai_moderation_flags: "test_flag",
+        ai_moderation_score: 0.5,
+        ai_moderation_raw: '{"test": "data"}',
+        ai_analysis: "This is clean",
+        ai_analyzed_at: Date.now() - 10000,
+        ai_error: null,
+      });
+
+      // Insert message with AI analysis already done
+      await insertMessage(msg);
+
+      // Verify initial state
+      let retrieved = await getMessageById(messageId);
+      expect(retrieved?.ai_status).toBe("clean");
+      expect(retrieved?.ai_moderation_flags).toBe("test_flag");
+      expect(retrieved?.ai_moderation_score).toBe(0.5);
+      expect(retrieved?.ai_analysis).toBe("This is clean");
+
+      // Edit the message
+      await updateMessageAsEdited(messageId, "edited content", Date.now());
+
+      // Verify AI fields are reset
+      retrieved = await getMessageById(messageId);
+      expect(retrieved?.edited_content).toBe("edited content");
+      expect(retrieved?.type).toBe("edited");
+      expect(retrieved?.ai_status).toBe("pending");
+      expect(retrieved?.ai_moderation_flags).toBeNull();
+      expect(retrieved?.ai_moderation_score).toBeNull();
+      expect(retrieved?.ai_moderation_raw).toBeNull();
+      expect(retrieved?.ai_analysis).toBeNull();
+      expect(retrieved?.ai_analyzed_at).toBeNull();
+      expect(retrieved?.ai_error).toBeNull();
     });
   });
 });

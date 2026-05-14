@@ -220,26 +220,6 @@ export async function startWebserver(
     broadcaster.userState(users);
   }
 
-  (global as any).broadcastMessageCreated = (data: any) => {
-    broadcaster.messageCreated(data);
-  };
-
-  (global as any).broadcastMessageUpdated = (data: any) => {
-    broadcaster.messageUpdated(data);
-  };
-
-  (global as any).broadcastMessageDeleted = (data: any) => {
-    broadcaster.messageDeleted(data);
-  };
-
-  (global as any).broadcastAttachmentUploaded = (data: any) => {
-    broadcaster.attachmentCreated(data);
-  };
-
-  (global as any).broadcastMessageAnalyzed = (data: any) => {
-    broadcaster.messageAnalyzed(data);
-  };
-
   // --- Outbound: browser PCM (24kHz mono) → Opus → Discord ---
   const RATE = 48000;
   const CHANNELS = 2;

@@ -117,7 +117,7 @@ async function processBatch(
 
     // Broadcast analyzed messages
     for (const row of analyzedRows) {
-      (globalThis as any).broadcastMessageAnalyzed?.(row);
+      (globalThis as any).moderationBroadcaster?.messageAnalyzed(row);
     }
 
     // Clear error cooldown on success
@@ -147,7 +147,7 @@ async function processBatch(
         error: lastError,
       });
       if (row) {
-        (globalThis as any).broadcastMessageAnalyzed?.(row);
+        (globalThis as any).moderationBroadcaster?.messageAnalyzed(row);
       }
     }
 

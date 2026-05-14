@@ -102,6 +102,13 @@ export async function updateMessageAsEdited(
         edited_content: editedContent,
         edited_at: editedAt,
         type: "edited",
+        ai_status: "pending",
+        ai_moderation_flags: null,
+        ai_moderation_score: null,
+        ai_moderation_raw: null,
+        ai_analysis: null,
+        ai_analyzed_at: null,
+        ai_error: null,
       })
       .where(eq(messagesTable.id, messageId));
 

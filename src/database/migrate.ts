@@ -28,7 +28,7 @@ export async function runMigrations(): Promise<void> {
   } catch (error) {
     logger.error(
       { error: error instanceof Error ? error.message : String(error) },
-      "Migration failed"
+      "Migration failed",
     );
     throw error;
   }
