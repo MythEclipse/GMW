@@ -1,5 +1,6 @@
 import type { Client } from "discord.js-selfbot-v13";
 import express from "express";
+import fs from "fs";
 import helmet from "helmet";
 import http from "http";
 import path from "path";
@@ -151,7 +152,12 @@ export async function startWebserver(
   app.use(express.static(path.join(__dirname, "../public")));
 
   app.get("/", (_req, res) => {
-    res.sendFile(path.join(__dirname, "../public/index.html"));
+    const reactIndex = path.join(__dirname, "../public/app/index.html");
+    if (fs.existsSync(reactIndex)) {
+      res.sendFile(reactIndex);
+    } else {
+      res.sendFile(path.join(__dirname, "../public/index.html"));
+    }
   });
 
   // Health check endpoint
