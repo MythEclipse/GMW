@@ -1,11 +1,11 @@
 import type { WebSocket } from "ws";
+import { createChildLogger } from "../logger";
 import type {
   AnalysisQueueStatus,
   AttachmentRecord,
   MessageRecord,
   ModerationWsEvent,
 } from "./types";
-import { createChildLogger } from "../logger";
 
 type ClientLike = Pick<WebSocket, "readyState" | "send">;
 

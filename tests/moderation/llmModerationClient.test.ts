@@ -1,9 +1,9 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { MessageRecord } from "../../src/moderation/types";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   parseModerationResponse,
   runModerationAnalysis,
 } from "../../src/moderation/llmModerationClient";
+import type { MessageRecord } from "../../src/moderation/types";
 
 vi.mock("../../src/retry", () => ({
   retryWithBackoff: vi.fn((fn) => fn()),

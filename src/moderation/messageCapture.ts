@@ -8,11 +8,11 @@ import {
   getMessageMetadata,
 } from "./messageMetadata";
 import {
-  insertAttachment,
-  upsertMessageForCapture,
-  updateMessageAsEdited,
-  updateMessageAsDeleted,
   getMessageById,
+  insertAttachment,
+  updateMessageAsDeleted,
+  updateMessageAsEdited,
+  upsertMessageForCapture,
 } from "./messageStore";
 import type {
   AttachmentRecord,

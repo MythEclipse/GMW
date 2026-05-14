@@ -1,5 +1,7 @@
 import { config } from "../config";
 import { createChildLogger } from "../logger";
+import { buildConversationPromptMessages } from "./conversationContext";
+import { runModerationAnalysis } from "./llmModerationClient";
 import {
   getConversationContextBefore,
   getMessageById,
@@ -7,8 +9,6 @@ import {
   getPendingMessagesByConversation,
   updateMessageAIAnalysis,
 } from "./messageStore";
-import { buildConversationPromptMessages } from "./conversationContext";
-import { runModerationAnalysis } from "./llmModerationClient";
 import type { AnalysisQueueStatus, MessageRecord } from "./types";
 
 const logger = createChildLogger("ai-analyzer");

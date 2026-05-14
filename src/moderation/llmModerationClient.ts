@@ -1,7 +1,7 @@
-import type { AnalysisResult, MessageRecord } from "./types";
 import { config } from "../config";
 import { createChildLogger } from "../logger";
 import { retryWithBackoff } from "../retry";
+import type { AnalysisResult, MessageRecord } from "./types";
 
 const log = createChildLogger("llmModerationClient");
 

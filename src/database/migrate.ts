@@ -1,10 +1,10 @@
 import "dotenv/config";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
+import Database from "better-sqlite3";
 import { migrate as migrateSqlite } from "drizzle-orm/better-sqlite3/migrator";
-import { initializeDatabase } from "./drizzle";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { config } from "../config";
 import { createChildLogger } from "../logger";
-import Database from "better-sqlite3";
+import { initializeDatabase } from "./drizzle";
 
 const logger = createChildLogger("migrate");
 

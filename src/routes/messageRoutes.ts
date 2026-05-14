@@ -20,9 +20,9 @@ const aiStatuses = new Set<AIStatus>([
 
 function parseStatuses(value?: string): AIStatus[] | undefined {
   if (!value) return undefined;
-  return value.split(",").filter((item): item is AIStatus =>
-    aiStatuses.has(item as AIStatus),
-  );
+  return value
+    .split(",")
+    .filter((item): item is AIStatus => aiStatuses.has(item as AIStatus));
 }
 
 export function createMessageRoutes(): Router {

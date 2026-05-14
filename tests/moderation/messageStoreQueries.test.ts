@@ -1,19 +1,19 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  closeDatabase,
+  getDatabase,
+  initializeDatabase,
+} from "../../src/database/drizzle";
+import { createChildLogger } from "../../src/logger";
+import {
   decodeCursor,
   encodeCursor,
+  getMessageById,
   insertMessage,
   listMessages,
   listReviewMessages,
   updateMessageAsEdited,
-  getMessageById,
 } from "../../src/moderation/messageStore";
-import {
-  getDatabase,
-  initializeDatabase,
-  closeDatabase,
-} from "../../src/database/drizzle";
-import { createChildLogger } from "../../src/logger";
 import type { MessageRecord } from "../../src/moderation/types";
 
 const logger = createChildLogger("messageStoreQueries.test");
