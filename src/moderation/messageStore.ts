@@ -500,3 +500,81 @@ export async function getConversationContextBefore(input: {
     throw error;
   }
 }
+
+export async function getPendingMessagesByConversation(
+  conversationKey: string,
+  limit: number = 25,
+): Promise<MessageRecord[]> {
+  try {
+    const db = getDatabase() as any;
+
+    // conversationKey is either thread_id or channel_id
+    const isThreadId = conversationKey.startsWith("t");
+    const condition = isThreadId
+      ? eq(messagesTable.thread_id, conversationKey)
+      : eq(messagesTable.channel_id, conversationKey);
+
+    const rows = await db
+      .select()
+      .from(messagesTable)
+      .where(
+        and(
+          condition,
+          eq(messagesTable.ai_status, "pending"),
+          isNull(messagesTable.deleted_at),
+        ),
+      )
+      .orderBy(asc(messagesTable.created_at))
+      .limit(limit);
+
+    return rows as MessageRecord[];
+  } catch (error) {
+    logger.error(
+      {
+        conversationKey,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "Failed to get pending messages by conversation",
+    );
+    throw error;
+  }
+}
+
+export async function getPendingConversationKeys(
+  limit: number = 100,
+): Promise<string[]> {
+  try {
+    const db = getDatabase() as any;
+
+    // Get distinct conversation keys (thread_id or channel_id) for pending messages
+    const rows = await db
+      .selectDistinct({
+        thread_id: messagesTable.thread_id,
+        channel_id: messagesTable.channel_id,
+      })
+      .from(messagesTable)
+      .where(
+        and(
+          eq(messagesTable.ai_status, "pending"),
+          isNull(messagesTable.deleted_at),
+        ),
+      )
+      .limit(limit);
+
+    const keys: string[] = [];
+    for (const row of rows as any[]) {
+      const key = row.thread_id || row.channel_id;
+      if (key && !keys.includes(key)) {
+        keys.push(key);
+      }
+    }
+
+    return keys;
+  } catch (error) {
+    logger.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Failed to get pending conversation keys",
+    );
+    throw error;
+  }
+}
