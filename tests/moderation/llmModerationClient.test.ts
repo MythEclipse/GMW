@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { MessageRecord } from "../../src/moderation/types";
 import {
   parseModerationResponse,
   runModerationAnalysis,
@@ -7,6 +8,33 @@ import {
 vi.mock("../../src/retry", () => ({
   retryWithBackoff: vi.fn((fn) => fn()),
 }));
+
+/**
+ * Helper to create a full MessageRecord fixture with sensible defaults.
+ * Only override fields that differ from defaults.
+ */
+function createMessageRecord(
+  overrides: Partial<MessageRecord> = {},
+): MessageRecord {
+  const now = Date.now();
+  return {
+    id: "m1",
+    guild_id: "guild123",
+    channel_id: "channel123",
+    thread_id: null,
+    user_id: "user123",
+    username: "user1",
+    avatar_url: null,
+    content: "hello",
+    edited_content: null,
+    created_at: now,
+    edited_at: null,
+    deleted_at: null,
+    type: "text",
+    metadata: null,
+    ...overrides,
+  };
+}
 
 describe("parseModerationResponse", () => {
   beforeEach(() => {
@@ -255,7 +283,7 @@ describe("runModerationAnalysis", () => {
     });
 
     const result = await runModerationAnalysis({
-      targets: [{ id: "m1", username: "user1", content: "hello" }],
+      targets: [createMessageRecord()],
       contextText: "test context",
     });
 
@@ -273,7 +301,7 @@ describe("runModerationAnalysis", () => {
 
     await expect(
       runModerationAnalysis({
-        targets: [{ id: "m1", username: "user1", content: "hello" }],
+        targets: [createMessageRecord()],
         contextText: "test context",
       }),
     ).rejects.toThrow(/LLM API error 500/);
@@ -287,7 +315,7 @@ describe("runModerationAnalysis", () => {
 
     await expect(
       runModerationAnalysis({
-        targets: [{ id: "m1", username: "user1", content: "hello" }],
+        targets: [createMessageRecord()],
         contextText: "test context",
       }),
     ).rejects.toThrow(/Invalid LLM response structure/);
@@ -303,7 +331,7 @@ describe("runModerationAnalysis", () => {
 
     await expect(
       runModerationAnalysis({
-        targets: [{ id: "m1", username: "user1", content: "hello" }],
+        targets: [createMessageRecord()],
         contextText: "test context",
       }),
     ).rejects.toThrow(/No content in LLM response/);
