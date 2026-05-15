@@ -93,7 +93,12 @@ export interface AnalysisResult {
 }
 
 export type MediaMode = "music" | "screen";
-export type MediaSourceKind = "url" | "local" | "youtube" | "spotify" | "search";
+export type MediaSourceKind =
+  | "url"
+  | "local"
+  | "youtube"
+  | "spotify"
+  | "search";
 export type MediaQueueItemStatus = "queued" | "playing" | "failed";
 
 export interface MediaQueueItem {

@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { AppError } from "../../src/errors";
-import { createMediaResolver, resolveMediaSource } from "../../src/media/mediaResolver";
+import {
+  createMediaResolver,
+  resolveMediaSource,
+} from "../../src/media/mediaResolver";
 
 describe("resolveMediaSource", () => {
   it("accepts http URLs", async () => {
@@ -48,7 +51,9 @@ describe("resolveMediaSource", () => {
     const resolver = createMediaResolver({
       ytdlp: {
         getMetadata: vi.fn(),
-        getDirectAudioUrl: vi.fn(async () => "https://audio.example.com/search"),
+        getDirectAudioUrl: vi.fn(
+          async () => "https://audio.example.com/search",
+        ),
       },
       playDlResolver: {
         searchYouTube: vi.fn(async () => ({
@@ -117,7 +122,9 @@ describe("resolveMediaSource", () => {
     const resolver = createMediaResolver({
       ytdlp: {
         getMetadata: vi.fn(),
-        getDirectAudioUrl: vi.fn(async () => "https://audio.example.com/spotify"),
+        getDirectAudioUrl: vi.fn(
+          async () => "https://audio.example.com/spotify",
+        ),
       },
       playDlResolver: {
         searchYouTube: vi.fn(),

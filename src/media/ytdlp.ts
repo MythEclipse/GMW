@@ -27,7 +27,10 @@ export function createYtDlp(dependencies: YtDlpDependencies = {}): YtDlpClient {
         "--no-warnings",
         "--quiet",
       ]);
-      const parsed = JSON.parse(data) as { title?: string; webpage_url?: string };
+      const parsed = JSON.parse(data) as {
+        title?: string;
+        webpage_url?: string;
+      };
       return {
         title: parsed.title || url,
         webpageUrl: parsed.webpage_url || url,

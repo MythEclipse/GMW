@@ -30,7 +30,8 @@ export interface PlayDlDependencies {
 
 export function createPlayDlResolver(dependencies: PlayDlDependencies = {}) {
   const search: SearchFunction = dependencies.search ?? play.search;
-  const spotify: SpotifyFunction = dependencies.spotify ?? (play.spotify as SpotifyFunction);
+  const spotify: SpotifyFunction =
+    dependencies.spotify ?? (play.spotify as SpotifyFunction);
 
   return {
     async searchYouTube(query: string): Promise<PlayDlResult> {

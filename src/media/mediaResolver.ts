@@ -1,8 +1,8 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { AppError } from "../errors";
-import { createPlayDlResolver } from "./playDlResolver";
 import type { ResolvedMediaSource } from "./mediaTypes";
+import { createPlayDlResolver } from "./playDlResolver";
 import { createYtDlp, type YtDlpClient } from "./ytdlp";
 
 type PlayDlResolver = ReturnType<typeof createPlayDlResolver>;
@@ -21,7 +21,11 @@ export function createMediaResolver(
   return async function resolve(input: string): Promise<ResolvedMediaSource> {
     const source = input.trim();
     if (!source) {
-      throw new AppError("Media source is required", "MISSING_MEDIA_SOURCE", 400);
+      throw new AppError(
+        "Media source is required",
+        "MISSING_MEDIA_SOURCE",
+        400,
+      );
     }
 
     const url = parseUrl(source);
@@ -78,13 +82,18 @@ function looksLikeUrl(source: string): boolean {
 }
 
 function isYouTubeUrl(url: URL): boolean {
-  return ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"].includes(
-    url.hostname,
-  );
+  return [
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "youtu.be",
+  ].includes(url.hostname);
 }
 
 function isSpotifyTrackUrl(url: URL): boolean {
-  return url.hostname === "open.spotify.com" && url.pathname.startsWith("/track/");
+  return (
+    url.hostname === "open.spotify.com" && url.pathname.startsWith("/track/")
+  );
 }
 
 function resolveUrlSource(source: string): ResolvedMediaSource | null {
