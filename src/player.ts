@@ -29,6 +29,10 @@ export class DiscordPlayer {
     this.connection.subscribe(this.player);
   }
 
+  public isConnected(): boolean {
+    return this.connection !== null;
+  }
+
   public playStream(stream: Readable) {
     console.log("[player] Starting new audio stream...");
 
