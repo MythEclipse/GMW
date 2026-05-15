@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { MediaQueue } from "../../src/media/mediaQueue";
 import type { ResolvedMediaSource } from "../../src/media/mediaTypes";
 
-function source(overrides: Partial<ResolvedMediaSource> = {}): ResolvedMediaSource {
+function source(
+  overrides: Partial<ResolvedMediaSource> = {},
+): ResolvedMediaSource {
   return {
     source: "https://example.com/audio.ogg",
     title: "audio.ogg",
@@ -13,7 +15,10 @@ function source(overrides: Partial<ResolvedMediaSource> = {}): ResolvedMediaSour
 
 describe("MediaQueue", () => {
   it("adds items with stable queue metadata", () => {
-    const queue = new MediaQueue(() => "item-1", () => 1700000000000);
+    const queue = new MediaQueue(
+      () => "item-1",
+      () => 1700000000000,
+    );
 
     const item = queue.add(source(), "tester");
 
@@ -31,7 +36,10 @@ describe("MediaQueue", () => {
   });
 
   it("marks the next queued item as playing", () => {
-    const queue = new MediaQueue(() => "item-1", () => 1700000000000);
+    const queue = new MediaQueue(
+      () => "item-1",
+      () => 1700000000000,
+    );
     const item = queue.add(source(), "tester");
 
     expect(queue.startNext()).toEqual({ ...item, status: "playing" });
@@ -43,7 +51,10 @@ describe("MediaQueue", () => {
 
   it("removes current item and starts following item", () => {
     let id = 0;
-    const queue = new MediaQueue(() => `item-${++id}`, () => 1700000000000);
+    const queue = new MediaQueue(
+      () => `item-${++id}`,
+      () => 1700000000000,
+    );
     queue.add(source({ title: "first" }), "tester");
     queue.add(source({ title: "second" }), "tester");
     queue.startNext();
@@ -56,7 +67,10 @@ describe("MediaQueue", () => {
   });
 
   it("returns the failed current item", () => {
-    const queue = new MediaQueue(() => "item-1", () => 1700000000000);
+    const queue = new MediaQueue(
+      () => "item-1",
+      () => 1700000000000,
+    );
     const item = queue.add(source(), "tester");
     queue.startNext();
 
@@ -65,7 +79,10 @@ describe("MediaQueue", () => {
   });
 
   it("clears current and queued items", () => {
-    const queue = new MediaQueue(() => "item-1", () => 1700000000000);
+    const queue = new MediaQueue(
+      () => "item-1",
+      () => 1700000000000,
+    );
     queue.add(source(), "tester");
     queue.startNext();
 

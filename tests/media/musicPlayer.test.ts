@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { createMusicPlayer } from "../../src/media/musicPlayer";
 import type { DiscordAudioPlayer } from "../../src/media/mediaTypes";
+import { createMusicPlayer } from "../../src/media/musicPlayer";
 
 class FakeProcess extends EventEmitter {
   stdout = new PassThrough();
@@ -34,23 +34,27 @@ describe("createMusicPlayer", () => {
     proc.emit("close", 0);
     await playback.done;
 
-    expect(spawn).toHaveBeenCalledWith("ffmpeg", [
-      "-hide_banner",
-      "-loglevel",
-      "warning",
-      "-i",
-      "https://example.com/song.mp3",
-      "-vn",
-      "-acodec",
-      "libopus",
-      "-ar",
-      "48000",
-      "-ac",
-      "2",
-      "-f",
-      "ogg",
-      "pipe:1",
-    ], { stdio: ["ignore", "pipe", "pipe"] });
+    expect(spawn).toHaveBeenCalledWith(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-i",
+        "https://example.com/song.mp3",
+        "-vn",
+        "-acodec",
+        "libopus",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-f",
+        "ogg",
+        "pipe:1",
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
     expect(discordPlayer.playStream).toHaveBeenCalledWith(proc.stdout);
   });
 
@@ -64,7 +68,11 @@ describe("createMusicPlayer", () => {
     const player = createMusicPlayer({ spawn, discordPlayer });
 
     expect(() =>
-      player.play({ source: "/tmp/song.ogg", title: "song.ogg", kind: "local" }),
+      player.play({
+        source: "/tmp/song.ogg",
+        title: "song.ogg",
+        kind: "local",
+      }),
     ).toThrow("Discord audio player is not connected");
     expect(spawn).not.toHaveBeenCalled();
   });
@@ -76,9 +84,16 @@ describe("createMusicPlayer", () => {
       playStream: vi.fn(),
       stop: vi.fn(),
     };
-    const player = createMusicPlayer({ spawn: vi.fn(() => proc), discordPlayer });
+    const player = createMusicPlayer({
+      spawn: vi.fn(() => proc),
+      discordPlayer,
+    });
 
-    const playback = player.play({ source: "/tmp/song.ogg", title: "song.ogg", kind: "local" });
+    const playback = player.play({
+      source: "/tmp/song.ogg",
+      title: "song.ogg",
+      kind: "local",
+    });
     playback.stop();
     playback.stop();
 

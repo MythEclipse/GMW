@@ -2,7 +2,11 @@ import type { Request, Response } from "express";
 import { describe, expect, it, vi } from "vitest";
 import { createMediaRoutes } from "../../src/routes/mediaRoutes";
 
-function getHandler(router: ReturnType<typeof createMediaRoutes>, path: string, method: string) {
+function getHandler(
+  router: ReturnType<typeof createMediaRoutes>,
+  path: string,
+  method: string,
+) {
   const layer = router.stack.find((item) => item.route?.path === path);
   return layer?.route?.stack.find((item) => item.method === method)?.handle;
 }
@@ -15,12 +19,20 @@ describe("createMediaRoutes", () => {
       skip: vi.fn(),
       stop: vi.fn(),
     };
-    const handler = getHandler(createMediaRoutes(controller), "/media/status", "get");
+    const handler = getHandler(
+      createMediaRoutes(controller),
+      "/media/status",
+      "get",
+    );
     const json = vi.fn();
 
     await handler?.({} as Request, { json } as unknown as Response, vi.fn());
 
-    expect(json).toHaveBeenCalledWith({ playing: false, current: null, queue: [] });
+    expect(json).toHaveBeenCalledWith({
+      playing: false,
+      current: null,
+      queue: [],
+    });
   });
 
   it("queues a source", async () => {
@@ -31,7 +43,11 @@ describe("createMediaRoutes", () => {
       skip: vi.fn(),
       stop: vi.fn(),
     };
-    const handler = getHandler(createMediaRoutes(controller), "/media/queue", "post");
+    const handler = getHandler(
+      createMediaRoutes(controller),
+      "/media/queue",
+      "post",
+    );
     const json = vi.fn();
 
     await handler?.(
@@ -40,7 +56,9 @@ describe("createMediaRoutes", () => {
       vi.fn(),
     );
 
-    expect(controller.queue).toHaveBeenCalledWith("https://example.com/song.mp3");
+    expect(controller.queue).toHaveBeenCalledWith(
+      "https://example.com/song.mp3",
+    );
     expect(json).toHaveBeenCalledWith(state);
   });
 
@@ -51,7 +69,11 @@ describe("createMediaRoutes", () => {
       skip: vi.fn(),
       stop: vi.fn(),
     };
-    const handler = getHandler(createMediaRoutes(controller), "/media/queue", "post");
+    const handler = getHandler(
+      createMediaRoutes(controller),
+      "/media/queue",
+      "post",
+    );
     const next = vi.fn();
 
     await handler?.(

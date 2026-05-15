@@ -23,7 +23,11 @@ export function createMediaRoutes(controller: MediaRouteController): Router {
     try {
       const { source } = req.body as { source?: string };
       if (!source) {
-        throw new AppError("Media source is required", "MISSING_MEDIA_SOURCE", 400);
+        throw new AppError(
+          "Media source is required",
+          "MISSING_MEDIA_SOURCE",
+          400,
+        );
       }
       res.json(await controller.queue(source));
     } catch (error) {

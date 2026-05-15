@@ -8,6 +8,7 @@ import * as prism from "prism-media";
 import { WebSocketServer } from "ws";
 import { AppError } from "./errors";
 import { createChildLogger, logger } from "./logger";
+import { MediaController } from "./media/mediaController";
 import { getMetrics, uptimeGauge } from "./metrics";
 import { createBroadcaster } from "./moderation/broadcaster";
 import type { ModerationBroadcaster } from "./moderation/types";
@@ -19,7 +20,6 @@ import { createMessageRoutes } from "./routes/messageRoutes";
 import { createSyncRoutes } from "./routes/syncRoutes";
 import { createUIStateRoutes } from "./routes/uiStateRoutes";
 import { createVoiceRoutes } from "./routes/voiceRoutes";
-import { MediaController } from "./media/mediaController";
 import type { VoiceController } from "./voiceController";
 
 const wsLogger = createChildLogger("webserver");
@@ -378,7 +378,12 @@ export async function startWebserver(
       }),
     );
     ws.send(JSON.stringify({ type: "ui_state", state: getSharedUIState() }));
-    ws.send(JSON.stringify({ type: "media_state", state: mediaController.getState() }));
+    ws.send(
+      JSON.stringify({
+        type: "media_state",
+        state: mediaController.getState(),
+      }),
+    );
 
     ws.on("message", (data: Buffer | ArrayBuffer | Buffer[]) => {
       if (!Buffer.isBuffer(data)) return;

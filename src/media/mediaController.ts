@@ -2,13 +2,13 @@ import { AppError } from "../errors";
 import { discordPlayer } from "../player";
 import { MediaQueue } from "./mediaQueue";
 import { resolveMediaSource } from "./mediaResolver";
-import { createMusicPlayer } from "./musicPlayer";
 import type {
   MediaState,
   MusicPlayback,
   MusicPlayer,
   ResolvedMediaSource,
 } from "./mediaTypes";
+import { createMusicPlayer } from "./musicPlayer";
 
 export interface MediaControllerDependencies {
   isVoiceConnected?: () => boolean;
@@ -39,9 +39,9 @@ export class MediaController {
 
   async queue(source: string): Promise<MediaState> {
     this.assertCanStart();
-    const resolved = await (this.dependencies.resolveMediaSource ?? resolveMediaSource)(
-      source,
-    );
+    const resolved = await (
+      this.dependencies.resolveMediaSource ?? resolveMediaSource
+    )(source);
     this.queueStore.add(resolved);
     this.startNextIfIdle();
     return this.emitState();
@@ -49,7 +49,11 @@ export class MediaController {
 
   async skip(): Promise<MediaState> {
     if (this.skipInProgress) {
-      throw new AppError("Skip already in progress", "MEDIA_SKIP_IN_PROGRESS", 409);
+      throw new AppError(
+        "Skip already in progress",
+        "MEDIA_SKIP_IN_PROGRESS",
+        409,
+      );
     }
 
     this.skipInProgress = true;
@@ -74,8 +78,8 @@ export class MediaController {
   }
 
   private assertCanStart(): void {
-    const isVoiceConnected = this.dependencies.isVoiceConnected ??
-      (() => discordPlayer.isConnected());
+    const isVoiceConnected =
+      this.dependencies.isVoiceConnected ?? (() => discordPlayer.isConnected());
     if (!isVoiceConnected()) {
       throw new AppError(
         "Connect to a voice channel before playing media",

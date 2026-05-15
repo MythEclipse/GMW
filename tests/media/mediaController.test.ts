@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { AppError } from "../../src/errors";
 import { MediaController } from "../../src/media/mediaController";
-import type { MusicPlayback, MusicPlayer, ResolvedMediaSource } from "../../src/media/mediaTypes";
+import type {
+  MusicPlayback,
+  MusicPlayer,
+  ResolvedMediaSource,
+} from "../../src/media/mediaTypes";
 
 function deferred() {
   let resolve!: () => void;
@@ -26,7 +30,9 @@ describe("MediaController", () => {
       musicPlayer: { play: vi.fn() },
     });
 
-    await expect(controller.queue("https://example.com/song.mp3")).rejects.toMatchObject({
+    await expect(
+      controller.queue("https://example.com/song.mp3"),
+    ).rejects.toMatchObject({
       code: "VOICE_NOT_CONNECTED",
       statusCode: 409,
     } satisfies Partial<AppError>);
@@ -40,7 +46,9 @@ describe("MediaController", () => {
       musicPlayer: { play: vi.fn() },
     });
 
-    await expect(controller.queue("https://example.com/song.mp3")).rejects.toMatchObject({
+    await expect(
+      controller.queue("https://example.com/song.mp3"),
+    ).rejects.toMatchObject({
       code: "BROWSER_STREAM_ACTIVE",
       statusCode: 409,
     } satisfies Partial<AppError>);
@@ -94,7 +102,10 @@ describe("MediaController", () => {
     const musicPlayer: MusicPlayer = {
       play: vi
         .fn()
-        .mockReturnValueOnce({ done: new Promise<void>(() => {}), stop: currentStop })
+        .mockReturnValueOnce({
+          done: new Promise<void>(() => {}),
+          stop: currentStop,
+        })
         .mockReturnValueOnce({ done: nextPlayback.promise, stop: vi.fn() }),
     };
     const controller = new MediaController({
@@ -170,7 +181,9 @@ describe("MediaController", () => {
       isVoiceConnected: () => true,
       isBrowserStreaming: () => false,
       resolveMediaSource: async (input) => source(input),
-      musicPlayer: { play: vi.fn(() => ({ done: new Promise<void>(() => {}), stop })) },
+      musicPlayer: {
+        play: vi.fn(() => ({ done: new Promise<void>(() => {}), stop })),
+      },
     });
     await controller.queue("https://example.com/song.mp3");
 
@@ -186,7 +199,9 @@ describe("MediaController", () => {
       isVoiceConnected: () => true,
       isBrowserStreaming: () => false,
       resolveMediaSource: async (input) => source(input),
-      musicPlayer: { play: vi.fn(() => ({ done: new Promise(() => {}), stop: vi.fn() })) },
+      musicPlayer: {
+        play: vi.fn(() => ({ done: new Promise(() => {}), stop: vi.fn() })),
+      },
       onStateChange,
     });
 

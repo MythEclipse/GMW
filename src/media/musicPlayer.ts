@@ -1,5 +1,5 @@
-import { spawn as nodeSpawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn as nodeSpawn } from "node:child_process";
 import { discordPlayer } from "../player";
 import type {
   DiscordAudioPlayer,

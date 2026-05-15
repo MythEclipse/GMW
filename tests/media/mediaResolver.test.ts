@@ -7,7 +7,9 @@ import { resolveMediaSource } from "../../src/media/mediaResolver";
 
 describe("resolveMediaSource", () => {
   it("accepts http URLs", async () => {
-    await expect(resolveMediaSource("https://example.com/music.mp3")).resolves.toEqual({
+    await expect(
+      resolveMediaSource("https://example.com/music.mp3"),
+    ).resolves.toEqual({
       source: "https://example.com/music.mp3",
       title: "music.mp3",
       kind: "url",
@@ -43,14 +45,18 @@ describe("resolveMediaSource", () => {
   });
 
   it("rejects unsupported sources", async () => {
-    await expect(resolveMediaSource("not a url or file")).rejects.toMatchObject({
-      code: "UNSUPPORTED_MEDIA_SOURCE",
-      statusCode: 400,
-    } satisfies Partial<AppError>);
+    await expect(resolveMediaSource("not a url or file")).rejects.toMatchObject(
+      {
+        code: "UNSUPPORTED_MEDIA_SOURCE",
+        statusCode: 400,
+      } satisfies Partial<AppError>,
+    );
   });
 
   it("rejects non-http URL sources", async () => {
-    await expect(resolveMediaSource("file:///tmp/song.mp3")).rejects.toMatchObject({
+    await expect(
+      resolveMediaSource("file:///tmp/song.mp3"),
+    ).rejects.toMatchObject({
       code: "UNSUPPORTED_MEDIA_SOURCE",
       statusCode: 400,
     } satisfies Partial<AppError>);
