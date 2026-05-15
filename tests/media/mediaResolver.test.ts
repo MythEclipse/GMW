@@ -1,9 +1,9 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AppError } from "../../src/errors";
-import { resolveMediaSource } from "../../src/media/mediaResolver";
+import { createMediaResolver, resolveMediaSource } from "../../src/media/mediaResolver";
 
 describe("resolveMediaSource", () => {
   it("accepts http URLs", async () => {
@@ -44,13 +44,26 @@ describe("resolveMediaSource", () => {
     });
   });
 
-  it("rejects unsupported sources", async () => {
-    await expect(resolveMediaSource("not a url or file")).rejects.toMatchObject(
-      {
-        code: "UNSUPPORTED_MEDIA_SOURCE",
-        statusCode: 400,
-      } satisfies Partial<AppError>,
-    );
+  it("resolves search queries to YouTube results", async () => {
+    const resolver = createMediaResolver({
+      ytdlp: {
+        getMetadata: vi.fn(),
+        getDirectAudioUrl: vi.fn(async () => "https://audio.example.com/search"),
+      },
+      playDlResolver: {
+        searchYouTube: vi.fn(async () => ({
+          title: "Search Result",
+          url: "https://youtube.com/watch?v=search",
+        })),
+        resolveSpotifyTrack: vi.fn(),
+      },
+    });
+
+    await expect(resolver("artist song")).resolves.toEqual({
+      source: "https://audio.example.com/search",
+      title: "Search Result",
+      kind: "search",
+    });
   });
 
   it("rejects non-http URL sources", async () => {
@@ -75,6 +88,52 @@ describe("resolveMediaSource", () => {
     ).resolves.toMatchObject({
       kind: "url",
       source: "https://cdn.example.com/song.mp3",
+    });
+  });
+
+  it("resolves YouTube URLs with yt-dlp metadata", async () => {
+    const resolver = createMediaResolver({
+      ytdlp: {
+        getMetadata: vi.fn(async () => ({
+          title: "YouTube Song",
+          webpageUrl: "https://youtube.com/watch?v=abc",
+        })),
+        getDirectAudioUrl: vi.fn(async () => "https://audio.example.com/abc"),
+      },
+      playDlResolver: {
+        searchYouTube: vi.fn(),
+        resolveSpotifyTrack: vi.fn(),
+      },
+    });
+
+    await expect(resolver("https://youtu.be/abc")).resolves.toEqual({
+      source: "https://audio.example.com/abc",
+      title: "YouTube Song",
+      kind: "youtube",
+    });
+  });
+
+  it("resolves Spotify track URLs through YouTube search", async () => {
+    const resolver = createMediaResolver({
+      ytdlp: {
+        getMetadata: vi.fn(),
+        getDirectAudioUrl: vi.fn(async () => "https://audio.example.com/spotify"),
+      },
+      playDlResolver: {
+        searchYouTube: vi.fn(),
+        resolveSpotifyTrack: vi.fn(async () => ({
+          title: "Spotify Match",
+          url: "https://youtube.com/watch?v=spotify",
+        })),
+      },
+    });
+
+    await expect(
+      resolver("https://open.spotify.com/track/123"),
+    ).resolves.toEqual({
+      source: "https://audio.example.com/spotify",
+      title: "Spotify Match",
+      kind: "spotify",
     });
   });
 });
