@@ -5,6 +5,7 @@ import "dotenv/config";
 import { Client } from "discord.js-selfbot-v13";
 import { config } from "./config";
 import { closeDatabase, initializeDatabase } from "./database/drizzle";
+import { createDiscordClientOptions } from "./discordClientOptions";
 import { createChildLogger } from "./logger";
 import { startPendingAIAnalysisWorker } from "./moderation/aiAnalyzer";
 import { syncBacklogMessages } from "./moderation/backlogSync";
@@ -22,7 +23,7 @@ logger.info(
 );
 
 logger.info("Creating Discord client");
-const client = new Client();
+const client = new Client(createDiscordClientOptions());
 const voiceController = new VoiceController(client);
 
 let isShuttingDown = false;
