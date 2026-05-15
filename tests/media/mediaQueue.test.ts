@@ -55,6 +55,15 @@ describe("MediaQueue", () => {
     expect(queue.snapshot().queue).toEqual([]);
   });
 
+  it("returns the failed current item", () => {
+    const queue = new MediaQueue(() => "item-1", () => 1700000000000);
+    const item = queue.add(source(), "tester");
+    queue.startNext();
+
+    expect(queue.failCurrent()).toEqual({ ...item, status: "failed" });
+    expect(queue.snapshot()).toEqual({ current: null, queue: [] });
+  });
+
   it("clears current and queued items", () => {
     const queue = new MediaQueue(() => "item-1", () => 1700000000000);
     queue.add(source(), "tester");

@@ -38,11 +38,11 @@ export class MediaQueue {
     this.current = null;
   }
 
-  failCurrent(): void {
-    if (this.current) {
-      this.current = { ...this.current, status: "failed" };
-    }
+  failCurrent(): MediaQueueItem | null {
+    if (!this.current) return null;
+    const failed = { ...this.current, status: "failed" as const };
     this.current = null;
+    return failed;
   }
 
   clear(): void {
