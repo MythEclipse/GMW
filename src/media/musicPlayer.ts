@@ -21,16 +21,23 @@ export function createMusicPlayer(
 
   return {
     play(source: ResolvedMediaSource): MusicPlayback {
+      if (!audioPlayer.isConnected()) {
+        throw new Error("Discord audio player is not connected");
+      }
+
       const proc = spawn("ffmpeg", buildFfmpegArgs(source.source), {
         stdio: ["ignore", "pipe", "pipe"],
       }) as unknown as ChildProcessWithoutNullStreams;
+      proc.stderr.resume();
 
       audioPlayer.playStream(proc.stdout);
 
+      let stopped = false;
       const done = new Promise<void>((resolve, reject) => {
         proc.on("error", reject);
+        proc.stdout.on("error", reject);
         proc.on("close", (code) => {
-          if (code === 0) {
+          if (code === 0 || stopped) {
             resolve();
             return;
           }
@@ -41,6 +48,8 @@ export function createMusicPlayer(
       return {
         done,
         stop() {
+          if (stopped) return;
+          stopped = true;
           proc.kill("SIGTERM");
           audioPlayer.stop();
         },

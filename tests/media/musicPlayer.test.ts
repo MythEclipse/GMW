@@ -54,7 +54,22 @@ describe("createMusicPlayer", () => {
     expect(discordPlayer.playStream).toHaveBeenCalledWith(proc.stdout);
   });
 
-  it("kills ffmpeg and stops Discord playback", () => {
+  it("rejects playback when Discord is not connected", () => {
+    const spawn = vi.fn(() => new FakeProcess());
+    const discordPlayer: DiscordAudioPlayer = {
+      isConnected: () => false,
+      playStream: vi.fn(),
+      stop: vi.fn(),
+    };
+    const player = createMusicPlayer({ spawn, discordPlayer });
+
+    expect(() =>
+      player.play({ source: "/tmp/song.ogg", title: "song.ogg", kind: "local" }),
+    ).toThrow("Discord audio player is not connected");
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("kills ffmpeg and stops Discord playback once", () => {
     const proc = new FakeProcess();
     const discordPlayer: DiscordAudioPlayer = {
       isConnected: () => true,
@@ -65,8 +80,10 @@ describe("createMusicPlayer", () => {
 
     const playback = player.play({ source: "/tmp/song.ogg", title: "song.ogg", kind: "local" });
     playback.stop();
+    playback.stop();
 
+    expect(proc.kill).toHaveBeenCalledTimes(1);
     expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
-    expect(discordPlayer.stop).toHaveBeenCalled();
+    expect(discordPlayer.stop).toHaveBeenCalledTimes(1);
   });
 });
