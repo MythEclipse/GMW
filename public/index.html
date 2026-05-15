@@ -43,6 +43,12 @@
           <div style="display:grid;gap:12px;grid-template-columns:1fr 1fr;margin-bottom:14px"><button id="toggleBtn" class="btn btn-primary">Start Transmitting</button><button id="listenBtn" class="btn btn-success">Join Listen Channel</button></div>
           <div class="visualizer" id="visualizer"></div>
         </div>
+        <div class="content-card">
+          <div class="card-title"><h2>Media</h2><span class="mini" id="mediaStatus">Idle</span></div>
+          <div class="field-group"><label for="mediaSourceInput">Music URL / file path</label><input id="mediaSourceInput" type="text" placeholder="https://example.com/song.mp3"></div>
+          <div class="button-row"><button id="queueMediaBtn" class="btn btn-primary">Queue / Play</button><button id="skipMediaBtn" class="btn btn-success">Skip</button><button id="stopMediaBtn" class="btn btn-danger">Stop</button></div>
+          <div id="mediaQueueList" class="feed"><div class="empty">No media queued</div></div>
+        </div>
       </div>
       <div class="content-card" style="margin-top:18px"><div class="card-title"><h2>Participants</h2><span class="mini">speaking now</span></div><div id="userList" class="participants"></div></div>
     </section>
@@ -68,11 +74,12 @@
       processor: null,
       userTimelines: new Map(),
       applyingServerState: false,
+      media: { playing: false, current: null, queue: [] },
     };
     const SAMPLE_RATE = 24000;
     const CHANNELS = 1;
     const el = {
-      wsDot: document.getElementById('wsDot'), wsStatusText: document.getElementById('wsStatusText'), activeTabLabel: document.getElementById('activeTabLabel'), errorBox: document.getElementById('errorBox'), voiceGuildSelect: document.getElementById('voiceGuildSelect'), textGuildSelect: document.getElementById('textGuildSelect'), channelSelect: document.getElementById('channelSelect'), channelFilter: document.getElementById('channelFilter'), joinVoiceBtn: document.getElementById('joinVoiceBtn'), disconnectVoiceBtn: document.getElementById('disconnectVoiceBtn'), voiceStatusText: document.getElementById('voiceStatusText'), voiceStatusNote: document.getElementById('voiceStatusNote'), toggleBtn: document.getElementById('toggleBtn'), listenBtn: document.getElementById('listenBtn'), listenStatus: document.getElementById('listenStatus'), visualizer: document.getElementById('visualizer'), userList: document.getElementById('userList'), textList: document.getElementById('textList'), reviewList: document.getElementById('reviewList')
+      wsDot: document.getElementById('wsDot'), wsStatusText: document.getElementById('wsStatusText'), activeTabLabel: document.getElementById('activeTabLabel'), errorBox: document.getElementById('errorBox'), voiceGuildSelect: document.getElementById('voiceGuildSelect'), textGuildSelect: document.getElementById('textGuildSelect'), channelSelect: document.getElementById('channelSelect'), channelFilter: document.getElementById('channelFilter'), joinVoiceBtn: document.getElementById('joinVoiceBtn'), disconnectVoiceBtn: document.getElementById('disconnectVoiceBtn'), voiceStatusText: document.getElementById('voiceStatusText'), voiceStatusNote: document.getElementById('voiceStatusNote'), toggleBtn: document.getElementById('toggleBtn'), listenBtn: document.getElementById('listenBtn'), listenStatus: document.getElementById('listenStatus'), visualizer: document.getElementById('visualizer'), userList: document.getElementById('userList'), textList: document.getElementById('textList'), reviewList: document.getElementById('reviewList'), mediaSourceInput: document.getElementById('mediaSourceInput'), mediaStatus: document.getElementById('mediaStatus'), queueMediaBtn: document.getElementById('queueMediaBtn'), skipMediaBtn: document.getElementById('skipMediaBtn'), stopMediaBtn: document.getElementById('stopMediaBtn'), mediaQueueList: document.getElementById('mediaQueueList')
     };
     for (let i = 0; i < 32; i++) { const bar = document.createElement('div'); bar.className = 'bar'; el.visualizer.appendChild(bar); }
     const bars = [...document.querySelectorAll('.bar')];
@@ -94,7 +101,7 @@
     async function disconnectVoice() { await apiRequest('/api/disconnect', { method: 'POST' }); await refreshStatus(); }
 
     function connectWebSocket() { const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; state.socket = new WebSocket(`${protocol}//${location.host}/ws`); state.socket.binaryType = 'arraybuffer'; state.socket.onopen = () => { el.wsDot.classList.add('on'); el.wsStatusText.textContent = 'Connected'; }; state.socket.onclose = () => { el.wsDot.classList.remove('on'); el.wsStatusText.textContent = 'Reconnecting'; setTimeout(connectWebSocket, 2500); }; state.socket.onerror = () => { el.wsDot.classList.remove('on'); el.wsDot.classList.add('warn'); el.wsStatusText.textContent = 'Socket error'; }; state.socket.onmessage = (event) => { if (event.data instanceof ArrayBuffer) { handleIncomingPCM(event.data); return; } try { handleJsonEvent(event.data); } catch {} }; }
-    function handleJsonEvent(raw) { const message = JSON.parse(raw); if (message.type === 'ui_state') return applyServerState(message.state); if (message.type === 'user_state') return renderUsers(message.users || []); if (message.type === 'message_created') { state.text.unshift(message.data); renderText(); } if (message.type === 'message_updated') { const item = state.text.find((entry) => entry.id === message.data.id); if (item) Object.assign(item, { edited_content: message.data.edited_content, edited_at: message.data.edited_at, type: 'edited' }); renderText(); } if (message.type === 'message_deleted') { const item = state.text.find((entry) => entry.id === message.data.id); if (item) Object.assign(item, { deleted_at: message.data.deleted_at, type: 'deleted' }); renderText(); } if (message.type === 'attachment_uploaded') fetchText(); if (message.type === 'message_analyzed') { const item = state.text.find((entry) => entry.id === message.data.id); if (item) Object.assign(item, message.data); renderText(); } }
+    function handleJsonEvent(raw) { const message = JSON.parse(raw); if (message.type === 'ui_state') return applyServerState(message.state); if (message.type === 'user_state') return renderUsers(message.users || []); if (message.type === 'message_created') { state.text.unshift(message.data); renderText(); } if (message.type === 'message_updated') { const item = state.text.find((entry) => entry.id === message.data.id); if (item) Object.assign(item, { edited_content: message.data.edited_content, edited_at: message.data.edited_at, type: 'edited' }); renderText(); } if (message.type === 'message_deleted') { const item = state.text.find((entry) => entry.id === message.data.id); if (item) Object.assign(item, { deleted_at: message.data.deleted_at, type: 'deleted' }); renderText(); } if (message.type === 'attachment_uploaded') fetchText(); if (message.type === 'message_analyzed') { const item = state.text.find((entry) => entry.id === message.data.id); if (item) Object.assign(item, message.data); renderText(); } if (message.type === 'media_state') { state.media = message.state; renderMedia(); } }
 
     async function applyServerState(next) {
       if (!next || state.applyingServerState) return;
@@ -159,8 +166,28 @@
     el.listenBtn.addEventListener('click', () => postUIState({ isListening: !state.isListening }).catch((error) => showError(error.message)));
     el.channelFilter.addEventListener('change', () => { const selectedTextChannel = el.channelFilter.value; const url = new URL(location.href); if (selectedTextChannel) url.searchParams.set('channel', selectedTextChannel); else url.searchParams.delete('channel'); if (el.textGuildSelect.value) url.searchParams.set('guild', el.textGuildSelect.value); history.replaceState({}, '', url); postUIState({ selectedTextChannel }).catch((error) => showError(error.message)); });
 
+    async function fetchMediaStatus() { state.media = await apiRequest('/api/media/status'); renderMedia(); }
+    async function queueMedia() { const source = el.mediaSourceInput.value.trim(); if (!source) return showError('Enter a music URL or local file path'); state.media = await apiRequest('/api/media/queue', { method: 'POST', body: JSON.stringify({ source }) }); el.mediaSourceInput.value = ''; renderMedia(); }
+    async function skipMedia() { state.media = await apiRequest('/api/media/skip', { method: 'POST' }); renderMedia(); }
+    async function stopMedia() { state.media = await apiRequest('/api/media/stop', { method: 'POST' }); renderMedia(); }
+    function renderMedia() { el.mediaQueueList.replaceChildren(); const current = state.media.current; el.mediaStatus.textContent = current ? `Playing ${current.title}` : 'Idle'; if (current) { const item = document.createElement('div'); item.className = 'event-card'; item.textContent = `Now: ${current.title}`; el.mediaQueueList.appendChild(item); } for (const queued of state.media.queue || []) { const item = document.createElement('div'); item.className = 'event-card'; item.textContent = queued.title; el.mediaQueueList.appendChild(item); } if (!current && (!state.media.queue || state.media.queue.length === 0)) appendEmpty(el.mediaQueueList, 'No media queued'); }
+
+    el.queueMediaBtn.addEventListener('click', () => queueMedia().catch((error) => showError(error.message)));
+    el.skipMediaBtn.addEventListener('click', () => skipMedia().catch((error) => showError(error.message)));
+    el.stopMediaBtn.addEventListener('click', () => stopMedia().catch((error) => showError(error.message)));
+
+    async function fetchMediaStatus() { state.media = await apiRequest('/api/media/status'); renderMedia(); }
+    async function queueMedia() { const source = el.mediaSourceInput.value.trim(); if (!source) return showError('Enter a music URL or local file path'); state.media = await apiRequest('/api/media/queue', { method: 'POST', body: JSON.stringify({ source }) }); el.mediaSourceInput.value = ''; renderMedia(); }
+    async function skipMedia() { state.media = await apiRequest('/api/media/skip', { method: 'POST' }); renderMedia(); }
+    async function stopMedia() { state.media = await apiRequest('/api/media/stop', { method: 'POST' }); renderMedia(); }
+    function renderMedia() { el.mediaQueueList.replaceChildren(); const current = state.media.current; el.mediaStatus.textContent = current ? `Playing ${current.title}` : 'Idle'; if (current) { const item = document.createElement('div'); item.className = 'event-card'; item.textContent = `Now: ${current.title}`; el.mediaQueueList.appendChild(item); } for (const queued of state.media.queue || []) { const item = document.createElement('div'); item.className = 'event-card'; item.textContent = queued.title; el.mediaQueueList.appendChild(item); } if (!current && (!state.media.queue || state.media.queue.length === 0)) appendEmpty(el.mediaQueueList, 'No media queued'); }
+
+    el.queueMediaBtn.addEventListener('click', () => queueMedia().catch((error) => showError(error.message)));
+    el.skipMediaBtn.addEventListener('click', () => skipMedia().catch((error) => showError(error.message)));
+    el.stopMediaBtn.addEventListener('click', () => stopMedia().catch((error) => showError(error.message)));
+
     connectWebSocket();
-    apiRequest('/api/ui-state').then(applyServerState).then(() => loadGuilds()).then(refreshStatus).catch((error) => showError(error.message));
+    apiRequest('/api/ui-state').then(applyServerState).then(() => loadGuilds()).then(refreshStatus).then(fetchMediaStatus).catch((error) => showError(error.message));
     setInterval(() => { if (state.activeTab === 'text') fetchText().catch(() => {}); }, 7000);
   </script>
 </body>
