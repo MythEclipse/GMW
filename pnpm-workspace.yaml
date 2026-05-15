@@ -5,5 +5,9 @@ packages:
 
 onlyBuiltDependencies:
   - '@discordjs/opus'
+  - '@lng2004/node-datachannel'
   - better-sqlite3
   - esbuild
+  - node-av
+  - sharp
+  - zeromq
