@@ -1,6 +1,4 @@
 [submodule "vendor/discord.js-selfbot-v13"]
 	path = vendor/discord.js-selfbot-v13
 	url = ssh://git@43.134.105.109:22222/exceed/discord.js-selfbot.git
-[submodule "vendor/Discord-video-stream"]
-	path = vendor/Discord-video-stream
-	url = ssh://git@43.134.105.109:22222/exceed/Discord-video-stream.git
+

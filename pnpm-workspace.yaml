@@ -1,7 +1,6 @@
 packages:
   - .
   - vendor/discord.js-selfbot-v13
-  - vendor/Discord-video-stream
 
 onlyBuiltDependencies:
   - '@discordjs/opus'

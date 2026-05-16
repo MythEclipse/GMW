@@ -1,11 +1,7 @@
-import { Client } from "discord.js-selfbot-v13";
+import type { ChildProcess } from "node:child_process";
 import dotenv from "dotenv";
 import { createYtDlp } from "./src/media/ytdlp.js";
-import { Streamer } from "./vendor/Discord-video-stream/dist/client/index.js";
-import {
-  playStream,
-  prepareStream,
-} from "./vendor/Discord-video-stream/dist/media/newApi.js";
+import { prepareStream } from "./src/streaming/index.js";
 
 dotenv.config();
 
@@ -26,29 +22,36 @@ async function test() {
     ],
   });
 
-  command.on("stderr", (data) => {
-    console.log("FFMPEG STDERR:", data);
+  const ffmpeg = command as ChildProcess;
+  ffmpeg.stderr?.on("data", (data: Buffer) => {
+    console.log("FFMPEG STDERR:", data.toString());
   });
 
-  console.log("Testing demux manually...");
-  const { demux } = await import(
-    "./vendor/Discord-video-stream/dist/media/LibavDemuxer.js"
-  );
-  try {
-    const demuxPromise = demux(output, { format: "nut" });
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Demux timeout")), 15000),
-    );
+  let bytesRead = 0;
+  output.on("data", (chunk: Buffer) => {
+    bytesRead += chunk.length;
+    console.log("Stream bytes:", bytesRead);
+    if (bytesRead > 1024 * 1024) {
+      ffmpeg.kill("SIGTERM");
+    }
+  });
 
-    const { video, audio } = (await Promise.race([
-      demuxPromise,
-      timeoutPromise,
-    ])) as any;
-    console.log("Demux success!");
-    console.log("Video stream:", !!video);
-    console.log("Audio stream:", !!audio);
-  } catch (err) {
-    console.error("Demux failed:", err.message);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg.on("exit", (code) => {
+        if (code === 0 || code === null) {
+          resolve();
+          return;
+        }
+        reject(new Error(`ffmpeg exited with code ${code}`));
+      });
+      ffmpeg.on("error", reject);
+    });
+  } catch (error: unknown) {
+    console.error(
+      "Debug stream failed:",
+      error instanceof Error ? error.message : String(error),
+    );
   }
 
   process.exit(0);

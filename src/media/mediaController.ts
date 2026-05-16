@@ -82,8 +82,13 @@ export class MediaController {
     }
 
     // mode === "music"
-    // Stop screen if active
+    // If a screen share is active outside of this controller (browser-owned),
+    // reject to avoid stealing the shared player. If this controller started
+    // the screenPlayback, stop it and proceed.
     if (this.screenPlayback || this.dependencies.screenController?.isActive()) {
+      if (this.dependencies.screenController?.isActive() && !this.screenPlayback) {
+        throw new AppError("Another media mode is active", "MEDIA_BUSY", 409);
+      }
       this.screenPlayback?.stop();
       this.screenPlayback = null;
       this.activeMode = null;

@@ -1,12 +1,11 @@
 import type { Readable } from "node:stream";
-import type { WebRtcConnWrapper } from "@dank074/discord-video-stream";
 import {
   playStream as defaultPlayStream,
   prepareStream as defaultPrepareStream,
   Encoders,
   Streamer,
   Utils,
-} from "@dank074/discord-video-stream";
+} from "../streaming";
 import { AppError } from "../errors";
 import { createChildLogger } from "../logger";
 import { discordPlayer } from "../player";
@@ -45,10 +44,7 @@ export interface ScreenShareControllerDependencies {
   prepareStream?: PrepareScreenStream;
   playStream?: PlayScreenStream;
   streamer: Streamer;
-  joinVoice?: (
-    guildId: string,
-    channelId: string,
-  ) => Promise<WebRtcConnWrapper>;
+  joinVoice?: (guildId: string, channelId: string) => Promise<unknown>;
   onStreamStart?: () => void;
   onStreamEnd?: () => void;
 }
@@ -91,6 +87,12 @@ export function createScreenShareController(
           "VOICE_NOT_CONNECTED",
           409,
         );
+      }
+
+      // If another media owner (e.g. music) holds the shared player, reject
+      const owner = getPlayerOwner();
+      if (owner === "music") {
+        throw new AppError("Another media mode is active", "MEDIA_BUSY", 409);
       }
 
       try {

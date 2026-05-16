@@ -23,7 +23,6 @@
     "install:yt-dlp": "sh scripts/install-yt-dlp.sh"
   },
   "dependencies": {
-    "@dank074/discord-video-stream": "workspace:*",
     "@discordjs/opus": "^0.10.0",
     "@discordjs/voice": "^0.19.1",
     "@radix-ui/react-scroll-area": "^1.2.10",

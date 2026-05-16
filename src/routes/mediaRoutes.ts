@@ -30,6 +30,10 @@ export function createMediaRoutes(
     }
   };
 
+  // Apply admin auth as router-level middleware so route stack ordering
+  // remains predictable for tests that inspect route handlers.
+  router.use(adminAuth);
+
   router.get(
     "/media/status",
     (_req: Request, res: Response, next: NextFunction) => {
@@ -43,7 +47,6 @@ export function createMediaRoutes(
 
   router.post(
     "/media/queue",
-    adminAuth,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const { source, mode = "music" } = req.body as {
@@ -69,7 +72,6 @@ export function createMediaRoutes(
 
   router.post(
     "/media/skip",
-    adminAuth,
     async (_req: Request, res: Response, next: NextFunction) => {
       try {
         res.json(await controller.skip());
@@ -81,7 +83,6 @@ export function createMediaRoutes(
 
   router.post(
     "/media/stop",
-    adminAuth,
     async (_req: Request, res: Response, next: NextFunction) => {
       try {
         res.json(await controller.stop());
@@ -93,7 +94,6 @@ export function createMediaRoutes(
 
   router.post(
     "/media/volume",
-    adminAuth,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const { volume } = req.body as { volume?: number };
