@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 import { Streamer } from "@dank074/discord-video-stream";
 import { AudioPlayerStatus } from "@discordjs/voice";
 import type { Client } from "discord.js-selfbot-v13";
-import { config } from "./config";
 import express, {
   type NextFunction,
   type Request,
@@ -14,6 +13,7 @@ import express, {
 import helmet from "helmet";
 import * as prism from "prism-media";
 import { WebSocketServer } from "ws";
+import { config } from "./config";
 import { AppError } from "./errors";
 import { createChildLogger, logger } from "./logger";
 import { MediaController } from "./media/mediaController";
@@ -122,7 +122,9 @@ function patchSharedUIState(patch: SharedUIStatePatch) {
   if (typeof patch.selectedTextChannel === "string") {
     sharedUIState.selectedTextChannel = patch.selectedTextChannel;
   }
-  if (["voice", "messages", "media", "review"].includes(patch.activeTab ?? "")) {
+  if (
+    ["voice", "messages", "media", "review"].includes(patch.activeTab ?? "")
+  ) {
     sharedUIState.activeTab = patch.activeTab as
       | "voice"
       | "messages"
@@ -189,6 +191,8 @@ export async function startWebserver(
   const screenController = createScreenShareController({
     getVoiceStatus: () => voiceController.getStatus(),
     streamer,
+    joinVoice: (guildId: string, channelId: string) =>
+      streamer.joinVoice(guildId, channelId),
   });
 
   const mediaController = new MediaController({

@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+
 const require = createRequire(import.meta.url);
 
 // Mock node-crc to provide pure JS implementation and bypass native build issues
@@ -43,4 +44,5 @@ Module.prototype.require = function (id: string) {
 };
 
 console.log("[mock] node-crc has been mocked globally for ESM.");
+
 export {};

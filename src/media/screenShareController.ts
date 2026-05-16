@@ -1,8 +1,10 @@
 import type { Readable } from "node:stream";
+import type { WebRtcConnWrapper } from "@dank074/discord-video-stream";
 import {
   playStream as defaultPlayStream,
   prepareStream as defaultPrepareStream,
   Encoders,
+  Streamer,
   Utils,
 } from "@dank074/discord-video-stream";
 import { AppError } from "../errors";
@@ -10,6 +12,7 @@ import { createChildLogger } from "../logger";
 import { discordPlayer } from "../player";
 
 const logger = createChildLogger("screen-share");
+
 import type { DiscordPlayerOwner, ScreenSharePlayback } from "./mediaTypes";
 import { createYtDlp } from "./ytdlp";
 
@@ -31,7 +34,7 @@ type PrepareScreenStream = (
 
 type PlayScreenStream = (
   output: Readable,
-  streamer: unknown,
+  streamer: Streamer,
   options: { type: "go-live" },
 ) => Promise<void>;
 
@@ -41,7 +44,13 @@ export interface ScreenShareControllerDependencies {
   getDirectVideoUrl?: (source: string) => Promise<string>;
   prepareStream?: PrepareScreenStream;
   playStream?: PlayScreenStream;
-  streamer: unknown;
+  streamer: Streamer;
+  joinVoice?: (
+    guildId: string,
+    channelId: string,
+  ) => Promise<WebRtcConnWrapper>;
+  onStreamStart?: () => void;
+  onStreamEnd?: () => void;
 }
 
 export function createScreenShareController(
@@ -55,11 +64,9 @@ export function createScreenShareController(
     dependencies.getDirectVideoUrl ??
     ((source) => ytdlp.getDirectVideoUrl(source));
   const prepareStream =
-    dependencies.prepareStream ??
-    (defaultPrepareStream as unknown as PrepareScreenStream);
+    dependencies.prepareStream ?? (defaultPrepareStream as PrepareScreenStream);
   const playStream =
-    dependencies.playStream ??
-    (defaultPlayStream as unknown as PlayScreenStream);
+    dependencies.playStream ?? (defaultPlayStream as PlayScreenStream);
 
   return {
     isActive(): boolean {
@@ -68,6 +75,12 @@ export function createScreenShareController(
 
     async start(source: string): Promise<ScreenSharePlayback> {
       const status = dependencies.getVoiceStatus();
+
+      if (active) {
+        active.stop();
+      }
+
+      // Ensure bot is in the voice channel via Streamer for video streaming
       if (
         !status.connected ||
         !status.activeGuildId ||
@@ -80,11 +93,17 @@ export function createScreenShareController(
         );
       }
 
-      if (active) {
-        active.stop();
-      }
-
       try {
+        // Join voice via Streamer if not already connected for streaming
+        if (dependencies.joinVoice) {
+          logger.info("Joining voice channel for screen share via Streamer");
+          await dependencies.joinVoice(
+            status.activeGuildId,
+            status.activeChannelId,
+          );
+          logger.info("Voice channel joined via Streamer for screen share");
+        }
+
         const directUrl = await getDirectVideoUrl(source);
         const { command, output } = prepareStream(directUrl, {
           encoder: Encoders.software({ x264: { preset: "superfast" } }),
@@ -105,11 +124,14 @@ export function createScreenShareController(
           });
         }
 
+        dependencies.onStreamStart?.();
+
         let stopped = false;
         const done = playStream(output, dependencies.streamer, {
           type: "go-live",
         }).finally(() => {
           active = null;
+          dependencies.onStreamEnd?.();
         });
 
         active = {

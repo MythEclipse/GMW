@@ -30,51 +30,66 @@ export function createMediaRoutes(
     }
   };
 
-  router.get("/media/status", (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      res.json(controller.getState());
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.post("/media/queue", adminAuth, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const { source, mode = "music" } = req.body as {
-        source?: string;
-        mode?: MediaMode;
-      };
-      if (!source) {
-        throw new AppError(
-          "Media source is required",
-          "MISSING_MEDIA_SOURCE",
-          400,
-        );
+  router.get(
+    "/media/status",
+    (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        res.json(controller.getState());
+      } catch (error) {
+        next(error);
       }
-      if (mode !== "music" && mode !== "screen") {
-        throw new AppError("Invalid media mode", "INVALID_MEDIA_MODE", 400);
+    },
+  );
+
+  router.post(
+    "/media/queue",
+    adminAuth,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { source, mode = "music" } = req.body as {
+          source?: string;
+          mode?: MediaMode;
+        };
+        if (!source) {
+          throw new AppError(
+            "Media source is required",
+            "MISSING_MEDIA_SOURCE",
+            400,
+          );
+        }
+        if (mode !== "music" && mode !== "screen") {
+          throw new AppError("Invalid media mode", "INVALID_MEDIA_MODE", 400);
+        }
+        res.json(await controller.queue(source, { mode }));
+      } catch (error) {
+        next(error);
       }
-      res.json(await controller.queue(source, { mode }));
-    } catch (error) {
-      next(error);
-    }
-  });
+    },
+  );
 
-  router.post("/media/skip", adminAuth, async (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      res.json(await controller.skip());
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.post(
+    "/media/skip",
+    adminAuth,
+    async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        res.json(await controller.skip());
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
-  router.post("/media/stop", adminAuth, async (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      res.json(await controller.stop());
-    } catch (error) {
-      next(error);
-    }
-  });
+  router.post(
+    "/media/stop",
+    adminAuth,
+    async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        res.json(await controller.stop());
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   return router;
 }

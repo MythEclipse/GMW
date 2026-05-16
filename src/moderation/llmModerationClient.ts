@@ -42,7 +42,8 @@ export function parseModerationResponse(
     parsed = JSON.parse(candidate);
   } catch (error) {
     // If full substring fails, try scanning backwards from the last }
-    let lastError: Error = error instanceof Error ? error : new Error(String(error));
+    let lastError: Error =
+      error instanceof Error ? error : new Error(String(error));
 
     for (let i = endIdx - 1; i > startIdx; i--) {
       if (content[i] === "}") {
@@ -50,7 +51,10 @@ export function parseModerationResponse(
           parsed = JSON.parse(content.substring(startIdx, i + 1));
           break;
         } catch (innerError) {
-          lastError = innerError instanceof Error ? innerError : new Error(String(innerError));
+          lastError =
+            innerError instanceof Error
+              ? innerError
+              : new Error(String(innerError));
           continue;
         }
       }
@@ -109,7 +113,10 @@ export function parseModerationResponse(
     }
 
     if (foundIds.has(finalId)) {
-      log.warn({ duplicateId: finalId }, "Skipping duplicate/rounded message_id");
+      log.warn(
+        { duplicateId: finalId },
+        "Skipping duplicate/rounded message_id",
+      );
       return null;
     }
 

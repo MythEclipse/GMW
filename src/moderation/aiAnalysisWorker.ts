@@ -42,7 +42,12 @@ async function processAnalysisRequest({
       }
     } catch (dbError) {
       const msg = dbError instanceof Error ? dbError.message : String(dbError);
-      return { ok: false, conversationKey, rows: [], error: `Database init failed: ${msg}` };
+      return {
+        ok: false,
+        conversationKey,
+        rows: [],
+        error: `Database init failed: ${msg}`,
+      };
     }
 
     const firstMessage = messages[0];
