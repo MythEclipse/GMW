@@ -92,6 +92,8 @@ export async function startRecording(
     if (userId === client.user?.id) return;
 
     const userMetadata = await collectUserMetadata(client, userId, channel);
+    if (userMetadata.bot) return;
+
     logger.info(
       { userId, username: userMetadata.username },
       "Voice activity detected",
