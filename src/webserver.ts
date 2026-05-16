@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Streamer } from "@dank074/discord-video-stream";
 import { AudioPlayerStatus } from "@discordjs/voice";
 import type { Client } from "discord.js-selfbot-v13";
@@ -24,6 +25,9 @@ import { createSyncRoutes } from "./routes/syncRoutes";
 import { createUIStateRoutes } from "./routes/uiStateRoutes";
 import { createVoiceRoutes } from "./routes/voiceRoutes";
 import type { VoiceController } from "./voiceController";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const wsLogger = createChildLogger("webserver");
 
