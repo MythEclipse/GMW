@@ -30,6 +30,7 @@ export interface SegmentState {
 }
 
 export interface SegmentMetadata extends UserMetadata {
+  recordingSessionId: string;
   sessionId: string;
   sessionStartTime: number;
   segmentIndex: number;

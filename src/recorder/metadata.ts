@@ -55,6 +55,7 @@ export function createSegmentMetadata(
   user: UserMetadata,
   segment: SegmentState,
   sessionId: string,
+  recordingSessionId: string,
   sessionStartTime: number,
   recordingSegmentMs: number,
 ): SegmentMetadata {
@@ -62,6 +63,7 @@ export function createSegmentMetadata(
   return {
     ...user,
     sessionId,
+    recordingSessionId,
     sessionStartTime,
     segmentIndex: segment.index,
     segmentMs: recordingSegmentMs,

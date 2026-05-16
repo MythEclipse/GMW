@@ -20,6 +20,11 @@ import {
   createSegmentMetadata,
 } from "./recorder/metadata";
 import { SegmentManager } from "./recorder/segment";
+import {
+  createRecordingSession,
+  finalizeRecordingSession,
+  type RecordingSession,
+} from "./recorder/sessionRecording";
 import { retryWithBackoff } from "./retry";
 import type { PcmBroadcaster } from "./types";
 
@@ -30,6 +35,21 @@ const recordingsDir = config.RECORDINGS_DIR;
 // Pastikan folder recordings ada
 if (!fs.existsSync(recordingsDir)) {
   fs.mkdirSync(recordingsDir, { recursive: true });
+}
+
+const activeSessions = new Map<string, RecordingSession>();
+
+export function resetActiveSessions(): void {
+  activeSessions.clear();
+}
+
+function finalizeActiveRecordingSession(guildId: string): void {
+  const session = activeSessions.get(guildId);
+  if (!session) return;
+  activeSessions.delete(guildId);
+  finalizeRecordingSession(session).catch((error) => {
+    logger.error({ error }, "Failed to finalize recording session");
+  });
 }
 
 /**
@@ -78,6 +98,17 @@ export async function startRecording(
       },
     );
     logger.info("Connected to voice channel. Recording started");
+
+    // Create recording session after connection is ready
+    const sessionStartTime = Date.now();
+    const session = createRecordingSession({
+      guildId: channel.guild.id,
+      channelId: channel.id,
+      channelName: channel.name,
+      startTime: sessionStartTime,
+      recordingsDir,
+    });
+    activeSessions.set(channel.guild.id, session);
   } catch (err) {
     logger.error({ error: err }, "Failed to connect to voice channel");
     connection.destroy();
@@ -109,9 +140,6 @@ export async function startRecording(
     // Jangan record kalau sudah ada stream aktif untuk user ini
     if (receiver.subscriptions.has(userId)) return;
 
-    const timestamp = Date.now();
-    const sessionStartTime = timestamp;
-    const sessionId = `${userId}-${sessionStartTime}`;
     const userDir = path.join(recordingsDir, userId);
     if (!fs.existsSync(userDir)) {
       fs.mkdirSync(userDir, { recursive: true });
@@ -149,16 +177,28 @@ export async function startRecording(
         },
       });
 
+      const activeSession = activeSessions.get(channel.guild.id);
       let currentSegment = segmentManager.open(oggPacketStream);
       currentSegment.out.on("finish", () => {
         if (config.VERBOSE) {
           logger.info({ filename: currentSegment.filename }, "Segment saved");
         }
+        const endTime = currentSegment.endTime ?? Date.now();
+        if (activeSession) {
+          activeSession.registerSegment({
+            user: userMetadata,
+            oggPath: currentSegment.filename,
+            jsonPath: currentSegment.jsonFilename,
+            startTime: currentSegment.startTime,
+            endTime,
+          });
+        }
         const metadata = createSegmentMetadata(
           userMetadata,
           currentSegment,
-          sessionId,
-          sessionStartTime,
+          activeSession?.sessionId ?? `${userId}-0`,
+          activeSession?.sessionId ?? `${channel.guild.id}-${channel.id}-0`,
+          activeSession?.startTime ?? 0,
           config.RECORDING_SEGMENT_MS,
         );
         fs.writeFileSync(
@@ -240,6 +280,7 @@ export async function startRecording(
   });
 
   connection.on(VoiceConnectionStatus.Destroyed, () => {
+    finalizeActiveRecordingSession(channel.guild.id);
     if (config.VERBOSE) {
       logger.info("Voice connection destroyed");
     }
@@ -261,4 +302,6 @@ export function stopRecording(guildId: string): void {
   } else {
     logger.warn("No active connection to stop");
   }
+
+  finalizeActiveRecordingSession(guildId);
 }
