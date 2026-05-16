@@ -45,8 +45,21 @@
         </div>
         <div class="content-card">
           <div class="card-title"><h2>Media</h2><span class="mini" id="mediaStatus">Idle</span></div>
-          <div class="field-group"><label for="mediaSourceInput">Music URL, YouTube, Spotify track, search, or file path</label><input id="mediaSourceInput" type="text" placeholder="YouTube URL, Spotify track, or search terms"></div>
-          <div class="button-row"><button id="queueMediaBtn" class="btn btn-primary">Queue / Play</button><button id="skipMediaBtn" class="btn btn-success">Skip</button><button id="stopMediaBtn" class="btn btn-danger">Stop</button></div>
+          <div class="field-group">
+            <label>Media Mode</label>
+            <div style="display:grid;gap:8px;grid-template-columns:1fr 1fr">
+              <button id="musicModeBtn" class="btn btn-primary active" data-mode="music">🎵 Music</button>
+              <button id="screenModeBtn" class="btn btn-secondary" data-mode="screen">🖥️ Screen Share</button>
+            </div>
+          </div>
+          <div id="musicPanel" class="media-panel active">
+            <div class="field-group"><label for="mediaSourceInput">Music URL, YouTube, Spotify track, or search</label><input id="mediaSourceInput" type="text" placeholder="YouTube URL, Spotify track, or search terms"></div>
+            <div class="button-row"><button id="queueMediaBtn" class="btn btn-primary">Queue / Play</button><button id="skipMediaBtn" class="btn btn-success">Skip</button><button id="stopMediaBtn" class="btn btn-danger">Stop</button></div>
+          </div>
+          <div id="screenPanel" class="media-panel" style="display:none">
+            <div class="field-group"><label for="screenSourceInput">Screen Share URL or file path</label><input id="screenSourceInput" type="text" placeholder="Screen share URL or file path"></div>
+            <div class="button-row"><button id="queueScreenBtn" class="btn btn-primary">Start Screen Share</button><button id="skipScreenBtn" class="btn btn-success">Skip</button><button id="stopScreenBtn" class="btn btn-danger">Stop</button></div>
+          </div>
           <div id="mediaQueueList" class="feed"><div class="empty">No media queued</div></div>
         </div>
       </div>
@@ -76,11 +89,12 @@
       userTimelines: new Map(),
       applyingServerState: false,
       media: { playing: false, current: null, queue: [] },
+      mediaMode: 'music',
     };
     const SAMPLE_RATE = 24000;
     const CHANNELS = 1;
     const el = {
-      wsDot: document.getElementById('wsDot'), wsStatusText: document.getElementById('wsStatusText'), activeTabLabel: document.getElementById('activeTabLabel'), errorBox: document.getElementById('errorBox'), voiceGuildSelect: document.getElementById('voiceGuildSelect'), textGuildSelect: document.getElementById('textGuildSelect'), channelSelect: document.getElementById('channelSelect'), channelFilter: document.getElementById('channelFilter'), joinVoiceBtn: document.getElementById('joinVoiceBtn'), disconnectVoiceBtn: document.getElementById('disconnectVoiceBtn'), voiceStatusText: document.getElementById('voiceStatusText'), voiceStatusNote: document.getElementById('voiceStatusNote'), toggleBtn: document.getElementById('toggleBtn'), listenBtn: document.getElementById('listenBtn'), listenStatus: document.getElementById('listenStatus'), visualizer: document.getElementById('visualizer'), userList: document.getElementById('userList'), textList: document.getElementById('textList'), reviewList: document.getElementById('reviewList'), mediaSourceInput: document.getElementById('mediaSourceInput'), mediaStatus: document.getElementById('mediaStatus'), queueMediaBtn: document.getElementById('queueMediaBtn'), skipMediaBtn: document.getElementById('skipMediaBtn'), stopMediaBtn: document.getElementById('stopMediaBtn'), mediaQueueList: document.getElementById('mediaQueueList')
+      wsDot: document.getElementById('wsDot'), wsStatusText: document.getElementById('wsStatusText'), activeTabLabel: document.getElementById('activeTabLabel'), errorBox: document.getElementById('errorBox'), voiceGuildSelect: document.getElementById('voiceGuildSelect'), textGuildSelect: document.getElementById('textGuildSelect'), channelSelect: document.getElementById('channelSelect'), channelFilter: document.getElementById('channelFilter'), joinVoiceBtn: document.getElementById('joinVoiceBtn'), disconnectVoiceBtn: document.getElementById('disconnectVoiceBtn'), voiceStatusText: document.getElementById('voiceStatusText'), voiceStatusNote: document.getElementById('voiceStatusNote'), toggleBtn: document.getElementById('toggleBtn'), listenBtn: document.getElementById('listenBtn'), listenStatus: document.getElementById('listenStatus'), visualizer: document.getElementById('visualizer'), userList: document.getElementById('userList'), textList: document.getElementById('textList'), reviewList: document.getElementById('reviewList'), mediaSourceInput: document.getElementById('mediaSourceInput'), screenSourceInput: document.getElementById('screenSourceInput'), mediaStatus: document.getElementById('mediaStatus'), queueMediaBtn: document.getElementById('queueMediaBtn'), skipMediaBtn: document.getElementById('skipMediaBtn'), stopMediaBtn: document.getElementById('stopMediaBtn'), queueScreenBtn: document.getElementById('queueScreenBtn'), skipScreenBtn: document.getElementById('skipScreenBtn'), stopScreenBtn: document.getElementById('stopScreenBtn'), musicModeBtn: document.getElementById('musicModeBtn'), screenModeBtn: document.getElementById('screenModeBtn'), musicPanel: document.getElementById('musicPanel'), screenPanel: document.getElementById('screenPanel'), mediaQueueList: document.getElementById('mediaQueueList')
     };
     for (let i = 0; i < 32; i++) { const bar = document.createElement('div'); bar.className = 'bar'; el.visualizer.appendChild(bar); }
     const bars = [...document.querySelectorAll('.bar')];
@@ -159,6 +173,20 @@
     function updateVisualizer(level) { bars.forEach((bar, index) => { const wave = Math.sin(index * 0.55 + Date.now() / 140) * 0.35 + 0.65; bar.style.height = `${Math.max(3, level * 190 * wave)}px`; }); }
 
     document.querySelectorAll('.tab-btn').forEach((button) => { button.addEventListener('click', () => postUIState({ activeTab: button.dataset.tab }).catch((error) => showError(error.message))); });
+    el.musicModeBtn.addEventListener('click', () => {
+      state.mediaMode = 'music';
+      el.musicModeBtn.classList.add('active');
+      el.screenModeBtn.classList.remove('active');
+      el.musicPanel.style.display = '';
+      el.screenPanel.style.display = 'none';
+    });
+    el.screenModeBtn.addEventListener('click', () => {
+      state.mediaMode = 'screen';
+      el.screenModeBtn.classList.add('active');
+      el.musicModeBtn.classList.remove('active');
+      el.musicPanel.style.display = 'none';
+      el.screenPanel.style.display = '';
+    });
     el.voiceGuildSelect.addEventListener('change', () => postUIState({ selectedVoiceGuild: el.voiceGuildSelect.value, selectedVoiceChannel: '' }).catch((error) => showError(error.message)));
     el.textGuildSelect.addEventListener('change', () => postUIState({ selectedTextGuild: el.textGuildSelect.value, selectedTextChannel: '' }).catch((error) => showError(error.message)));
     el.channelSelect.addEventListener('change', () => postUIState({ selectedVoiceChannel: el.channelSelect.value }).catch((error) => showError(error.message)));
@@ -169,7 +197,8 @@
     el.channelFilter.addEventListener('change', () => { const selectedTextChannel = el.channelFilter.value; const url = new URL(location.href); if (selectedTextChannel) url.searchParams.set('channel', selectedTextChannel); else url.searchParams.delete('channel'); if (el.textGuildSelect.value) url.searchParams.set('guild', el.textGuildSelect.value); history.replaceState({}, '', url); postUIState({ selectedTextChannel }).catch((error) => showError(error.message)); });
 
     async function fetchMediaStatus() { state.media = await apiRequest('/api/media/status'); renderMedia(); }
-    async function queueMedia() { const source = el.mediaSourceInput.value.trim(); if (!source) return showError('Enter a music URL or local file path'); if (state.isStreaming || state.localStreaming) await postUIState({ isStreaming: false }); state.media = await apiRequest('/api/media/queue', { method: 'POST', body: JSON.stringify({ source }) }); el.mediaSourceInput.value = ''; await reconcileDynamicAudio(); renderMedia(); }
+    async function queueMedia() { const source = el.mediaSourceInput.value.trim(); if (!source) return showError('Enter a music URL or local file path'); if (state.isStreaming || state.localStreaming) await postUIState({ isStreaming: false }); state.media = await apiRequest('/api/media/queue', { method: 'POST', body: JSON.stringify({ source, mode: 'music' }) }); el.mediaSourceInput.value = ''; await reconcileDynamicAudio(); renderMedia(); }
+    async function queueScreen() { const source = el.screenSourceInput.value.trim(); if (!source) return showError('Enter a screen share URL or file path'); if (state.isStreaming || state.localStreaming) await postUIState({ isStreaming: false }); state.media = await apiRequest('/api/media/queue', { method: 'POST', body: JSON.stringify({ source, mode: 'screen' }) }); el.screenSourceInput.value = ''; await reconcileDynamicAudio(); renderMedia(); }
     async function skipMedia() { state.media = await apiRequest('/api/media/skip', { method: 'POST' }); await reconcileDynamicAudio(); renderMedia(); }
     async function stopMedia() { state.media = await apiRequest('/api/media/stop', { method: 'POST' }); await reconcileDynamicAudio(); renderMedia(); }
     function renderMedia() { el.mediaQueueList.replaceChildren(); const current = state.media.current; el.mediaStatus.textContent = current ? `Playing ${current.title}` : 'Idle'; if (current) { const item = document.createElement('div'); item.className = 'event-card'; item.textContent = `Now: ${current.title}`; el.mediaQueueList.appendChild(item); } for (const queued of state.media.queue || []) { const item = document.createElement('div'); item.className = 'event-card'; item.textContent = queued.title; el.mediaQueueList.appendChild(item); } if (!current && (!state.media.queue || state.media.queue.length === 0)) appendEmpty(el.mediaQueueList, 'No media queued'); }
@@ -177,6 +206,9 @@
     el.queueMediaBtn.addEventListener('click', () => queueMedia().catch((error) => showError(error.message)));
     el.skipMediaBtn.addEventListener('click', () => skipMedia().catch((error) => showError(error.message)));
     el.stopMediaBtn.addEventListener('click', () => stopMedia().catch((error) => showError(error.message)));
+    el.queueScreenBtn.addEventListener('click', () => queueScreen().catch((error) => showError(error.message)));
+    el.skipScreenBtn.addEventListener('click', () => skipMedia().catch((error) => showError(error.message)));
+    el.stopScreenBtn.addEventListener('click', () => stopMedia().catch((error) => showError(error.message)));
 
     connectWebSocket();
     apiRequest('/api/ui-state').then(applyServerState).then(() => loadGuilds()).then(refreshStatus).then(fetchMediaStatus).catch((error) => showError(error.message));
