@@ -6,7 +6,10 @@ import {
   Utils,
 } from "@dank074/discord-video-stream";
 import { AppError } from "../errors";
+import { createChildLogger } from "../logger";
 import { discordPlayer } from "../player";
+
+const logger = createChildLogger("screen-share");
 import type { DiscordPlayerOwner, ScreenSharePlayback } from "./mediaTypes";
 import { createYtDlp } from "./ytdlp";
 
@@ -77,8 +80,8 @@ export function createScreenShareController(
         );
       }
 
-      if (active || getPlayerOwner() !== "none") {
-        throw new AppError("Another media mode is active", "MEDIA_BUSY", 409);
+      if (active) {
+        active.stop();
       }
 
       try {
@@ -92,6 +95,15 @@ export function createScreenShareController(
           includeAudio: true,
           videoCodec: Utils.normalizeVideoCodec("H264"),
         });
+
+        // Add FFmpeg error logging
+        if (command && "stderr" in command && (command as any).stderr) {
+          (command as any).stderr.on("data", (data: Buffer) => {
+            if (data.toString().includes("Error")) {
+              logger.error({ error: data.toString() }, "FFmpeg Screen Error");
+            }
+          });
+        }
 
         let stopped = false;
         const done = playStream(output, dependencies.streamer, {

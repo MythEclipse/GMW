@@ -23,7 +23,7 @@ export function MessageCard({ message, onReanalyze }: MessageCardProps) {
     <article className="rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="flex gap-3">
         <img
-          src={message.avatar_url ?? "/default-avatar.png"}
+          src={message.avatar_url ?? "https://cdn.discordapp.com/embed/avatars/0.png"}
           alt=""
           className="h-10 w-10 rounded-full object-cover"
         />

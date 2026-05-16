@@ -144,16 +144,22 @@ export default function App() {
   }, [isStreaming, startStreamingLocal, stopStreamingLocal, patchUIState]);
 
   useEffect(() => {
-    if (selectedVoiceGuild) voice.loadVoiceChannels(selectedVoiceGuild).catch(() => undefined);
-  }, [selectedVoiceGuild, voice.loadVoiceChannels]);
+    if (selectedVoiceGuild) {
+      voice.loadVoiceChannels(selectedVoiceGuild).catch(() => undefined);
+    }
+  }, [selectedVoiceGuild]);
 
   useEffect(() => {
-    if (selectedTextGuild) voice.loadTextTargets(selectedTextGuild).catch(() => undefined);
-  }, [selectedTextGuild, voice.loadTextTargets]);
+    if (selectedTextGuild) {
+      voice.loadTextTargets(selectedTextGuild).catch(() => undefined);
+    }
+  }, [selectedTextGuild]);
 
   useEffect(() => {
-    messages.fetchMessages(selectedTextChannel).catch(() => undefined);
-  }, [selectedTextChannel, messages.fetchMessages]);
+    if (selectedTextChannel) {
+      messages.fetchMessages(selectedTextChannel).catch(() => undefined);
+    }
+  }, [selectedTextChannel]);
 
   const toggleListening = useCallback(async () => {
     if (isListening) {

@@ -52,7 +52,19 @@ export class MediaController {
   ): Promise<MediaState> {
     const mode = options.mode ?? "music";
     if (mode === "screen") {
+      // Stop current music if any
+      this.playbackToken++;
+      this.playback?.stop();
+      this.playback = null;
       return this.startScreen(source);
+    }
+
+    // mode === "music"
+    // Stop screen if active
+    if (this.screenPlayback || this.dependencies.screenController?.isActive()) {
+      this.screenPlayback?.stop();
+      this.screenPlayback = null;
+      this.activeMode = null;
     }
 
     this.assertCanStartMusic();
@@ -108,10 +120,6 @@ export class MediaController {
       );
     }
 
-    if (this.screenPlayback || this.dependencies.screenController?.isActive()) {
-      throw new AppError("Another media mode is active", "MEDIA_BUSY", 409);
-    }
-
     if (this.dependencies.isBrowserStreaming?.()) {
       throw new AppError(
         "Stop browser microphone streaming before playing media",
@@ -122,14 +130,6 @@ export class MediaController {
   }
 
   private async startScreen(source: string): Promise<MediaState> {
-    if (
-      this.screenPlayback ||
-      this.dependencies.screenController?.isActive() ||
-      this.playback ||
-      this.queueStore.snapshot().current
-    ) {
-      throw new AppError("Another media mode is active", "MEDIA_BUSY", 409);
-    }
     const screenController = this.dependencies.screenController;
     if (!screenController) {
       throw new AppError(

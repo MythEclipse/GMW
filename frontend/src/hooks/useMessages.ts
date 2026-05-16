@@ -18,11 +18,15 @@ export function useMessages() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchMessages = useCallback(async (channelId?: string) => {
+    if (!channelId) {
+      setMessages([]);
+      return [];
+    }
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({ limit: "80" });
-      if (channelId) params.set("channel", channelId);
+      params.set("channel", channelId);
       const result = await listMessages(params);
       setMessages(result.data);
       return result.data;
