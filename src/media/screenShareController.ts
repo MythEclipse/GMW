@@ -1,7 +1,7 @@
-import { Streamer, playPreparedStream } from "../streaming";
 import { AppError } from "../errors";
 import { createChildLogger } from "../logger";
 import { discordPlayer } from "../player";
+import { playPreparedStream, Streamer } from "../streaming";
 
 const logger = createChildLogger("screen-share");
 

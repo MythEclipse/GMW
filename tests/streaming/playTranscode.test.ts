@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
 import { PassThrough } from "node:stream";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", async () => {
   const actual = await vi.importActual("node:child_process");

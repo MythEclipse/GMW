@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { AppError } from "../errors";
-import type { ResolvedMediaSource, MediaMode } from "./mediaTypes";
+import type { MediaMode, ResolvedMediaSource } from "./mediaTypes";
 import { createPlayDlResolver } from "./playDlResolver";
 import { createYtDlp, type YtDlpClient } from "./ytdlp";
 

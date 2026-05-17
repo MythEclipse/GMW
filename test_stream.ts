@@ -1,6 +1,6 @@
 import { prepareStream } from "@dank074/discord-video-stream";
-import { demux } from "@dank074/discord-video-stream/dist/media/LibavDemuxer.js";
 import { Encoders } from "@dank074/discord-video-stream/dist/media/encoders/index.js";
+import { demux } from "@dank074/discord-video-stream/dist/media/LibavDemuxer.js";
 
 async function run() {
   const { command, output } = prepareStream(

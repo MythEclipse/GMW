@@ -1,15 +1,15 @@
-import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
-import type { Readable } from "node:stream";
 import type { ChildProcess } from "node:child_process";
-import type { Client } from "discord.js-selfbot-v13";
+import { EventEmitter } from "node:events";
+import type { Readable } from "node:stream";
+import { PassThrough } from "node:stream";
 import {
   Streamer as DankStreamer,
-  prepareStream as dankPrepareStream,
   playStream as dankPlayStream,
-  Utils,
+  prepareStream as dankPrepareStream,
   Encoders,
+  Utils,
 } from "@dank074/discord-video-stream";
+import type { Client } from "discord.js-selfbot-v13";
 
 type VoiceConnectionLike = any;
 type StreamConnectionLike = any;

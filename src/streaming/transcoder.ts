@@ -1,9 +1,9 @@
-import { spawn, ChildProcess } from "node:child_process";
-import { PassThrough } from "node:stream";
+import { ChildProcess, spawn } from "node:child_process";
 import type { Readable } from "node:stream";
-import { retryWithBackoff } from "../retry";
+import { PassThrough } from "node:stream";
 import { createChildLogger } from "../logger";
 import { transcoderRestartsCounter, transcoderRunningGauge } from "../metrics";
+import { retryWithBackoff } from "../retry";
 
 const logger = createChildLogger("transcoder");
 

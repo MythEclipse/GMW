@@ -298,6 +298,23 @@ describe("parseModerationResponse", () => {
     expect(result).toHaveLength(1);
     expect(result[0].messageId).toBe("m1");
   });
+
+  it("handles message_id returned with square brackets", () => {
+    const content = JSON.stringify({
+      results: [
+        {
+          message_id: "[m1]",
+          status: "clean",
+          flags: [],
+          score: 0.1,
+          analysis: "OK",
+        },
+      ],
+    });
+    const result = parseModerationResponse(content, ["m1"]);
+    expect(result).toHaveLength(1);
+    expect(result[0].messageId).toBe("m1");
+  });
 });
 
 describe("runModerationAnalysis", () => {
@@ -519,7 +536,11 @@ describe("runModerationAnalysis", () => {
       });
     });
 
-    const createAttachment = (id: string, msgId: string, createdAt: number) => ({
+    const createAttachment = (
+      id: string,
+      msgId: string,
+      createdAt: number,
+    ) => ({
       id,
       message_id: msgId,
       guild_id: "guild123",
@@ -564,9 +585,7 @@ describe("runModerationAnalysis", () => {
     // Target attachments (t3, t2, t1) must be fetched, then context in descending order of created_at:
     // Sorted order: t3 (800), t2 (500), t1 (300), c7 (1000), c6 (900), c5 (700), c4 (600), c3 (400)
     // Excluded: c2 (200), c1 (100)
-    const downloadedUrls = fetchCalls
-      .slice(0, 8)
-      .map((call: any) => call[0]);
+    const downloadedUrls = fetchCalls.slice(0, 8).map((call: any) => call[0]);
 
     expect(downloadedUrls).toContain("https://picser.tech/t3.png");
     expect(downloadedUrls).toContain("https://picser.tech/t2.png");

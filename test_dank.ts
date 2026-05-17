@@ -1,4 +1,4 @@
-import { prepareStream, Encoders } from "@dank074/discord-video-stream";
+import { Encoders, prepareStream } from "@dank074/discord-video-stream";
 import fs from "fs";
 
 async function run() {

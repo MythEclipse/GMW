@@ -101,7 +101,10 @@ export function parseModerationResponse(
       throw new Error("Result missing 'message_id'");
     }
 
-    let finalId = String(message_id);
+    let finalId = String(message_id).trim();
+    if (finalId.startsWith("[") && finalId.endsWith("]")) {
+      finalId = finalId.slice(1, -1).trim();
+    }
 
     // Precision loss fix: If the ID from LLM is not found,
     // try to find the closest match in targets if it looks rounded (ends in 000)

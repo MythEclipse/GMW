@@ -9,8 +9,8 @@ import {
   VoiceConnection,
 } from "@discordjs/voice";
 import type {
-  DiscordPlayOptions,
   DiscordPlayerOwner,
+  DiscordPlayOptions,
 } from "./media/mediaTypes";
 
 export class DiscordPlayer {

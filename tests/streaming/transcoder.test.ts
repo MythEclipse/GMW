@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
 import { PassThrough } from "node:stream";
+import { describe, expect, it, vi } from "vitest";
 
 // Mock spawn to avoid calling real ffmpeg
 vi.mock("node:child_process", async () => {

@@ -1,4 +1,4 @@
-import { prepareStream, Encoders } from "@dank074/discord-video-stream";
+import { Encoders, prepareStream } from "@dank074/discord-video-stream";
 import { demux } from "@dank074/discord-video-stream/dist/media/LibavDemuxer.js";
 
 async function run() {

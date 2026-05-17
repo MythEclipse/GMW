@@ -4,8 +4,8 @@ type Spawn = typeof nodeSpawn;
 
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, expect, it, vi } from "vitest";
 import { StreamType } from "@discordjs/voice";
+import { describe, expect, it, vi } from "vitest";
 import type {
   DiscordAudioPlayer,
   DiscordPlayerOwner,
