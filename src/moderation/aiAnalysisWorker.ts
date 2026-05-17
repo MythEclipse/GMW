@@ -1,11 +1,11 @@
 import { parentPort } from "node:worker_threads";
-import { initializeDatabase } from "../database/drizzle";
-import { buildConversationPromptMessages } from "./conversationContext";
-import { runModerationAnalysis } from "./llmModerationClient";
+import { initializeDatabase } from "../database/drizzle.ts";
+import { buildConversationPromptMessages } from "./conversationContext.ts";
+import { runModerationAnalysis } from "./llmModerationClient.ts";
 import {
   getConversationContextBefore,
   updateMessageAIAnalysis,
-} from "./messageStore";
+} from "./messageStore.ts";
 import type { MessageRecord } from "./types";
 
 const MAX_CONTEXT_TOKENS = 8000;
