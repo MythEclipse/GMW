@@ -48,7 +48,13 @@ export function createYtDlp(dependencies: YtDlpDependencies = {}): YtDlpClient {
         "--no-warnings",
         "--quiet",
       ]);
-      return value.trim().split("\n")[0] || url;
+      const directUrl = value.trim().split("\n")[0];
+      if (!directUrl) {
+        console.warn("[ytdlp] No audio URL returned for:", url);
+        throw new Error(`Failed to resolve audio URL for: ${url}`);
+      }
+      console.log("[ytdlp] Resolved audio URL:", directUrl.slice(0, 100) + "...");
+      return directUrl;
     },
 
     async getDirectVideoUrl(url: string): Promise<string> {

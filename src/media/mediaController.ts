@@ -1,3 +1,4 @@
+import { createChildLogger } from "../logger";
 import { AppError } from "../errors";
 import { discordPlayer } from "../player";
 import { MediaQueue } from "./mediaQueue";
@@ -13,6 +14,8 @@ import type {
   ScreenSharePlayback,
 } from "./mediaTypes";
 import { createMusicPlayer } from "./musicPlayer";
+
+const logger = createChildLogger("mediaController");
 
 export interface MediaControllerDependencies {
   isVoiceConnected?: () => boolean;
@@ -77,9 +80,14 @@ export class MediaController {
   ): Promise<MediaState> {
     const mode = options.mode ?? "music";
 
+    logger.info({ source: source.slice(0, 100), mode }, "Queuing media");
     const resolved = await (
       this.dependencies.resolveMediaSource ?? resolveMediaSource
     )(source, mode);
+    logger.info(
+      { title: resolved.title, kind: resolved.kind },
+      "Media resolved",
+    );
 
     if (mode === "screen") {
       // Stop current music if any
@@ -90,6 +98,7 @@ export class MediaController {
       this.queueStore.clear();
       this.queueStore.add(resolved, mode, options.requestedBy);
       this.queueStore.startNext();
+      logger.info({ title: resolved.title }, "Starting screen share");
       return this.startScreen(resolved.source);
     }
 
@@ -111,6 +120,10 @@ export class MediaController {
 
     this.assertCanStartMusic();
     this.queueStore.add(resolved, mode, options.requestedBy);
+    logger.info(
+      { title: resolved.title, queueSize: this.queueStore.snapshot().queue.length },
+      "Added to queue",
+    );
     this.startNextIfIdle();
     return this.emitState();
   }
@@ -205,12 +218,20 @@ export class MediaController {
   private startNextIfIdle(): void {
     if (this.playback) return;
     const item = this.queueStore.startNext();
-    if (!item) return;
+    if (!item) {
+      logger.debug("Queue empty, no playback started");
+      return;
+    }
 
     const token = ++this.playbackToken;
+    logger.info(
+      { title: item.title, token, queueSize: this.queueStore.snapshot().queue.length },
+      "Starting playback",
+    );
     try {
       this.playback = this.musicPlayer.play(item);
-    } catch {
+    } catch (err) {
+      logger.error({ err }, "Failed to start playback");
       this.queueStore.failCurrent();
       this.playback = null;
       this.startNextIfIdle();
@@ -220,7 +241,10 @@ export class MediaController {
 
     this.playback.done.then(
       () => this.finishCurrent(token, false),
-      () => this.finishCurrent(token, true),
+      (err) => {
+        logger.error({ err, token }, "Playback failed");
+        this.finishCurrent(token, true);
+      },
     );
   }
 

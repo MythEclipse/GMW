@@ -29,7 +29,15 @@ export function createMusicPlayer(
       const proc = spawn("ffmpeg", buildFfmpegArgs(source.source), {
         stdio: ["ignore", "pipe", "pipe"],
       }) as unknown as ChildProcessWithoutNullStreams;
-      proc.stderr.resume();
+
+      let stderrOutput = "";
+      proc.stderr.on("data", (chunk) => {
+        stderrOutput += chunk.toString();
+        const line = chunk.toString().trim();
+        if (line && !line.includes("frame=")) {
+          console.log("[musicPlayer] ffmpeg:", line);
+        }
+      });
 
       audioPlayer.playStream(proc.stdout, "music", {
         inputType: StreamType.Raw,
@@ -46,10 +54,12 @@ export function createMusicPlayer(
 
       const done = new Promise<void>((resolve, reject) => {
         proc.on("error", (error) => {
+          console.error("[musicPlayer] Process error:", error);
           release();
           reject(error);
         });
         proc.stdout.on("error", (error) => {
+          console.error("[musicPlayer] Stdout error:", error);
           release();
           reject(error);
         });
@@ -59,7 +69,12 @@ export function createMusicPlayer(
             resolve();
             return;
           }
-          reject(new Error(`ffmpeg exited with code ${code}`));
+          const errorMsg = `ffmpeg exited with code ${code}`;
+          console.error("[musicPlayer]", errorMsg);
+          if (stderrOutput) {
+            console.error("[musicPlayer] ffmpeg stderr:", stderrOutput.slice(-500));
+          }
+          reject(new Error(errorMsg));
         });
       });
 
@@ -88,6 +103,8 @@ export function buildFfmpegArgs(source: string): string[] {
       "-user_agent",
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36"
     );
+    args.push("-connect_timeout", "10");
+    args.push("-read_timeout", "30");
   }
 
   args.push(
@@ -105,5 +122,6 @@ export function buildFfmpegArgs(source: string): string[] {
     "pipe:1",
   );
 
+  console.log("[ffmpeg] Command:", "ffmpeg", args.join(" ").slice(0, 200) + "...");
   return args;
 }
