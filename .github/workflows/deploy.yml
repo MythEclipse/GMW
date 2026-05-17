@@ -19,7 +19,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: ".,!node_modules,!.git,!.github,!recordings,!dist,!.env,!*.db,!*.db-shm,!*.db-wal,!test_out.nut"
+          source: ".,!**/node_modules,!**/node_modules/**,!**/.git,!**/.git/**,!node_modules,!vendor/discord.js-selfbot-v13/node_modules,!.git,!vendor/discord.js-selfbot-v13/.git,!.github,!.github/**,!recordings,!recordings/**,!dist,!dist/**,!.env,!*.db,!*.db-shm,!*.db-wal,!test_out.nut"
           target: "/opt/imphenbot"
           rm: false
 
