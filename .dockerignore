@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+.env.test
+.git
+.github
+recordings
+*.db
+*.db-shm
+*.db-wal
+test_out.nut
