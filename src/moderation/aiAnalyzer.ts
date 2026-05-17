@@ -146,6 +146,7 @@ async function runAnalysisInWorker(
   return new Promise((resolve, reject) => {
     const worker = new Worker(
       new URL("./aiAnalysisWorker.ts", import.meta.url),
+      { execArgv: process.execArgv }
     );
 
     worker.once("message", (response: AnalysisWorkerResponse) => {
