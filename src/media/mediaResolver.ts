@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { AppError } from "../errors";
-import type { ResolvedMediaSource } from "./mediaTypes";
+import type { ResolvedMediaSource, MediaMode } from "./mediaTypes";
 import { createPlayDlResolver } from "./playDlResolver";
 import { createYtDlp, type YtDlpClient } from "./ytdlp";
 
@@ -18,7 +18,10 @@ export function createMediaResolver(
   const ytdlp = dependencies.ytdlp ?? createYtDlp();
   const playDlResolver = dependencies.playDlResolver ?? createPlayDlResolver();
 
-  return async function resolve(input: string): Promise<ResolvedMediaSource> {
+  return async function resolve(
+    input: string,
+    mode: MediaMode = "music"
+  ): Promise<ResolvedMediaSource> {
     const source = input.trim();
     if (!source) {
       throw new AppError(
@@ -31,13 +34,17 @@ export function createMediaResolver(
     const url = parseUrl(source);
     if (url && isYouTubeUrl(url)) {
       const metadata = await ytdlp.getMetadata(source);
-      const directUrl = await ytdlp.getDirectAudioUrl(source);
+      const directUrl = mode === "screen" 
+        ? await ytdlp.getDirectVideoUrl(source)
+        : await ytdlp.getDirectAudioUrl(source);
       return { source: directUrl, title: metadata.title, kind: "youtube" };
     }
 
     if (url && isSpotifyTrackUrl(url)) {
       const result = await playDlResolver.resolveSpotifyTrack(source);
-      const directUrl = await ytdlp.getDirectAudioUrl(result.url);
+      const directUrl = mode === "screen"
+        ? await ytdlp.getDirectVideoUrl(result.url)
+        : await ytdlp.getDirectAudioUrl(result.url);
       return { source: directUrl, title: result.title, kind: "spotify" };
     }
 
@@ -55,7 +62,9 @@ export function createMediaResolver(
 
     if (!url && !looksLikeUrl(source)) {
       const result = await playDlResolver.searchYouTube(source);
-      const directUrl = await ytdlp.getDirectAudioUrl(result.url);
+      const directUrl = mode === "screen"
+        ? await ytdlp.getDirectVideoUrl(result.url)
+        : await ytdlp.getDirectAudioUrl(result.url);
       return { source: directUrl, title: result.title, kind: "search" };
     }
 

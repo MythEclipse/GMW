@@ -75,6 +75,7 @@ export class Streamer {
         const bitrateStr = String(options.bitrate ?? 2500).replace(/k$/i, "");
         const bitrateVideo = parseInt(bitrateStr, 10) || 2500;
 
+        console.log("[Streamer] Starting screen share for source:", typeof targetSource === "string" ? targetSource.slice(0, 50) + "..." : "ReadableStream");
         const { command, output } = dankPrepareStream(targetSource, {
           encoder: Encoders.software({
             x264: { preset: (options.presetH26x as any) ?? "superfast" },
@@ -86,6 +87,8 @@ export class Streamer {
           bitrateVideo: bitrateVideo,
           frameRate: fps,
           includeAudio: options.includeAudio !== false,
+          minimizeLatency: false,
+          customInputOptions: ["-fflags nobuffer"],
           customHeaders: {
             "User-Agent":
               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.3",
@@ -95,6 +98,12 @@ export class Streamer {
 
         currentCommand = command;
 
+        const webOutput = new PassThrough();
+        const discordOutput = new PassThrough();
+        
+        output.pipe(webOutput);
+        output.pipe(discordOutput);
+
         const globalAny: any = globalThis;
         const onData = (chunk: Buffer) => {
           try {
@@ -103,21 +112,27 @@ export class Streamer {
             // ignore
           }
         };
-        output.on("data", onData);
+        webOutput.on("data", onData);
 
         command.on("error", (err: Error) => {
-          console.error("Transcoder error:", err);
+          console.error("[Streamer] Transcoder error:", err);
+        });
+        command.on("stderr", (stderrLine: string) => {
+          console.error("[Streamer] FFMPEG:", stderrLine);
+        });
+        command.on("end", () => {
+          console.log("[Streamer] FFMPEG process ended naturally.");
         });
 
         try {
-          await dankPlayStream(output, this.dankStreamer, {
-            type: "go-live",
-            width: 1280,
-            height: 720,
-            frameRate: fps,
-          });
+          console.log("[Streamer] Calling dankPlayStream...");
+          await dankPlayStream(discordOutput, this.dankStreamer, undefined);
+          console.log("[Streamer] dankPlayStream completed successfully.");
+        } catch (err) {
+          console.error("[Streamer] dankPlayStream error:", err);
         } finally {
-          output.off("data", onData);
+          console.log("[Streamer] Cleaning up stream resources.");
+          webOutput.off("data", onData);
           stop();
         }
       },

@@ -200,7 +200,7 @@ describe("MediaController", () => {
     });
   });
 
-  it("starts screen share mode without resolving music source", async () => {
+  it("starts screen share mode by resolving the video source", async () => {
     const screenPlayback = deferred();
     const screenController: ScreenShareController = {
       isActive: vi.fn(() => false),
@@ -209,7 +209,7 @@ describe("MediaController", () => {
         stop: vi.fn(),
       })),
     };
-    const resolveMediaSource = vi.fn(async (input) => source(input));
+    const resolveMediaSource = vi.fn(async (input, mode) => source(input));
     const controller = new MediaController({
       isVoiceConnected: () => true,
       isBrowserStreaming: () => false,
@@ -225,7 +225,7 @@ describe("MediaController", () => {
     expect(screenController.start).toHaveBeenCalledWith(
       "https://youtu.be/video",
     );
-    expect(resolveMediaSource).not.toHaveBeenCalled();
+    expect(resolveMediaSource).toHaveBeenCalledWith("https://youtu.be/video", "screen");
     expect(state).toMatchObject({ playing: true, activeMode: "screen" });
   });
 

@@ -17,7 +17,7 @@ import { createMusicPlayer } from "./musicPlayer";
 export interface MediaControllerDependencies {
   isVoiceConnected?: () => boolean;
   isBrowserStreaming?: () => boolean;
-  resolveMediaSource?: (source: string) => Promise<ResolvedMediaSource>;
+  resolveMediaSource?: (source: string, mode?: MediaMode) => Promise<ResolvedMediaSource>;
   musicPlayer?: MusicPlayer;
   screenController?: ScreenShareController;
   onStateChange?: (state: MediaState) => void;
@@ -73,12 +73,17 @@ export class MediaController {
     options: QueueMediaOptions = {},
   ): Promise<MediaState> {
     const mode = options.mode ?? "music";
+
+    const resolved = await (
+      this.dependencies.resolveMediaSource ?? resolveMediaSource
+    )(source, mode);
+
     if (mode === "screen") {
       // Stop current music if any
       this.playbackToken++;
       this.playback?.stop();
       this.playback = null;
-      return this.startScreen(source);
+      return this.startScreen(resolved.source);
     }
 
     // mode === "music"
@@ -95,9 +100,6 @@ export class MediaController {
     }
 
     this.assertCanStartMusic();
-    const resolved = await (
-      this.dependencies.resolveMediaSource ?? resolveMediaSource
-    )(source);
     this.queueStore.add(resolved, mode, options.requestedBy);
     this.startNextIfIdle();
     return this.emitState();

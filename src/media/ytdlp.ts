@@ -56,7 +56,7 @@ export function createYtDlp(dependencies: YtDlpDependencies = {}): YtDlpClient {
         url,
         "--get-url",
         "--format",
-        "bestvideo[protocol^=http]+bestaudio[protocol^=http]/best[protocol^=http]/best",
+        "best[protocol^=http]/best",
         "--no-playlist",
         "--no-warnings",
         "--quiet",
