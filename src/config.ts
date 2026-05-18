@@ -30,7 +30,9 @@ const configSchema = z
     AUDIO_SAMPLE_RATE: z.coerce.number().positive().default(48000),
     AUDIO_CHANNELS: z.coerce.number().positive().default(2),
     AVATAR_SIZE: z.coerce.number().positive().default(64),
-    LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+    LOG_LEVEL: z
+      .enum(["error", "warn", "info", "http", "verbose", "debug", "silly"])
+      .default("info"),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
