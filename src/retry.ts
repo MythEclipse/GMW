@@ -1,12 +1,12 @@
 import pRetry from "p-retry";
-import type { Logger } from "pino";
+import type { CustomLogger } from "./logger.ts";
 
 export interface RetryOptions {
   retries?: number;
   minTimeout?: number;
   maxTimeout?: number;
   factor?: number;
-  logger?: Logger;
+  logger?: CustomLogger;
 }
 
 export async function retryWithBackoff<T>(
