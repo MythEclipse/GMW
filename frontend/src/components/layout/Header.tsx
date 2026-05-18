@@ -8,6 +8,7 @@ const titles: Record<DashboardTab, string> = {
   voice: "Voice Control",
   media: "Media Player",
   messages: "Messages",
+  recordings: "Voice Recordings",
   review: "Moderation Review",
 };
 
