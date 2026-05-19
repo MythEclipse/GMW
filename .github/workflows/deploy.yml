@@ -34,6 +34,9 @@ jobs:
             set -e
             APP_DIR=/opt/imphenbot
             
+            # Configure git safe directory
+            git config --global --add safe.directory \$APP_DIR
+            
             # Clone or update repository
             if [ -d \"\$APP_DIR/.git\" ]; then
               echo 'Repository exists, pulling latest changes...'
