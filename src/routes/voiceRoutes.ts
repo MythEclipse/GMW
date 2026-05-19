@@ -10,7 +10,9 @@ const logger = createChildLogger("voice-routes");
 
 export interface VoiceRouteOptions {
   voiceController: VoiceController;
-  patchSharedUIState: (patch: Partial<SharedUIState>) => SharedUIState;
+  patchSharedUIState: (
+    patch: Partial<SharedUIState>,
+  ) => Promise<SharedUIState> | SharedUIState;
   broadcaster: ModerationBroadcaster;
   adminPassword?: string;
 }
@@ -23,7 +25,9 @@ export function createVoiceRoutes(
   // Support both old signature (VoiceController) and new signature (options object)
   let voiceController: VoiceController;
   let patchSharedUIState:
-    | ((patch: Partial<SharedUIState>) => SharedUIState)
+    | ((
+        patch: Partial<SharedUIState>,
+      ) => Promise<SharedUIState> | SharedUIState)
     | undefined;
   let broadcaster: ModerationBroadcaster | undefined;
   let adminPassword: string | undefined;
@@ -137,7 +141,7 @@ export function createVoiceRoutes(
 
         // Update UI state and broadcast to connected clients
         if (patchSharedUIState && broadcaster) {
-          const updatedState = patchSharedUIState({
+          const updatedState = await patchSharedUIState({
             selectedVoiceGuild: guildId,
             selectedVoiceChannel: channelId,
           });
@@ -163,7 +167,7 @@ export function createVoiceRoutes(
 
         // Update UI state and broadcast to connected clients
         if (patchSharedUIState && broadcaster) {
-          const updatedState = patchSharedUIState({
+          const updatedState = await patchSharedUIState({
             selectedVoiceGuild: "",
             selectedVoiceChannel: "",
           });

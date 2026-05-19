@@ -30,6 +30,7 @@ import { createRecordingsRoutes } from "./routes/recordingsRoutes";
 import { createSyncRoutes } from "./routes/syncRoutes";
 import { createUIStateRoutes } from "./routes/uiStateRoutes";
 import { createVoiceRoutes } from "./routes/voiceRoutes";
+import { createSharedUIStateStore } from "./state/uiState";
 import { Streamer } from "./streaming";
 import type { VoiceController } from "./voiceController";
 
@@ -53,64 +54,13 @@ type VoiceGlobals = typeof globalThis & {
   ) => void;
 };
 
-interface SharedUIState {
-  selectedVoiceGuild: string;
-  selectedVoiceChannel: string;
-  selectedTextGuild: string;
-  selectedTextChannel: string;
-  activeTab: "voice" | "messages" | "media" | "review" | "recordings";
-  isListening: boolean;
-  isStreaming: boolean;
-}
-
 interface MediaSettings {
   musicVolume: number;
 }
 
-type SharedUIStatePatch = Partial<SharedUIState> & {
-  selectedGuild?: string;
-};
-
-const defaultSharedUIState: SharedUIState = {
-  selectedVoiceGuild: "",
-  selectedVoiceChannel: "",
-  selectedTextGuild: "",
-  selectedTextChannel: "",
-  activeTab: "voice",
-  isListening: false,
-  isStreaming: false,
-};
-
 const defaultMediaSettings: MediaSettings = {
   musicVolume: 1,
 };
-
-let sharedUIState: SharedUIState = { ...defaultSharedUIState };
-
-export function normalizeSharedUIState(
-  value: SharedUIStatePatch,
-): SharedUIState {
-  const guild = value.selectedGuild ?? "";
-  return {
-    selectedVoiceGuild: value.selectedVoiceGuild ?? guild,
-    selectedVoiceChannel: value.selectedVoiceChannel ?? "",
-    selectedTextGuild: value.selectedTextGuild ?? guild,
-    selectedTextChannel: value.selectedTextChannel ?? "",
-    activeTab: (["voice", "messages", "media", "review", "recordings"].includes(
-      value.activeTab ?? "",
-    )
-      ? value.activeTab
-      : "voice") as "voice" | "messages" | "media" | "review" | "recordings",
-    isListening: value.isListening ?? false,
-    isStreaming: value.isStreaming ?? false,
-  };
-}
-
-async function initializeSharedUIState() {
-  sharedUIState = normalizeSharedUIState(
-    await getPersistedValue("web-ui-state", defaultSharedUIState),
-  );
-}
 
 async function initializeMediaSettings(): Promise<MediaSettings> {
   const stored = await getPersistedValue(
@@ -123,56 +73,13 @@ async function initializeMediaSettings(): Promise<MediaSettings> {
   };
 }
 
-function getSharedUIState(): SharedUIState {
-  return { ...sharedUIState };
-}
-
-function patchSharedUIState(patch: SharedUIStatePatch) {
-  if (typeof patch.selectedGuild === "string") {
-    sharedUIState.selectedVoiceGuild = patch.selectedGuild;
-    sharedUIState.selectedTextGuild = patch.selectedGuild;
-  }
-  if (typeof patch.selectedVoiceGuild === "string") {
-    sharedUIState.selectedVoiceGuild = patch.selectedVoiceGuild;
-  }
-  if (typeof patch.selectedVoiceChannel === "string") {
-    sharedUIState.selectedVoiceChannel = patch.selectedVoiceChannel;
-  }
-  if (typeof patch.selectedTextGuild === "string") {
-    sharedUIState.selectedTextGuild = patch.selectedTextGuild;
-  }
-  if (typeof patch.selectedTextChannel === "string") {
-    sharedUIState.selectedTextChannel = patch.selectedTextChannel;
-  }
-  if (
-    ["voice", "messages", "media", "review", "recordings"].includes(
-      patch.activeTab ?? "",
-    )
-  ) {
-    sharedUIState.activeTab = patch.activeTab as
-      | "voice"
-      | "messages"
-      | "media"
-      | "review"
-      | "recordings";
-  }
-  if (typeof patch.isListening === "boolean") {
-    sharedUIState.isListening = patch.isListening;
-  }
-  if (typeof patch.isStreaming === "boolean") {
-    sharedUIState.isStreaming = patch.isStreaming;
-  }
-  setPersistedValue("web-ui-state", sharedUIState);
-  return getSharedUIState();
-}
-
 
 export async function startWebserver(
   port: number = 3000,
   _client: Client,
   voiceController: VoiceController,
 ) {
-  await initializeSharedUIState();
+  const { getSharedUIState, patchSharedUIState } = await createSharedUIStateStore();
   let mediaSettings = await initializeMediaSettings();
 
   const app = express();
@@ -206,7 +113,7 @@ export async function startWebserver(
 
   const mediaController = new MediaController({
     isVoiceConnected: () => voiceController.getStatus().connected,
-    isBrowserStreaming: () => sharedUIState.isStreaming,
+    isBrowserStreaming: () => getSharedUIState().isStreaming,
     screenController,
     onStateChange: (state) => broadcaster.mediaState(state),
     initialMusicVolume: mediaSettings.musicVolume,
