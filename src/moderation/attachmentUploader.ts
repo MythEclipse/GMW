@@ -1,6 +1,5 @@
 import { config } from "../config";
 import { createChildLogger } from "../logger";
-import type { SqliteDatabase } from "../muxer-queue";
 import { retryWithBackoff } from "../retry";
 import {
   updateAttachmentAsFailedUpload,
@@ -8,6 +7,17 @@ import {
 } from "./messageStore";
 
 const logger = createChildLogger("attachment-uploader");
+
+const ATTACHMENT_UPLOAD_RETRY_OPTIONS = {
+  retries: config.ATTACHMENT_RETRY_ATTEMPTS,
+  minTimeout: 1000,
+  maxTimeout: 5000,
+  logger,
+} as const;
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export interface PicserUploadResponse {
   success: boolean;
@@ -60,34 +70,26 @@ export async function uploadAttachmentToPicser(
   formData.append("file", blob, filename);
 
   try {
-    const response = await retryWithBackoff(
-      async () => {
-        const res = await fetch(config.PICSER_UPLOAD_URL, {
-          method: "POST",
-          body: formData,
-          signal: AbortSignal.timeout(config.ATTACHMENT_UPLOAD_TIMEOUT_MS),
-        });
+    const response = await retryWithBackoff(async () => {
+      const res = await fetch(config.PICSER_UPLOAD_URL, {
+        method: "POST",
+        body: formData,
+        signal: AbortSignal.timeout(config.ATTACHMENT_UPLOAD_TIMEOUT_MS),
+      });
 
-        if (!res.ok) {
-          throw new Error(`Upload failed with status ${res.status}`);
-        }
+      if (!res.ok) {
+        throw new Error(`Upload failed with status ${res.status}`);
+      }
 
-        return res.json() as Promise<PicserUploadResponse>;
-      },
-      {
-        retries: config.ATTACHMENT_RETRY_ATTEMPTS,
-        minTimeout: 1000,
-        maxTimeout: 5000,
-        logger,
-      },
-    );
+      return res.json() as Promise<PicserUploadResponse>;
+    }, ATTACHMENT_UPLOAD_RETRY_OPTIONS);
 
     return parseUploadResponse(response);
   } catch (error) {
     logger.error(
       {
         filename,
-        error: error instanceof Error ? error.message : String(error),
+        error: toErrorMessage(error),
       },
       "Failed to upload attachment",
     );
@@ -109,7 +111,7 @@ export async function downloadDiscordAttachment(url: string): Promise<Buffer> {
     return Buffer.from(buffer);
   } catch (error) {
     logger.error(
-      { url, error: error instanceof Error ? error.message : String(error) },
+      { url, error: toErrorMessage(error) },
       "Failed to download Discord attachment",
     );
     throw error;
@@ -135,7 +137,7 @@ export async function processAttachmentUpload(
 
     await updateAttachmentAsUploaded(attachmentId, result.url, Date.now());
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorMsg = toErrorMessage(error);
     await updateAttachmentAsFailedUpload(attachmentId, errorMsg);
     logger.error({ attachmentId, error: errorMsg }, "Attachment upload failed");
   }

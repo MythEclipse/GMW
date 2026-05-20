@@ -22,6 +22,10 @@ type VoiceGlobals = typeof globalThis & {
   ) => void;
 };
 
+export function getModerationBroadcaster(): ModerationBroadcaster | undefined {
+  return (globalThis as VoiceGlobals).moderationBroadcaster;
+}
+
 export function exposeModerationGlobals(
   broadcaster: ModerationBroadcaster,
   adminPassword: string,

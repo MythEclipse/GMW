@@ -7,3 +7,4 @@ public/app/
 .claude/
 .env.test
 logs/
+.codegraph/

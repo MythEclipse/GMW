@@ -12,6 +12,7 @@ import {
 import { getDatabase } from "../database/drizzle.ts";
 import { attachmentsTable, messagesTable } from "../database/schema.ts";
 import { createChildLogger } from "../logger.ts";
+import { decodeCursor, encodeCursor } from "./pagination";
 import type {
   AttachmentRecord,
   MessageQuery,
@@ -44,28 +45,7 @@ function db(): MessageDatabase {
   return getDatabase() as unknown as MessageDatabase;
 }
 
-// Cursor helpers for pagination
-interface CursorData {
-  created_at: number;
-  id: string;
-}
-
-export function encodeCursor(data: CursorData): string {
-  return Buffer.from(JSON.stringify(data)).toString("base64");
-}
-
-export function decodeCursor(cursor?: string): CursorData | null {
-  if (!cursor) return null;
-  try {
-    const data = JSON.parse(Buffer.from(cursor, "base64").toString("utf-8"));
-    if (typeof data.created_at === "number" && typeof data.id === "string") {
-      return data;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+export { decodeCursor, encodeCursor } from "./pagination";
 
 export async function insertMessage(message: MessageRecord): Promise<void> {
   try {

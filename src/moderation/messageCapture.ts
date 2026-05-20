@@ -1,6 +1,7 @@
 import type { Client, Message } from "discord.js-selfbot-v13";
 import { config } from "../config";
 import { createChildLogger } from "../logger";
+import { getModerationBroadcaster } from "../ws/broadcastGlobals";
 import { queueMessageAnalysis } from "./aiAnalyzer";
 import { processAttachmentUpload } from "./attachmentUploader";
 import {
@@ -15,21 +16,9 @@ import {
   updateMessageAsEdited,
   upsertMessageForCapture,
 } from "./messageStore";
-import type {
-  AttachmentRecord,
-  MessageRecord,
-  ModerationBroadcaster,
-} from "./types";
+import type { AttachmentRecord, MessageRecord } from "./types";
 
 const logger = createChildLogger("message-capture");
-
-type ModerationGlobal = typeof globalThis & {
-  moderationBroadcaster?: ModerationBroadcaster;
-};
-
-function getModerationBroadcaster(): ModerationBroadcaster | undefined {
-  return (globalThis as ModerationGlobal).moderationBroadcaster;
-}
 
 export interface TextCaptureTarget {
   guildId?: string;
@@ -57,15 +46,14 @@ function getTextCaptureTarget(): TextCaptureTarget {
   };
 }
 
-export async function captureMessage(
+function buildMessageRecord(
   message: Message,
   type: "text" | "edited" | "deleted",
-  options: { source?: "live" | "backlog" } = {},
-): Promise<void> {
+): MessageRecord {
   const location = getMessageLocation(message);
   const metadata = getMessageMetadata(message);
 
-  const messageRecord: MessageRecord = {
+  return {
     id: message.id,
     guild_id: message.guildId!,
     channel_id: location.channelId,
@@ -81,6 +69,45 @@ export async function captureMessage(
     type,
     metadata: JSON.stringify(metadata),
   };
+}
+
+function buildAttachmentRecord(
+  message: Message,
+  location: ReturnType<typeof getMessageLocation>,
+  attachment: {
+    id: string;
+    name: string | null;
+    size: number;
+    contentType: string | null;
+    url: string;
+  },
+): AttachmentRecord {
+  return {
+    id: attachment.id,
+    message_id: message.id,
+    guild_id: message.guildId!,
+    channel_id: location.channelId,
+    thread_id: location.threadId,
+    user_id: message.author?.id,
+    filename: attachment.name || "unknown",
+    size: attachment.size,
+    type: attachment.contentType || "application/octet-stream",
+    discord_url: attachment.url,
+    uploaded_url: null,
+    upload_status: "pending",
+    upload_error: null,
+    created_at: Date.now(),
+    uploaded_at: null,
+  };
+}
+
+export async function captureMessage(
+  message: Message,
+  type: "text" | "edited" | "deleted",
+  options: { source?: "live" | "backlog" } = {},
+): Promise<void> {
+  const location = getMessageLocation(message);
+  const messageRecord = buildMessageRecord(message, type);
 
   const inserted = await upsertMessageForCapture(messageRecord);
   if (!inserted) {
@@ -97,23 +124,13 @@ export async function captureMessage(
   // Insert attachments before queuing analysis to avoid race condition
   if (message.attachments.size > 0) {
     for (const [, attachment] of message.attachments) {
-      const attachmentRecord: AttachmentRecord = {
+      const attachmentRecord = buildAttachmentRecord(message, location, {
         id: attachment.id,
-        message_id: message.id,
-        guild_id: message.guildId!,
-        channel_id: location.channelId,
-        thread_id: location.threadId,
-        user_id: message.author?.id,
-        filename: attachment.name || "unknown",
+        name: attachment.name,
         size: attachment.size,
-        type: attachment.contentType || "application/octet-stream",
-        discord_url: attachment.url,
-        uploaded_url: null,
-        upload_status: "pending",
-        upload_error: null,
-        created_at: Date.now(),
-        uploaded_at: null,
-      };
+        contentType: attachment.contentType,
+        url: attachment.url,
+      });
 
       await insertAttachment(attachmentRecord);
 
