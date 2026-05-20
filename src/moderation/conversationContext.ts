@@ -32,45 +32,39 @@ export function buildConversationPromptMessages(
 ): string[] {
   const { contextBefore, targets, maxTokens } = input;
 
-  // Format all messages
   const formatMessage = (msg: MessageRecord, label: string): string => {
     const content = msg.edited_content ?? msg.content;
     const timestamp = formatTimestamp(msg.created_at);
     return `[${label}] id=${msg.id} time=${timestamp} user=${msg.username}: ${content}`;
   };
 
-  const targetLines = targets.map((msg) => formatMessage(msg, "target"));
-  const contextLines = contextBefore.map((msg) =>
-    formatMessage(msg, "context"),
-  );
+  const targetEntries = targets.map((msg) => ({
+    msg,
+    label: "target" as const,
+    line: formatMessage(msg, "target"),
+  }));
 
-  // Calculate tokens for targets (always include)
-  let usedTokens = targetLines.reduce(
-    (sum, line) => sum + estimateTokens(line),
+  let usedTokens = targetEntries.reduce(
+    (sum, entry) => sum + estimateTokens(entry.line),
     0,
   );
 
-  // Add context lines in reverse chronological order (most recent first)
-  // until we hit the token budget
-  const selectedContextLines: string[] = [];
-  for (let i = contextLines.length - 1; i >= 0; i--) {
-    const line = contextLines[i];
+  const selectedContextEntries: Array<{
+    msg: MessageRecord;
+    label: "context";
+    line: string;
+  }> = [];
+  for (let i = contextBefore.length - 1; i >= 0; i--) {
+    const msg = contextBefore[i];
+    const line = formatMessage(msg, "context");
     const lineTokens = estimateTokens(line);
     if (usedTokens + lineTokens <= maxTokens) {
-      selectedContextLines.unshift(line); // prepend to maintain chronological order
+      selectedContextEntries.push({ msg, label: "context", line });
       usedTokens += lineTokens;
     }
   }
 
-  // Combine: context (chronological) + targets (chronological)
-  const allMessages = [...selectedContextLines, ...targetLines];
-
-  // Sort by timestamp to ensure chronological order
-  allMessages.sort((a, b) => {
-    const timeA = a.match(/time=([^\s]+)/)?.[1] ?? "";
-    const timeB = b.match(/time=([^\s]+)/)?.[1] ?? "";
-    return timeA.localeCompare(timeB);
-  });
-
-  return allMessages;
+  return [...selectedContextEntries, ...targetEntries]
+    .sort((a, b) => a.msg.created_at - b.msg.created_at)
+    .map((entry) => entry.line);
 }

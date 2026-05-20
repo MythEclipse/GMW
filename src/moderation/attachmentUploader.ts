@@ -1,6 +1,6 @@
 import { config } from "../config";
 import { createChildLogger } from "../logger";
-import { retryWithBackoff } from "../retry";
+import { uploadToTele } from "../uploader/teleUpload";
 import {
   updateAttachmentAsFailedUpload,
   updateAttachmentAsUploaded,
@@ -8,83 +8,26 @@ import {
 
 const logger = createChildLogger("attachment-uploader");
 
-const ATTACHMENT_UPLOAD_RETRY_OPTIONS = {
-  retries: config.ATTACHMENT_RETRY_ATTEMPTS,
-  minTimeout: 1000,
-  maxTimeout: 5000,
-  logger,
-} as const;
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export interface PicserUploadResponse {
-  success: boolean;
-  filename: string;
-  urls: {
-    raw_commit?: string;
-    [key: string]: string | undefined;
-  };
-  size: number;
-  type: string;
-}
-
-export interface ParsedUploadResponse {
-  success: boolean;
-  url: string;
-  filename: string;
-  size: number;
-  type: string;
-}
-
-export function parseUploadResponse(
-  response: PicserUploadResponse,
-): ParsedUploadResponse {
-  if (!response.success) {
-    throw new Error("Upload failed: success=false");
-  }
-
-  const rawCommitUrl = response.urls.raw_commit;
-  if (!rawCommitUrl) {
-    throw new Error("Upload response missing raw_commit URL");
-  }
-
-  return {
-    success: true,
-    url: rawCommitUrl,
-    filename: response.filename,
-    size: response.size,
-    type: response.type,
-  };
-}
-
-export async function uploadAttachmentToPicser(
+export async function uploadAttachmentToTele(
   fileBuffer: Buffer,
   filename: string,
-): Promise<ParsedUploadResponse> {
-  const formData = new FormData();
-  const blob = new Blob([new Uint8Array(fileBuffer)], {
-    type: "application/octet-stream",
-  });
-  formData.append("file", blob, filename);
-
+): Promise<string> {
   try {
-    const response = await retryWithBackoff(async () => {
-      const res = await fetch(config.PICSER_UPLOAD_URL, {
-        method: "POST",
-        body: formData,
-        signal: AbortSignal.timeout(config.ATTACHMENT_UPLOAD_TIMEOUT_MS),
-      });
+    const result = await uploadToTele({
+      buffer: fileBuffer,
+      filename,
+      contentType: "application/octet-stream",
+      uploadUrl: config.TELE_UPLOAD_URL,
+      timeoutMs: config.ATTACHMENT_UPLOAD_TIMEOUT_MS,
+      retries: config.ATTACHMENT_RETRY_ATTEMPTS,
+      logger,
+    });
 
-      if (!res.ok) {
-        throw new Error(`Upload failed with status ${res.status}`);
-      }
-
-      return res.json() as Promise<PicserUploadResponse>;
-    }, ATTACHMENT_UPLOAD_RETRY_OPTIONS);
-
-    return parseUploadResponse(response);
+    return result.url;
   } catch (error) {
     logger.error(
       {
@@ -133,9 +76,9 @@ export async function processAttachmentUpload(
       );
     }
 
-    const result = await uploadAttachmentToPicser(buffer, filename);
+    const uploadedUrl = await uploadAttachmentToTele(buffer, filename);
 
-    await updateAttachmentAsUploaded(attachmentId, result.url, Date.now());
+    await updateAttachmentAsUploaded(attachmentId, uploadedUrl, Date.now());
   } catch (error) {
     const errorMsg = toErrorMessage(error);
     await updateAttachmentAsFailedUpload(attachmentId, errorMsg);

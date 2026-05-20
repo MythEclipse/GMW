@@ -28,6 +28,39 @@ describe("loadConfig", () => {
     expect(config.WEBSERVER_PORT).toBe(4000);
     expect(config.RECORDINGS_DIR).toBe("./recordings");
     expect(config.NODE_ENV).toBe("test");
+    expect(config.TELE_UPLOAD_URL).toBe(
+      "https://upload.asepharyana.tech/api/upload",
+    );
+    expect(config.AI_ANALYSIS_DEBOUNCE_MS).toBe(500);
+    expect(config.AI_ANALYSIS_RECOVERY_INTERVAL_MS).toBe(15000);
+    expect(config.AI_ANALYSIS_ERROR_COOLDOWN_MS).toBe(30000);
+    expect(config.AI_ANALYSIS_MAX_BATCH_SIZE).toBe(25);
+    expect(config.AI_ANALYSIS_MAX_CONTEXT_TOKENS).toBe(8000);
+    expect(config.AI_ANALYSIS_CONTEXT_MESSAGE_LIMIT).toBe(20);
+  });
+
+  it("coerces AI analysis tuning values", async () => {
+    process.env = {
+      ...originalEnv,
+      DISCORD_TOKEN: "token",
+      AI_ANALYSIS_DEBOUNCE_MS: "750",
+      AI_ANALYSIS_RECOVERY_INTERVAL_MS: "20000",
+      AI_ANALYSIS_ERROR_COOLDOWN_MS: "45000",
+      AI_ANALYSIS_MAX_BATCH_SIZE: "40",
+      AI_ANALYSIS_MAX_CONTEXT_TOKENS: "12000",
+      AI_ANALYSIS_CONTEXT_MESSAGE_LIMIT: "35",
+      NODE_ENV: "test",
+    };
+
+    const { loadConfig } = await import("../src/config");
+    const config = loadConfig(process.env);
+
+    expect(config.AI_ANALYSIS_DEBOUNCE_MS).toBe(750);
+    expect(config.AI_ANALYSIS_RECOVERY_INTERVAL_MS).toBe(20000);
+    expect(config.AI_ANALYSIS_ERROR_COOLDOWN_MS).toBe(45000);
+    expect(config.AI_ANALYSIS_MAX_BATCH_SIZE).toBe(40);
+    expect(config.AI_ANALYSIS_MAX_CONTEXT_TOKENS).toBe(12000);
+    expect(config.AI_ANALYSIS_CONTEXT_MESSAGE_LIMIT).toBe(35);
   });
 
   it("derives split text and voice guild defaults from legacy config", async () => {

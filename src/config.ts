@@ -37,10 +37,10 @@ const configSchema = z
       .enum(["development", "production", "test"])
       .default("development"),
     MONITOR_GUILD_ID: z.string().min(1).optional(),
-    PICSER_UPLOAD_URL: z
+    TELE_UPLOAD_URL: z
       .string()
       .url()
-      .default("https://picser.asepharyana.tech/api/upload"),
+      .default("https://upload.asepharyana.tech/api/upload"),
     ATTACHMENT_UPLOAD_TIMEOUT_MS: z.coerce.number().positive().default(30000),
     ATTACHMENT_MAX_SIZE_MB: z.coerce.number().positive().default(100),
     ATTACHMENT_RETRY_ATTEMPTS: z.coerce.number().positive().default(3),
@@ -69,6 +69,19 @@ const configSchema = z
       .default("https://9router.asepharyana.tech/v1"),
     AI_LLM_MODEL: z.string().default("free"),
     AI_ANALYSIS_TIMEOUT_MS: z.coerce.number().positive().default(30000),
+    AI_ANALYSIS_DEBOUNCE_MS: z.coerce.number().positive().default(500),
+    AI_ANALYSIS_RECOVERY_INTERVAL_MS: z.coerce
+      .number()
+      .positive()
+      .default(15000),
+    AI_ANALYSIS_ERROR_COOLDOWN_MS: z.coerce.number().positive().default(30000),
+    AI_ANALYSIS_MAX_BATCH_SIZE: z.coerce.number().int().positive().default(25),
+    AI_ANALYSIS_MAX_CONTEXT_TOKENS: z.coerce.number().positive().default(8000),
+    AI_ANALYSIS_CONTEXT_MESSAGE_LIMIT: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(20),
     DATABASE_TYPE: z.enum(["sqlite", "postgres"]).default("sqlite"),
     DATABASE_URL: z.string().optional(),
     POSTGRES_HOST: z.string().default("localhost"),

@@ -1,21 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
+import { config } from "../config";
 import {
   insertVoiceRecording,
   updateVoiceRecordingAsFailed,
   updateVoiceRecordingAsUploaded,
 } from "../database/voiceRecordingRepo";
 import { createChildLogger } from "../logger";
-import { retryWithBackoff } from "../retry";
+import { uploadToTele } from "../uploader/teleUpload";
 
 const logger = createChildLogger("recording-uploader");
-
-export interface UploadResponse {
-  download_url: string;
-  public_id: string;
-  file_name: string;
-  size_bytes: number;
-}
 
 /**
  * Uploads a recorded segment OGG file to external server and registers in database
@@ -60,40 +54,16 @@ export async function uploadRecordingSegment(input: {
     });
 
     // 2. Perform async upload with retry logic
-    const downloadUrl = await retryWithBackoff(
-      async () => {
-        const fileBuffer = fs.readFileSync(oggPath);
-        const fileBlob = new Blob([fileBuffer], { type: "audio/ogg" });
-        const formData = new FormData();
-        formData.append("file", fileBlob, fileName);
-        formData.append("fileName", fileName);
-
-        const res = await fetch("https://upload.asepharyana.tech/api/upload", {
-          method: "POST",
-          headers: {
-            accept: "application/json",
-          },
-          body: formData,
-        });
-
-        if (!res.ok) {
-          throw new Error(`Upload failed: Status ${res.status}`);
-        }
-
-        const data = (await res.json()) as UploadResponse;
-        if (!data.download_url) {
-          throw new Error("Missing download_url in response");
-        }
-
-        return data.download_url;
-      },
-      {
-        retries: 3,
-        minTimeout: 1000,
-        maxTimeout: 5000,
-        logger,
-      },
-    );
+    const fileBuffer = fs.readFileSync(oggPath);
+    const uploadResult = await uploadToTele({
+      buffer: fileBuffer,
+      filename: fileName,
+      contentType: "audio/ogg",
+      uploadUrl: config.TELE_UPLOAD_URL,
+      retries: 3,
+      logger,
+    });
+    const downloadUrl = uploadResult.url;
 
     // 3. Update DB to uploaded state
     await updateVoiceRecordingAsUploaded(id, downloadUrl, Date.now());

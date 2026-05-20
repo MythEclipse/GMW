@@ -31,10 +31,6 @@ const conversationErrorCooldown = new Map<string, number>();
 
 let activeRequests = 0;
 let lastError: string | null = null;
-const DEBOUNCE_MS = 1500;
-const RECOVERY_INTERVAL_MS = 15000;
-const ERROR_COOLDOWN_MS = 30000;
-const MAX_BATCH_SIZE = 25;
 
 interface AnalysisWorkerResponse {
   ok: boolean;
@@ -98,7 +94,7 @@ async function processBatch(
       lastError = result.error ?? "Analysis worker failed";
       conversationErrorCooldown.set(
         conversationKey,
-        Date.now() + ERROR_COOLDOWN_MS,
+        Date.now() + config.AI_ANALYSIS_ERROR_COOLDOWN_MS,
       );
       logger.error(
         {
@@ -106,7 +102,9 @@ async function processBatch(
           error: lastError,
           messageCount: messages.length,
           messageIds: messages.map((m) => m.id),
-          cooldownUntil: new Date(Date.now() + ERROR_COOLDOWN_MS).toISOString(),
+          cooldownUntil: new Date(
+            Date.now() + config.AI_ANALYSIS_ERROR_COOLDOWN_MS,
+          ).toISOString(),
           timestamp: new Date().toISOString(),
         },
         "Batch analysis failed, will retry after cooldown",
@@ -120,7 +118,7 @@ async function processBatch(
     const errorStack = error instanceof Error ? error.stack : undefined;
     conversationErrorCooldown.set(
       conversationKey,
-      Date.now() + ERROR_COOLDOWN_MS,
+      Date.now() + config.AI_ANALYSIS_ERROR_COOLDOWN_MS,
     );
     logger.error(
       {
@@ -129,7 +127,9 @@ async function processBatch(
         stack: errorStack,
         messageCount: messages.length,
         messageIds: messages.map((m) => m.id),
-        cooldownUntil: new Date(Date.now() + ERROR_COOLDOWN_MS).toISOString(),
+        cooldownUntil: new Date(
+          Date.now() + config.AI_ANALYSIS_ERROR_COOLDOWN_MS,
+        ).toISOString(),
         timestamp: new Date().toISOString(),
       },
       "Analysis worker failed, will retry after cooldown",
@@ -188,7 +188,7 @@ function scheduleConversationAnalysis(conversationKey: string): void {
   }
 
   // Always use shorter debounce for immediate processing (no concurrency limit)
-  const debounceTime = Math.min(DEBOUNCE_MS, 500);
+  const debounceTime = config.AI_ANALYSIS_DEBOUNCE_MS;
 
   // Set new debounced timer
   const timer = setTimeout(async () => {
@@ -197,7 +197,7 @@ function scheduleConversationAnalysis(conversationKey: string): void {
     // Get pending messages for this conversation
     const messages = await getPendingMessagesByConversation(
       conversationKey,
-      MAX_BATCH_SIZE,
+      config.AI_ANALYSIS_MAX_BATCH_SIZE,
     );
 
     if (messages.length > 0) {
@@ -290,5 +290,5 @@ export function startPendingAIAnalysisWorker(): void {
     } catch (error) {
       logger.error({ error }, "Pending AI analysis recovery worker failed");
     }
-  }, RECOVERY_INTERVAL_MS);
+  }, config.AI_ANALYSIS_RECOVERY_INTERVAL_MS);
 }

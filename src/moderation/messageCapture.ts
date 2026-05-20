@@ -134,7 +134,7 @@ export async function captureMessage(
 
       await insertAttachment(attachmentRecord);
 
-      // Initiate async upload to Picser (non-blocking, fire-and-forget)
+      // Initiate async upload (non-blocking, fire-and-forget)
       if (!isBacklog) {
         processAttachmentUpload(
           attachment.id,

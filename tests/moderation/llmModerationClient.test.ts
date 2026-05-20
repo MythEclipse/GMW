@@ -420,6 +420,46 @@ describe("runModerationAnalysis", () => {
     });
   });
 
+  it("sends text-only analysis without dummy image", async () => {
+    const mockResponse = {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              results: [
+                {
+                  message_id: "m1",
+                  status: "clean",
+                  flags: [],
+                  score: 0.1,
+                  analysis: "OK",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify(mockResponse),
+      json: async () => mockResponse,
+    });
+
+    await runModerationAnalysis({
+      targets: [createMessageRecord()],
+      contextText: "test context",
+    });
+
+    const requestBody = JSON.parse((global.fetch as any).mock.calls[0][1].body);
+    expect(requestBody.messages[0].role).toBe("system");
+    expect(requestBody.messages[1].role).toBe("user");
+    expect(typeof requestBody.messages[1].content).toBe("string");
+    expect(requestBody.messages[1].content).toContain("test context");
+    expect(requestBody.messages[1].content).not.toContain("data:image/png");
+  });
+
   it("throws on non-ok HTTP response", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -433,6 +473,42 @@ describe("runModerationAnalysis", () => {
         contextText: "test context",
       }),
     ).rejects.toThrow(/LLM API error 500/);
+  });
+
+  it("parses first JSON object when provider appends extra JSON", async () => {
+    const mockResponse = {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              results: [
+                {
+                  message_id: "m1",
+                  status: "clean",
+                  flags: [],
+                  score: 0.1,
+                  analysis: "OK",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        `${JSON.stringify(mockResponse)}\n{"usage":{"tokens":12}}`,
+    });
+
+    const result = await runModerationAnalysis({
+      targets: [createMessageRecord()],
+      contextText: "test context",
+    });
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].messageId).toBe("m1");
   });
 
   it("throws on missing choices in response", async () => {
@@ -544,7 +620,8 @@ describe("runModerationAnalysis", () => {
     const [, completionsOptions] = fetchCalls[1];
     const body = JSON.parse(completionsOptions.body);
 
-    const userMessage = body.messages[0];
+    expect(body.messages[0].role).toBe("system");
+    const userMessage = body.messages[1];
     expect(userMessage.role).toBe("user");
     expect(Array.isArray(userMessage.content)).toBe(true);
     expect(userMessage.content[0].type).toBe("image_url");
@@ -556,7 +633,8 @@ describe("runModerationAnalysis", () => {
       "Image Attachment for Message ID: m1",
     );
     expect(userMessage.content[2].type).toBe("text");
-    expect(userMessage.content[2].text).toContain(
+    expect(userMessage.content[2].text).toContain("test context");
+    expect(body.messages[0].content).toContain(
       "You are a content moderation assistant.",
     );
   });
@@ -764,7 +842,7 @@ describe("runModerationAnalysis", () => {
     expect(fetchCalls[1][0]).toBe("https://httpbin.org/image/png");
 
     const requestBody = JSON.parse(fetchCalls[2][1].body);
-    const contentParts = requestBody.messages[0].content;
+    const contentParts = requestBody.messages[1].content;
     expect(
       contentParts.filter((part: any) => part.type === "image_url"),
     ).toHaveLength(2);
@@ -819,7 +897,7 @@ describe("runModerationAnalysis", () => {
       targets: [
         createMessageRecord({
           id: "m1",
-          content: "gambar belum selesai upload ke picser",
+          content: "gambar belum selesai upload ke tele",
         }),
       ],
       contextText: "test context",
@@ -916,8 +994,8 @@ describe("runModerationAnalysis", () => {
     expect(result.results[0].status).toBe("warn");
 
     const requestBody = JSON.parse((global.fetch as any).mock.calls[1][1].body);
-    expect(requestBody.messages[0].content).toHaveLength(1);
-    expect(requestBody.messages[0].content[0].text).toContain(
+    expect(requestBody.messages[1].content).toHaveLength(1);
+    expect(requestBody.messages[1].content[0].text).toContain(
       "https://example.invalid/claim",
     );
   });

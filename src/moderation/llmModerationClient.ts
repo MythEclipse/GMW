@@ -17,6 +17,48 @@ interface RawModerationResponse {
   results: RawModerationResult[];
 }
 
+function parseFirstJsonObject(content: string): unknown {
+  for (
+    let start = content.indexOf("{");
+    start !== -1;
+    start = content.indexOf("{", start + 1)
+  ) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = start; index < content.length; index++) {
+      const char = content[index];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaped = inString;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (char === "{") depth++;
+      if (char === "}") depth--;
+
+      if (depth === 0) {
+        return JSON.parse(content.slice(start, index + 1));
+      }
+    }
+  }
+
+  throw new Error("No JSON object found in response body");
+}
+
 /**
  * Helper to extract a JSON object from a potentially conversational or markdown-wrapped string.
  * It first scans for markdown json code blocks, then falls back to trying all start/end brace pairs from largest to smallest.
@@ -321,17 +363,11 @@ export async function runModerationAnalysis(
 
   const targetIds = targets.map((t) => t.id);
 
-  // Build prompt
   const messagesText = targets
     .map((msg) => `[${msg.id}] ${msg.username}: ${msg.content}`)
     .join("\n");
 
-  const prompt = `You are a content moderation assistant. Analyze the following messages for policy violations.
-
-Context: ${contextText}
-
-Messages to analyze:
-${messagesText}
+  const systemPrompt = `You are a content moderation assistant. Analyze messages for policy violations.
 
 For each message, respond with a JSON object containing a "results" array.
 CRITICAL: You MUST return the "message_id" EXACTLY as provided in the input, and it MUST be wrapped in double quotes as a STRING. Do not treat IDs as numbers.
@@ -346,12 +382,21 @@ Each result must have:
 Do not include reasoning, analysis steps, markdown, prose, XML tags, or comments.
 Return ONLY valid JSON, no other text.`;
 
+  const userPrompt = `Context: ${contextText}
+
+Messages to analyze:
+${messagesText}`;
+
   // Check for image attachments to support multimodal analysis
   const targetIdSet = new Set(targets.map((t) => t.id));
+  const getAttachmentImageUrl = (att: AttachmentRecord): string | null => {
+    if (att.uploaded_url) return att.uploaded_url;
+    if (targetIdSet.has(att.message_id)) return att.discord_url;
+    return null;
+  };
   const imageAttachments = (attachments || [])
     .filter(
-      (att) =>
-        (att.uploaded_url || att.discord_url) && att.type.startsWith("image/"),
+      (att) => getAttachmentImageUrl(att) && att.type.startsWith("image/"),
     )
     .sort((a, b) => {
       const aIsTarget = targetIdSet.has(a.message_id) ? 1 : 0;
@@ -367,76 +412,62 @@ Return ONLY valid JSON, no other text.`;
     | string
     | Array<{ type: string; text?: string; image_url?: { url: string } }>;
   if (imageAttachments.length > 0) {
-    const contentParts: Array<{
-      type: string;
-      text?: string;
-      image_url?: { url: string };
-    }> = [];
+    const imageParts = await Promise.all(
+      imageAttachments.map(async (att) => {
+        try {
+          const urlToUse = getAttachmentImageUrl(att);
+          if (!urlToUse) return [];
+          log.info(
+            { attachmentId: att.id, url: urlToUse },
+            "Downloading attachment for base64 encoding",
+          );
+          const res = await fetch(urlToUse);
+          if (!res.ok) {
+            log.warn(
+              { attachmentId: att.id, status: res.status },
+              "Failed to fetch attachment image",
+            );
+            return [];
+          }
 
-    // Download and convert all images to base64 data URLs
-    for (const att of imageAttachments) {
-      try {
-        const urlToUse = att.uploaded_url || att.discord_url;
-        log.info(
-          { attachmentId: att.id, url: urlToUse },
-          "Downloading attachment for base64 encoding",
-        );
-        const res = await fetch(urlToUse);
-        if (res.ok) {
           const buffer = await res.arrayBuffer();
           const base64Str = Buffer.from(buffer).toString("base64");
           const dataUrl = `data:${att.type};base64,${base64Str}`;
 
-          contentParts.push({
-            type: "image_url",
-            image_url: {
-              url: dataUrl,
+          return [
+            {
+              type: "image_url",
+              image_url: {
+                url: dataUrl,
+              },
             },
-          });
-
-          contentParts.push({
-            type: "text",
-            text: `\n[Image Attachment for Message ID: ${att.message_id}, Filename: ${att.filename}]`,
-          });
-        } else {
+            {
+              type: "text",
+              text: `\n[Image Attachment for Message ID: ${att.message_id}, Filename: ${att.filename}]`,
+            },
+          ];
+        } catch (err) {
           log.warn(
-            { attachmentId: att.id, status: res.status },
-            "Failed to fetch attachment image",
+            {
+              attachmentId: att.id,
+              error: err instanceof Error ? err.message : String(err),
+            },
+            "Error base64 encoding attachment",
           );
+          return [];
         }
-      } catch (err) {
-        log.warn(
-          {
-            attachmentId: att.id,
-            error: err instanceof Error ? err.message : String(err),
-          },
-          "Error base64 encoding attachment",
-        );
-      }
-    }
+      }),
+    );
 
-    contentParts.push({
-      type: "text",
-      text: prompt,
-    });
-
-    messageContent = contentParts;
-  } else {
-    // If no image is present, send a transparent 1x1 dummy PNG to satisfy multimodal omni requirements
-    const dummyPng =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
     messageContent = [
-      {
-        type: "image_url",
-        image_url: {
-          url: dummyPng,
-        },
-      },
+      ...imageParts.flat(),
       {
         type: "text",
-        text: prompt,
+        text: userPrompt,
       },
     ];
+  } else {
+    messageContent = userPrompt;
   }
 
   const result = await retryWithBackoff(
@@ -460,6 +491,10 @@ Return ONLY valid JSON, no other text.`;
             body: JSON.stringify({
               model: config.AI_LLM_MODEL,
               messages: [
+                {
+                  role: "system",
+                  content: systemPrompt,
+                },
                 {
                   role: "user",
                   content: messageContent,
@@ -500,16 +535,10 @@ Return ONLY valid JSON, no other text.`;
           throw new Error("Empty LLM response");
         }
 
-        // Try to parse the body as JSON, with fallback to scanning for an object
         try {
           return JSON.parse(rawBody);
-        } catch (e) {
-          const start = rawBody.indexOf("{");
-          const end = rawBody.lastIndexOf("}");
-          if (start !== -1 && end !== -1 && end > start) {
-            return JSON.parse(rawBody.substring(start, end + 1));
-          }
-          throw e;
+        } catch {
+          return parseFirstJsonObject(rawBody);
         }
       } finally {
         clearTimeout(timeoutId);

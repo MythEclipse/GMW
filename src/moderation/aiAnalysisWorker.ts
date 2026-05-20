@@ -1,4 +1,5 @@
 import { parentPort } from "node:worker_threads";
+import { config } from "../config.ts";
 import { initializeDatabase } from "../database/drizzle.ts";
 import { buildConversationPromptMessages } from "./conversationContext.ts";
 import { runModerationAnalysis } from "./llmModerationClient.ts";
@@ -8,8 +9,6 @@ import {
   updateMessageAIAnalysis,
 } from "./messageStore.ts";
 import type { MessageRecord } from "./types";
-
-const MAX_CONTEXT_TOKENS = 8000;
 
 let dbInitialized = false;
 
@@ -58,13 +57,13 @@ async function processAnalysisRequest({
       channelId: firstMessage.channel_id,
       threadId: firstMessage.thread_id,
       beforeCreatedAt: firstMessage.created_at,
-      limit: 20,
+      limit: config.AI_ANALYSIS_CONTEXT_MESSAGE_LIMIT,
     });
 
     const promptMessages = buildConversationPromptMessages({
       contextBefore,
       targets: messages,
-      maxTokens: MAX_CONTEXT_TOKENS,
+      maxTokens: config.AI_ANALYSIS_MAX_CONTEXT_TOKENS,
     });
 
     const targetIds = messages.map((m) => m.id);
