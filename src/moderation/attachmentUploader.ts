@@ -4,12 +4,32 @@ import { uploadToTele } from "../uploader/teleUpload";
 import {
   updateAttachmentAsFailedUpload,
   updateAttachmentAsUploaded,
+  updateAttachmentDiscordUrl,
 } from "./messageStore";
 
 const logger = createChildLogger("attachment-uploader");
 
+class AttachmentDownloadError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "AttachmentDownloadError";
+  }
+}
+
+export type RefreshDiscordAttachmentUrl = () => Promise<string | null>;
+
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function shouldRefreshDiscordUrl(error: unknown): boolean {
+  return (
+    error instanceof AttachmentDownloadError &&
+    (error.status === 403 || error.status === 404)
+  );
 }
 
 export async function uploadAttachmentToTele(
@@ -47,7 +67,10 @@ export async function downloadDiscordAttachment(url: string): Promise<Buffer> {
     });
 
     if (!response.ok) {
-      throw new Error(`Download failed with status ${response.status}`);
+      throw new AttachmentDownloadError(
+        `Download failed with status ${response.status}`,
+        response.status,
+      );
     }
 
     const buffer = await response.arrayBuffer();
@@ -65,9 +88,24 @@ export async function processAttachmentUpload(
   attachmentId: string,
   discordUrl: string,
   filename: string,
+  options: { refreshDiscordUrl?: RefreshDiscordAttachmentUrl } = {},
 ): Promise<void> {
   try {
-    const buffer = await downloadDiscordAttachment(discordUrl);
+    let currentDiscordUrl = discordUrl;
+    let buffer: Buffer;
+    try {
+      buffer = await downloadDiscordAttachment(currentDiscordUrl);
+    } catch (error) {
+      if (!options.refreshDiscordUrl || !shouldRefreshDiscordUrl(error)) {
+        throw error;
+      }
+
+      const freshUrl = await options.refreshDiscordUrl();
+      if (!freshUrl) throw error;
+      currentDiscordUrl = freshUrl;
+      await updateAttachmentDiscordUrl(attachmentId, freshUrl);
+      buffer = await downloadDiscordAttachment(currentDiscordUrl);
+    }
 
     const sizeMb = buffer.length / (1024 * 1024);
     if (sizeMb > config.ATTACHMENT_MAX_SIZE_MB) {

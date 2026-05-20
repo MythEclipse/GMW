@@ -121,6 +121,8 @@ export async function captureMessage(
     broadcaster.messageCreated(messageRecord);
   }
 
+  const attachmentUploadTasks: Promise<void>[] = [];
+
   // Insert attachments before queuing analysis to avoid race condition
   if (message.attachments.size > 0) {
     for (const [, attachment] of message.attachments) {
@@ -136,16 +138,29 @@ export async function captureMessage(
 
       // Initiate async upload (non-blocking, fire-and-forget)
       if (!isBacklog) {
-        processAttachmentUpload(
-          attachment.id,
-          attachment.url,
-          attachment.name || "unknown",
-        ).catch((err) => {
-          logger.error(
-            { attachmentId: attachment.id, error: err },
-            "Failed to initiate attachment upload",
-          );
-        });
+        attachmentUploadTasks.push(
+          processAttachmentUpload(
+            attachment.id,
+            attachment.url,
+            attachment.name || "unknown",
+            {
+              refreshDiscordUrl: async () => {
+                const freshMessage = await message.channel.messages.fetch(
+                  message.id,
+                );
+                const freshAttachment = freshMessage.attachments.get(
+                  attachment.id,
+                );
+                return freshAttachment?.url ?? null;
+              },
+            },
+          ).catch((err) => {
+            logger.error(
+              { attachmentId: attachment.id, error: err },
+              "Failed to initiate attachment upload",
+            );
+          }),
+        );
       }
 
       if (broadcaster) {
@@ -154,9 +169,20 @@ export async function captureMessage(
     }
   }
 
-  // Queue analysis after attachments are inserted
+  // Queue analysis after attachment uploads settle so AI uses stable tele URLs.
   if (!isBacklog) {
-    queueMessageAnalysis(message.id);
+    if (attachmentUploadTasks.length > 0) {
+      Promise.allSettled(attachmentUploadTasks)
+        .then(() => queueMessageAnalysis(message.id))
+        .catch((err) => {
+          logger.error(
+            { messageId: message.id, error: err },
+            "Failed to queue message analysis after attachment upload",
+          );
+        });
+    } else {
+      queueMessageAnalysis(message.id);
+    }
   }
 }
 

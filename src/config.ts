@@ -68,7 +68,6 @@ const configSchema = z
       .url()
       .default("https://9router.asepharyana.tech/v1"),
     AI_LLM_MODEL: z.string().default("free"),
-    AI_ANALYSIS_TIMEOUT_MS: z.coerce.number().positive().default(30000),
     AI_ANALYSIS_DEBOUNCE_MS: z.coerce.number().positive().default(500),
     AI_ANALYSIS_RECOVERY_INTERVAL_MS: z.coerce
       .number()

@@ -73,28 +73,33 @@ describe("parseModerationResponse", () => {
     ]);
     expect(result).toHaveLength(1);
     expect(result[0].messageId).toBe("m1");
-    expect(result[0].status).toBe("clean");
+    expect(result[0].status).toBe("error");
+    expect(result[0].flags).toEqual(["analysis_incomplete"]);
     expect(result[0].score).toBe(0);
     expect(result[0].analysis).toContain("incomplete");
   });
 
-  it("rejects unknown ids", () => {
-    expect(() =>
-      parseModerationResponse(
-        JSON.stringify({
-          results: [
-            {
-              message_id: "m2",
-              status: "clean",
-              flags: [],
-              score: 0,
-              analysis: "OK",
-            },
-          ],
-        }),
-        ["m1"],
-      ),
-    ).toThrow(/unknown/i);
+  it("skips unknown ids and fills missing targets", () => {
+    const result = parseModerationResponse(
+      JSON.stringify({
+        results: [
+          {
+            message_id: "m2",
+            status: "clean",
+            flags: [],
+            score: 0,
+            analysis: "OK",
+          },
+        ],
+      }),
+      ["m1"],
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].messageId).toBe("m1");
+    expect(result[0].status).toBe("error");
+    expect(result[0].flags).toEqual(["analysis_incomplete"]);
+    expect(result[0].analysis).toContain("incomplete");
   });
 
   it("handles surrounding text around JSON", () => {
@@ -412,9 +417,10 @@ describe("runModerationAnalysis", () => {
     });
 
     const requestBody = JSON.parse((global.fetch as any).mock.calls[0][1].body);
-    expect(requestBody.temperature).toBe(0);
+    expect(requestBody.temperature).toBe(0.2);
     expect(requestBody.response_format).toEqual({ type: "json_object" });
-    expect(requestBody.reasoning_budget).toBeUndefined();
+    expect(requestBody.stream).toBe(false);
+    expect(requestBody.reasoning_budget).toBe(0);
     expect(requestBody.chat_template_kwargs).toEqual({
       enable_thinking: false,
     });
@@ -472,25 +478,26 @@ describe("runModerationAnalysis", () => {
         targets: [createMessageRecord()],
         contextText: "test context",
       }),
-    ).rejects.toThrow(/LLM API error 500/);
+    ).rejects.toThrow(/500/);
   });
 
   it("parses first JSON object when provider appends extra JSON", async () => {
+    const moderationJson = JSON.stringify({
+      results: [
+        {
+          message_id: "m1",
+          status: "clean",
+          flags: [],
+          score: 0.1,
+          analysis: "OK",
+        },
+      ],
+    });
     const mockResponse = {
       choices: [
         {
           message: {
-            content: JSON.stringify({
-              results: [
-                {
-                  message_id: "m1",
-                  status: "clean",
-                  flags: [],
-                  score: 0.1,
-                  analysis: "OK",
-                },
-              ],
-            }),
+            content: `${moderationJson}\nextra`,
           },
         },
       ],
@@ -498,8 +505,7 @@ describe("runModerationAnalysis", () => {
 
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      text: async () =>
-        `${JSON.stringify(mockResponse)}\n{"usage":{"tokens":12}}`,
+      text: async () => JSON.stringify(mockResponse),
     });
 
     const result = await runModerationAnalysis({
@@ -852,7 +858,7 @@ describe("runModerationAnalysis", () => {
     expect(contentParts.at(-1).text).toContain("Sebelumnya user lain bilang");
   });
 
-  it("falls back to discord_url when uploaded_url is not ready", async () => {
+  it("skips pending discord-only images until tele upload is ready", async () => {
     const mockResponse = {
       choices: [
         {
@@ -922,9 +928,11 @@ describe("runModerationAnalysis", () => {
       ],
     });
 
-    expect((global.fetch as any).mock.calls[0][0]).toBe(
-      "https://httpbin.org/image/png",
+    const requestBody = JSON.parse((global.fetch as any).mock.calls[0][1].body);
+    expect((global.fetch as any).mock.calls[0][0]).toContain(
+      "/chat/completions",
     );
+    expect(typeof requestBody.messages[1].content).toBe("string");
   });
 
   it("keeps analyzing text when an image URL returns non-OK", async () => {
@@ -1396,23 +1404,25 @@ describe("runModerationAnalysis", () => {
       ).toThrow();
     });
 
-    it("throws on mismatched message IDs", () => {
-      expect(() =>
-        parseModerationResponse(
-          JSON.stringify({
-            results: [
-              {
-                message_id: "m999",
-                status: "clean",
-                flags: [],
-                score: 0.1,
-                analysis: "OK",
-              },
-            ],
-          }),
-          ["m1"],
-        ),
-      ).toThrow(/unknown.*message_id/i);
+    it("skips mismatched message IDs", () => {
+      const result = parseModerationResponse(
+        JSON.stringify({
+          results: [
+            {
+              message_id: "m999",
+              status: "clean",
+              flags: [],
+              score: 0.1,
+              analysis: "OK",
+            },
+          ],
+        }),
+        ["m1"],
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0].messageId).toBe("m1");
+      expect(result[0].analysis).toContain("incomplete");
     });
 
     it("throws on invalid status value", () => {

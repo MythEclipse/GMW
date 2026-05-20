@@ -1,9 +1,30 @@
+import OpenAI from "openai";
 import { config } from "../config.ts";
 import { createChildLogger } from "../logger.ts";
 import { retryWithBackoff } from "../retry.ts";
 import type { AnalysisResult, AttachmentRecord, MessageRecord } from "./types";
 
 const log = createChildLogger("llmModerationClient");
+const openai = new OpenAI({
+  apiKey: config.AI_LLM_API_KEY,
+  baseURL: config.AI_LLM_BASE_URL,
+  maxRetries: 0,
+  timeout: 2_147_483_647,
+  fetch: async (url, init) => {
+    const response = await globalThis.fetch(url, init);
+    if (response.headers) return response;
+
+    const body =
+      typeof response.text === "function"
+        ? await response.text()
+        : JSON.stringify(await response.json());
+
+    return new Response(body, {
+      status: response.status ?? 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  },
+});
 
 interface RawModerationResult {
   message_id: string;
@@ -15,48 +36,6 @@ interface RawModerationResult {
 
 interface RawModerationResponse {
   results: RawModerationResult[];
-}
-
-function parseFirstJsonObject(content: string): unknown {
-  for (
-    let start = content.indexOf("{");
-    start !== -1;
-    start = content.indexOf("{", start + 1)
-  ) {
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-
-    for (let index = start; index < content.length; index++) {
-      const char = content[index];
-
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-
-      if (char === "\\") {
-        escaped = inString;
-        continue;
-      }
-
-      if (char === '"') {
-        inString = !inString;
-        continue;
-      }
-
-      if (inString) continue;
-
-      if (char === "{") depth++;
-      if (char === "}") depth--;
-
-      if (depth === 0) {
-        return JSON.parse(content.slice(start, index + 1));
-      }
-    }
-  }
-
-  throw new Error("No JSON object found in response body");
 }
 
 /**
@@ -113,6 +92,49 @@ export function extractJson(content: string): any {
  * Extracts JSON from surrounding text, validates structure, and transforms to AnalysisResult[].
  * Scans from first '{' and attempts JSON.parse at each candidate closing brace.
  */
+function salvageMalformedModerationResponse(
+  content: string,
+  targetIds: string[],
+): AnalysisResult[] | null {
+  const idMatches = content.match(/\d{10,22}/g) ?? [];
+  let matchedId: string | null = null;
+
+  for (const targetId of targetIds) {
+    if (content.includes(targetId)) {
+      matchedId = targetId;
+      break;
+    }
+  }
+
+  if (!matchedId) {
+    for (const candidate of idMatches) {
+      matchedId =
+        targetIds.find(
+          (targetId) =>
+            targetId.startsWith(candidate) || candidate.startsWith(targetId),
+        ) ?? null;
+      if (matchedId) break;
+    }
+  }
+
+  if (!matchedId) return null;
+
+  const statusMatch = content.match(/"status"\s*:\s*"(clean|warn|flagged)"/);
+  const scoreMatch = content.match(/"score"\s*:\s*(\d+(?:\.\d+)?)/);
+  const analysisMatch = content.match(/"analysis"\s*:\s*"([^"]*)"/);
+
+  return [
+    {
+      messageId: matchedId,
+      status: (statusMatch?.[1] as "clean" | "warn" | "flagged") ?? "clean",
+      flags: [],
+      score: scoreMatch ? Math.max(0, Math.min(1, Number(scoreMatch[1]))) : 0,
+      analysis:
+        analysisMatch?.[1] ?? "Recovered from malformed moderation response",
+    },
+  ];
+}
+
 export function parseModerationResponse(
   content: string,
   targetIds: string[],
@@ -260,9 +282,11 @@ export function parseModerationResponse(
       }
 
       if (!targetIdSet.has(finalId)) {
-        throw new Error(
-          `Unknown message_id: ${finalId} (original: ${message_id})`,
+        log.warn(
+          { unknownId: finalId, originalId: message_id, targetIds },
+          "Skipping moderation result for non-target message_id",
         );
+        return null;
       }
 
       if (foundIds.has(finalId)) {
@@ -322,12 +346,11 @@ export function parseModerationResponse(
       { missingIds, foundCount: foundIds.size, totalCount: targetIds.length },
       "Some target IDs missing in response - marking as incomplete",
     );
-    // Add clean results for missing IDs instead of failing the batch
     for (const missingId of missingIds) {
       filteredResults.push({
         messageId: missingId,
-        status: "clean",
-        flags: [],
+        status: "error",
+        flags: ["analysis_incomplete"],
         score: 0,
         analysis: "Analysis incomplete - LLM did not process this message",
       });
@@ -391,7 +414,6 @@ ${messagesText}`;
   const targetIdSet = new Set(targets.map((t) => t.id));
   const getAttachmentImageUrl = (att: AttachmentRecord): string | null => {
     if (att.uploaded_url) return att.uploaded_url;
-    if (targetIdSet.has(att.message_id)) return att.discord_url;
     return null;
   };
   const imageAttachments = (attachments || [])
@@ -471,79 +493,27 @@ ${messagesText}`;
   }
 
   const result = await retryWithBackoff(
-    async () => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(
-        () => controller.abort(),
-        config.AI_ANALYSIS_TIMEOUT_MS,
-      );
-
-      try {
-        const response = await fetch(
-          `${config.AI_LLM_BASE_URL}/chat/completions`,
+    () =>
+      openai.chat.completions.create({
+        model: config.AI_LLM_MODEL,
+        messages: [
           {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${config.AI_LLM_API_KEY}`,
-            },
-            signal: controller.signal,
-            body: JSON.stringify({
-              model: config.AI_LLM_MODEL,
-              messages: [
-                {
-                  role: "system",
-                  content: systemPrompt,
-                },
-                {
-                  role: "user",
-                  content: messageContent,
-                },
-              ],
-              temperature: 0,
-              top_p: 1,
-              max_tokens: 8192,
-              response_format: { type: "json_object" },
-              chat_template_kwargs: { enable_thinking: false },
-            }),
+            role: "system",
+            content: systemPrompt,
           },
-        );
-        // Read the response body once (either text() or json()), then reuse it.
-        let rawBody: string | undefined = undefined;
-        if (typeof response.text === "function") {
-          try {
-            rawBody = await response.text();
-          } catch {
-            rawBody = undefined;
-          }
-        } else if (typeof response.json === "function") {
-          try {
-            const j = await response.json();
-            rawBody = JSON.stringify(j);
-          } catch {
-            rawBody = undefined;
-          }
-        }
-
-        if (!response.ok) {
-          throw new Error(
-            `LLM API error ${response.status}: ${rawBody ?? "(no body)"}`,
-          );
-        }
-
-        if (!rawBody) {
-          throw new Error("Empty LLM response");
-        }
-
-        try {
-          return JSON.parse(rawBody);
-        } catch {
-          return parseFirstJsonObject(rawBody);
-        }
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    },
+          {
+            role: "user",
+            content: messageContent,
+          },
+        ],
+        temperature: 0.2,
+        top_p: 0.95,
+        max_tokens: 65536,
+        response_format: { type: "json_object" },
+        stream: false,
+        chat_template_kwargs: { enable_thinking: false },
+        reasoning_budget: 0,
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming),
     {
       retries: 3,
       minTimeout: 1000,
@@ -569,25 +539,54 @@ ${messagesText}`;
   } catch (parseError) {
     const errorMsg =
       parseError instanceof Error ? parseError.message : String(parseError);
-    log.error(
-      {
-        error: errorMsg,
-        contentLength: content.length,
-        contentPreview: content.substring(0, 500),
-        fullContent: content,
-        targetIds,
-        model: config.AI_LLM_MODEL,
-        timestamp: new Date().toISOString(),
-      },
-      "Robust Fallback: Failed to parse moderation response. Defaulting all targets to clean.",
-    );
-    parsed = targetIds.map((id) => ({
-      messageId: id,
-      status: "clean",
-      flags: [],
-      score: 0.1,
-      analysis: `Parsing failed: ${errorMsg}. Defaulted to clean.`,
-    }));
+    const salvaged = salvageMalformedModerationResponse(content, targetIds);
+    if (salvaged) {
+      log.warn(
+        {
+          error: errorMsg,
+          contentLength: content.length,
+          contentPreview: content.substring(0, 500),
+          targetIds,
+          recoveredIds: salvaged.map((result) => result.messageId),
+          model: config.AI_LLM_MODEL,
+          timestamp: new Date().toISOString(),
+        },
+        "Recovered moderation response from malformed JSON",
+      );
+      const recoveredIds = new Set(salvaged.map((result) => result.messageId));
+      parsed = [
+        ...salvaged,
+        ...targetIds
+          .filter((id) => !recoveredIds.has(id))
+          .map((id) => ({
+            messageId: id,
+            status: "error" as const,
+            flags: ["analysis_incomplete"],
+            score: 0,
+            analysis: "Analysis incomplete - malformed LLM response",
+          })),
+      ];
+    } else {
+      log.error(
+        {
+          error: errorMsg,
+          contentLength: content.length,
+          contentPreview: content.substring(0, 500),
+          fullContent: content,
+          targetIds,
+          model: config.AI_LLM_MODEL,
+          timestamp: new Date().toISOString(),
+        },
+        "Robust Fallback: Failed to parse moderation response. Defaulting all targets to clean.",
+      );
+      parsed = targetIds.map((id) => ({
+        messageId: id,
+        status: "error",
+        flags: ["analysis_parse_failed"],
+        score: 0,
+        analysis: `Parsing failed: ${errorMsg}.`,
+      }));
+    }
   }
 
   log.info(

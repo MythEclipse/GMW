@@ -86,7 +86,7 @@ export interface PageResult<T> {
 
 export interface AnalysisResult {
   messageId: string;
-  status: Exclude<AIStatus, "pending" | "error">;
+  status: Exclude<AIStatus, "pending">;
   flags: string[];
   score: number;
   analysis: string;

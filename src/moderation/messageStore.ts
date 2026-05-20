@@ -325,6 +325,28 @@ export async function updateAttachmentAsUploaded(
   }
 }
 
+export async function updateAttachmentDiscordUrl(
+  attachmentId: string,
+  discordUrl: string,
+): Promise<void> {
+  try {
+    const database = db();
+    await database
+      .update(attachmentsTable)
+      .set({ discord_url: discordUrl })
+      .where(eq(attachmentsTable.id, attachmentId));
+  } catch (error) {
+    logger.error(
+      {
+        attachmentId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "Failed to update attachment Discord URL",
+    );
+    throw error;
+  }
+}
+
 export async function updateAttachmentAsFailedUpload(
   attachmentId: string,
   error: string,

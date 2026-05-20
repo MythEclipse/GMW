@@ -25,9 +25,11 @@ function getModerationBroadcaster(): ModerationBroadcaster | undefined {
 // Debounce state per conversation key
 const conversationDebounceTimers = new Map<string, NodeJS.Timeout>();
 // Track conversations currently being processed
-const conversationProcessing = new Set<string>();
+const conversationProcessing = new Map<string, number>();
 // Track conversations in error cooldown (failed recently)
 const conversationErrorCooldown = new Map<string, number>();
+
+const AI_PROCESSING_OVERLAP_MS = 30000;
 
 let activeRequests = 0;
 let lastError: string | null = null;
@@ -72,6 +74,13 @@ export function pickBatchWithinBudget(
   return batch;
 }
 
+function isConversationProcessingLocked(conversationKey: string): boolean {
+  const startedAt = conversationProcessing.get(conversationKey);
+  return Boolean(
+    startedAt && Date.now() - startedAt < AI_PROCESSING_OVERLAP_MS,
+  );
+}
+
 /**
  * Processes a batch of messages for a conversation
  */
@@ -82,7 +91,8 @@ async function processBatch(
   if (messages.length === 0) return;
 
   activeRequests++;
-  conversationProcessing.add(conversationKey);
+  const processingStartedAt = Date.now();
+  conversationProcessing.set(conversationKey, processingStartedAt);
   try {
     const result = await runAnalysisInWorker(conversationKey, messages);
 
@@ -136,7 +146,9 @@ async function processBatch(
     );
   } finally {
     activeRequests--;
-    conversationProcessing.delete(conversationKey);
+    if (conversationProcessing.get(conversationKey) === processingStartedAt) {
+      conversationProcessing.delete(conversationKey);
+    }
   }
 }
 
@@ -171,7 +183,7 @@ async function runAnalysisInWorker(
  */
 function scheduleConversationAnalysis(conversationKey: string): void {
   // Skip if already processing
-  if (conversationProcessing.has(conversationKey)) {
+  if (isConversationProcessingLocked(conversationKey)) {
     return;
   }
 
@@ -275,7 +287,7 @@ export function startPendingAIAnalysisWorker(): void {
         }
 
         // Skip if currently processing
-        if (conversationProcessing.has(key)) {
+        if (isConversationProcessingLocked(key)) {
           continue;
         }
 
