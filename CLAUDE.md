@@ -511,3 +511,15 @@ These will likely require:
 - OGG segments include metadata JSON for each segment (user info, timestamps, duration)
 - WebSocket broadcasts PCM in real-time; browser can transmit audio back to Discord
 - Graceful shutdown ensures clean disconnection and resource cleanup
+
+## CodeGraph Usage (Required)
+
+- Use CodeGraph first for repo-level questions: architecture, dependencies, references, callers/callees, impact, flow, routes, components.
+- If graph is missing or stale, run scan first to refresh `.codegraph/graph.json`.
+- Prefer graph-backed flow:
+  1. scan-codegraph (build/refresh graph)
+  2. query-codegraph (find definitions/references/callers/dependencies)
+  3. analyze-codegraph (architecture, impact, risk, cycles, orphans, hotspots)
+  4. export-codegraph (json/mermaid/dot/markdown/html when needed)
+  5. open-codegraph-ui (interactive visualization when requested)
+- Avoid broad grep/find or repeated wide file reads before graph lookup, except for exact literal search or known single-file edits.
