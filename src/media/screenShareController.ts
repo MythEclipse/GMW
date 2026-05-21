@@ -1,7 +1,11 @@
 import { AppError } from "../errors.js";
 import { createChildLogger } from "../logger.js";
 import { discordPlayer } from "../player.js";
-import { playPreparedStream, Streamer } from "../streaming/index.js";
+import {
+  playPreparedStream,
+  playTranscodedPreparedStream,
+  Streamer,
+} from "../streaming/index.js";
 
 const logger = createChildLogger("screen-share");
 
@@ -105,8 +109,8 @@ export function createScreenShareController(
 
         let stopped = false;
         const playFn = dependencies.useTranscoder
-          ? (await import("../streaming/index.js")).playTranscodedPreparedStream
-          : (await import("../streaming/index.js")).playPreparedStream;
+          ? playTranscodedPreparedStream
+          : playPreparedStream;
 
         const done = playFn(directUrl, session, {
           fps: 30,

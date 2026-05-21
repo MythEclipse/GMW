@@ -30,8 +30,9 @@ RUN pnpm install --no-frozen-lockfile
 # Copy the rest of the application
 COPY . .
 
-# Build step if required (e.g. build:web)
-RUN pnpm run build:web || true
+# Build vendor packages and app bundles during image build
+RUN pnpm run prepare:vendor
+RUN pnpm run build
 
 # Set node environment
 ENV NODE_ENV=production

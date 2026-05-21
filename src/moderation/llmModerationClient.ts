@@ -2,7 +2,11 @@ import OpenAI from "openai";
 import { config } from "../config.js";
 import { createChildLogger } from "../logger.js";
 import { retryWithBackoff } from "../retry.js";
-import type { AnalysisResult, AttachmentRecord, MessageRecord } from "./types.js";
+import type {
+  AnalysisResult,
+  AttachmentRecord,
+  MessageRecord,
+} from "./types.js";
 
 const log = createChildLogger("llmModerationClient");
 const openai = new OpenAI({

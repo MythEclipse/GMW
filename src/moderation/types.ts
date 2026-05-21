@@ -1,4 +1,7 @@
-import type { BroadcasterClient, ModerationBroadcaster } from "./broadcaster.js";
+import type {
+  BroadcasterClient,
+  ModerationBroadcaster,
+} from "./broadcaster.js";
 
 export type AIStatus = "pending" | "clean" | "warn" | "flagged" | "error";
 

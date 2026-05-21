@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { config } from "../config.js";
 import { createChildLogger } from "../logger.js";
@@ -157,15 +159,30 @@ async function processBatch(
   }
 }
 
+function getAnalysisWorkerUrl(): URL {
+  const candidates = [
+    new URL("./aiAnalysisWorker.js", import.meta.url),
+    new URL("../aiAnalysisWorker.js", import.meta.url),
+    new URL("./aiAnalysisWorker.ts", import.meta.url),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(fileURLToPath(candidate))) {
+      return candidate;
+    }
+  }
+
+  return candidates[2];
+}
+
 async function runAnalysisInWorker(
   conversationKey: string,
   messages: MessageRecord[],
 ): Promise<AnalysisWorkerResponse> {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(
-      new URL("./aiAnalysisWorker.js", import.meta.url),
-      { execArgv: process.execArgv },
-    );
+    const worker = new Worker(getAnalysisWorkerUrl(), {
+      execArgv: process.execArgv,
+    });
 
     worker.once("message", (response: AnalysisWorkerResponse) => {
       worker.terminate().catch((error) => {
