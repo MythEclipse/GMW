@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { Worker } from "node:worker_threads";
+import { Piscina } from "piscina";
 import { config } from "../config.js";
 import { createChildLogger } from "../logger.js";
 import {
@@ -36,6 +36,32 @@ const AI_PROCESSING_OVERLAP_MS = 30000;
 let activeRequests = 0;
 let lastError: string | null = null;
 
+// Global circuit breaker state
+let consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 5;
+let globalCooldownUntil = 0;
+
+function getAnalysisWorkerUrl(): URL {
+  const candidates = [
+    new URL("./aiAnalysisWorker.js", import.meta.url),
+    new URL("../aiAnalysisWorker.js", import.meta.url),
+    new URL("./aiAnalysisWorker.ts", import.meta.url),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(fileURLToPath(candidate))) {
+      return candidate;
+    }
+  }
+
+  return candidates[2];
+}
+
+const workerPool = new Piscina({
+  filename: fileURLToPath(getAnalysisWorkerUrl()),
+  execArgv: process.execArgv,
+});
+
 interface AnalysisWorkerResponse {
   ok: boolean;
   conversationKey: string;
@@ -62,9 +88,9 @@ export function pickBatchWithinBudget(
   let usedTokens = 0;
 
   for (const msg of messages) {
-    // Estimate tokens based on actual content length
+    // Estimate tokens based on actual content length (conservative: 3 chars/token)
     const content = msg.edited_content ?? msg.content;
-    const contentTokens = Math.ceil(content.length / 4);
+    const contentTokens = Math.ceil(content.length / 3);
     const msgTokens = contentTokens + tokensPerMessage;
 
     if (usedTokens + msgTokens <= maxTokens) {
@@ -91,19 +117,28 @@ async function processBatch(
   messages: MessageRecord[],
 ): Promise<void> {
   if (messages.length === 0) return;
+  if (Date.now() < globalCooldownUntil) {
+    return; // Circuit breaker is open
+  }
 
   activeRequests++;
   let shouldScheduleNext = false;
   const processingStartedAt = Date.now();
   conversationProcessing.set(conversationKey, processingStartedAt);
   try {
-    const result = await runAnalysisInWorker(conversationKey, messages);
+    const result = (await workerPool.run({ conversationKey, messages })) as AnalysisWorkerResponse;
 
     for (const row of result.rows) {
       getModerationBroadcaster()?.messageAnalyzed(row);
     }
 
     if (!result.ok) {
+      consecutiveErrors++;
+      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        globalCooldownUntil = Date.now() + 60000;
+        logger.warn("Global circuit breaker triggered due to consecutive errors");
+      }
+      
       lastError = result.error ?? "Analysis worker failed";
       conversationErrorCooldown.set(
         conversationKey,
@@ -125,9 +160,16 @@ async function processBatch(
       return;
     }
 
+    consecutiveErrors = 0; // Reset circuit breaker
     conversationErrorCooldown.delete(conversationKey);
     shouldScheduleNext = true;
   } catch (error) {
+    consecutiveErrors++;
+    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+      globalCooldownUntil = Date.now() + 60000;
+      logger.warn("Global circuit breaker triggered due to consecutive errors");
+    }
+
     lastError = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
     conversationErrorCooldown.set(
@@ -159,46 +201,6 @@ async function processBatch(
   }
 }
 
-function getAnalysisWorkerUrl(): URL {
-  const candidates = [
-    new URL("./aiAnalysisWorker.js", import.meta.url),
-    new URL("../aiAnalysisWorker.js", import.meta.url),
-    new URL("./aiAnalysisWorker.ts", import.meta.url),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(fileURLToPath(candidate))) {
-      return candidate;
-    }
-  }
-
-  return candidates[2];
-}
-
-async function runAnalysisInWorker(
-  conversationKey: string,
-  messages: MessageRecord[],
-): Promise<AnalysisWorkerResponse> {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(getAnalysisWorkerUrl(), {
-      execArgv: process.execArgv,
-    });
-
-    worker.once("message", (response: AnalysisWorkerResponse) => {
-      worker.terminate().catch((error) => {
-        logger.warn({ error }, "Failed to terminate analysis worker");
-      });
-      resolve(response);
-    });
-    worker.once("error", reject);
-    worker.once("exit", (code) => {
-      if (code !== 0) {
-        reject(new Error(`Analysis worker exited with code ${code}`));
-      }
-    });
-    worker.postMessage({ conversationKey, messages });
-  });
-}
 
 /**
  * Debounced analysis trigger for a conversation

@@ -419,6 +419,26 @@ export async function updateMessageAIAnalysis(
   }
 }
 
+export async function updateMessagesAIAnalysisBulk(
+  updates: Array<{ messageId: string; result: AIAnalysisUpdate }>
+): Promise<MessageRecord[]> {
+  if (updates.length === 0) return [];
+  try {
+    const results = await Promise.all(
+      updates.map(({ messageId, result }) => updateMessageAIAnalysis(messageId, result))
+    );
+    return results.filter((r): r is MessageRecord => r !== null);
+  } catch (error) {
+    logger.error(
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "Failed to bulk update messages AI analysis",
+    );
+    throw error;
+  }
+}
+
 export async function getPendingAIAnalysisMessages(
   limit: number = 25,
 ): Promise<MessageRecord[]> {

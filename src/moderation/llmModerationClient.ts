@@ -130,199 +130,49 @@ export function extractJson(content: string): any {
   throw new Error("No JSON object found in response");
 }
 
-/**
- * Parses LLM moderation response and validates against target IDs.
- * Extracts JSON from surrounding text, validates structure, and transforms to AnalysisResult[].
- * Scans from first '{' and attempts JSON.parse at each candidate closing brace.
- */
-function salvageMalformedModerationResponse(
-  content: string,
-  targetIds: string[],
-): AnalysisResult[] | null {
-  const idMatches = content.match(/\d{10,22}/g) ?? [];
-  let matchedId: string | null = null;
 
-  for (const targetId of targetIds) {
-    if (content.includes(targetId)) {
-      matchedId = targetId;
-      break;
-    }
-  }
-
-  if (!matchedId) {
-    for (const candidate of idMatches) {
-      matchedId =
-        targetIds.find(
-          (targetId) =>
-            targetId.startsWith(candidate) || candidate.startsWith(targetId),
-        ) ?? null;
-      if (matchedId) break;
-    }
-  }
-
-  if (!matchedId) return null;
-
-  const statusMatch = content.match(/"status"\s*:\s*"(clean|warn|flagged)"/);
-  const scoreMatch = content.match(/"score"\s*:\s*(\d+(?:\.\d+)?)/);
-  const analysisMatch = content.match(/"analysis"\s*:\s*"([^"]*)"/);
-
-  return [
-    {
-      messageId: matchedId,
-      status: (statusMatch?.[1] as "clean" | "warn" | "flagged") ?? "clean",
-      flags: [],
-      score: scoreMatch ? Math.max(0, Math.min(1, Number(scoreMatch[1]))) : 0,
-      analysis:
-        analysisMatch?.[1] ?? "Recovered from malformed moderation response",
-    },
-  ];
-}
 
 export function parseModerationResponse(
   content: string,
   targetIds: string[],
 ): AnalysisResult[] {
-  // Extract and parse JSON object
-  let parsed = extractJson(content);
+  let parsed: any;
+  try {
+    parsed = JSON.parse(content);
+  } catch (e) {
+    parsed = extractJson(content);
+  }
 
-  // If parsed is a direct array, wrap it in a results object to handle LLM variations
   if (Array.isArray(parsed)) {
     parsed = { results: parsed };
   } else if (parsed && typeof parsed === "object" && !("results" in parsed)) {
-    // Handle single result object (has message_id or status)
-    if ("message_id" in parsed || "status" in parsed) {
-      const msgId = (parsed as any).message_id || (parsed as any).id;
-      parsed = {
-        results: [
-          {
-            message_id: msgId,
-            status: (parsed as any).status || "clean",
-            flags: (parsed as any).flags || [],
-            score:
-              (parsed as any).score !== undefined ? (parsed as any).score : 0.1,
-            analysis: (parsed as any).analysis || "",
-          },
-        ],
-      };
+    const arrayKey = Object.keys(parsed).find((key) =>
+      Array.isArray((parsed as any)[key]),
+    );
+    if (arrayKey) {
+      parsed.results = (parsed as any)[arrayKey];
     } else {
-      // Look for any array property (result, data, messages, moderation, etc.)
-      const arrayKey = Object.keys(parsed).find((key) =>
-        Array.isArray((parsed as any)[key]),
-      );
-      if (arrayKey) {
-        parsed.results = (parsed as any)[arrayKey];
-      }
+      parsed = { results: [parsed] };
     }
   }
 
-  // Validate structure
-  if (!parsed || typeof parsed !== "object" || !("results" in parsed)) {
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.results)) {
     throw new Error("Response missing 'results' array");
   }
 
   const response = parsed as RawModerationResponse;
-  if (!Array.isArray(response.results)) {
-    throw new Error("'results' must be an array");
-  }
-
-  // Track which target IDs were found
   const foundIds = new Set<string>();
   const targetIdSet = new Set(targetIds);
 
-  // Parse and validate each result
   const results: (AnalysisResult | null)[] = response.results.map(
     (result, index) => {
       const { message_id, status, flags, score, analysis } = result;
 
-      // Validate message_id exists and is in target list
       if (!message_id) {
         throw new Error("Result missing 'message_id'");
       }
 
-      let finalId = String(message_id).trim();
-      // Remove wrapping double quotes if any (common in some LLM outputs)
-      if (finalId.startsWith('"') && finalId.endsWith('"')) {
-        finalId = finalId.slice(1, -1).trim();
-      }
-      if (finalId.startsWith("'") && finalId.endsWith("'")) {
-        finalId = finalId.slice(1, -1).trim();
-      }
-      if (finalId.startsWith("[") && finalId.endsWith("]")) {
-        finalId = finalId.slice(1, -1).trim();
-      }
-
-      // Advanced Precision Loss & Alignment Fix
-      if (!targetIdSet.has(finalId)) {
-        const isSnowflake = (id: string) =>
-          /^\d{15,22}$/.test(id) || id.includes("e+");
-
-        // 1. If there's only one target, map it directly if both are Snowflake-like
-        if (
-          targetIds.length === 1 &&
-          isSnowflake(finalId) &&
-          isSnowflake(targetIds[0])
-        ) {
-          log.warn(
-            { roundedId: finalId, matchedId: targetIds[0] },
-            "Mapped single target ID directly to handle precision loss",
-          );
-          finalId = targetIds[0];
-        } else {
-          // 2. Try matching by long prefix similarity (e.g. 12+ digits)
-          let cleanLlmId = finalId;
-          if (finalId.includes("e+")) {
-            // Convert scientific notation back to string of digits if possible
-            try {
-              cleanLlmId = BigInt(Number(finalId)).toString();
-            } catch (_) {}
-          }
-
-          let bestMatch: string | null = null;
-          let maxCommonPrefixLen = 0;
-
-          for (const targetId of targetIds) {
-            let commonLen = 0;
-            const minLen = Math.min(targetId.length, cleanLlmId.length);
-            for (let i = 0; i < minLen; i++) {
-              if (targetId[i] === cleanLlmId[i]) {
-                commonLen++;
-              } else {
-                break;
-              }
-            }
-            if (commonLen >= 12 && commonLen > maxCommonPrefixLen) {
-              maxCommonPrefixLen = commonLen;
-              bestMatch = targetId;
-            }
-          }
-
-          if (bestMatch) {
-            log.warn(
-              {
-                roundedId: finalId,
-                cleanLlmId,
-                matchedId: bestMatch,
-                commonLength: maxCommonPrefixLen,
-              },
-              "Fixed precision loss in message ID using prefix similarity",
-            );
-            finalId = bestMatch;
-          } else if (
-            response.results.length === targetIds.length &&
-            targetIds[index] &&
-            isSnowflake(finalId) &&
-            isSnowflake(targetIds[index])
-          ) {
-            // 3. Fallback: if the number of results matches the number of targets,
-            // map them 1:1 chronologically (by index) only if they are Snowflake-like
-            log.warn(
-              { roundedId: finalId, index, matchedId: targetIds[index] },
-              "Aligned message ID using chronological index fallback",
-            );
-            finalId = targetIds[index];
-          }
-        }
-      }
+      const finalId = String(message_id).trim();
 
       if (!targetIdSet.has(finalId)) {
         log.warn(
@@ -339,25 +189,15 @@ export function parseModerationResponse(
 
       foundIds.add(finalId);
 
-      // Validate status
       const validStatuses = ["clean", "warn", "flagged"] as const;
-      if (!validStatuses.includes(status as (typeof validStatuses)[number])) {
-        throw new Error(
-          `Invalid status: ${status}. Must be one of: ${validStatuses.join(", ")}`,
-        );
-      }
+      const safeStatus = validStatuses.includes(status as any) ? status : "clean";
 
-      // Validate score: reject null/undefined/non-finite before coercion
-      if (score === null || score === undefined) {
-        throw new Error("Invalid score: must not be null or undefined");
-      }
       let numScore = Number(score);
       if (!Number.isFinite(numScore)) {
-        throw new Error(`Invalid score: ${score}. Must be a finite number`);
+        numScore = 0;
       }
       numScore = Math.max(0, Math.min(1, numScore));
 
-      // Coerce flags to string array
       let flagsArray: string[] = [];
       if (Array.isArray(flags)) {
         flagsArray = flags.map((f) => String(f));
@@ -365,12 +205,11 @@ export function parseModerationResponse(
         flagsArray = [String(flags)];
       }
 
-      // Fallback analysis
       const analysisStr = analysis ? String(analysis) : "";
 
       return {
         messageId: finalId,
-        status: status as "clean" | "warn" | "flagged",
+        status: safeStatus as "clean" | "warn" | "flagged",
         flags: flagsArray,
         score: numScore,
         analysis: analysisStr,
@@ -382,7 +221,6 @@ export function parseModerationResponse(
     (r): r is AnalysisResult => r !== null,
   );
 
-  // Check that all target IDs were found
   const missingIds = targetIds.filter((id) => !foundIds.has(id));
   if (missingIds.length > 0) {
     log.warn(
@@ -553,6 +391,12 @@ export async function runModerationAnalysis(
             { attachmentId: att.id, status: res.status, url: urlToUse },
             "Failed to fetch attachment image — non-2xx status",
           );
+          return;
+        }
+
+        const contentLength = Number(res.headers.get("content-length") || 0);
+        if (contentLength > 10 * 1024 * 1024) {
+          log.warn({ attachmentId: att.id, contentLength }, "Attachment too large, skipping");
           return;
         }
 
@@ -740,8 +584,36 @@ CRITICAL: "message_id" HARUS berupa STRING (dibungkus tanda kutip ganda). Jangan
           ],
           temperature: 0.2,
           top_p: 0.95,
-          max_tokens: 65536,
-          response_format: { type: "json_object" },
+          max_tokens: 16384,
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "moderation",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  results: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        message_id: { type: "string" },
+                        status: { type: "string", enum: ["clean", "warn", "flagged"] },
+                        flags: { type: "array", items: { type: "string" } },
+                        score: { type: "number" },
+                        analysis: { type: "string" }
+                      },
+                      required: ["message_id", "status", "flags", "score", "analysis"],
+                      additionalProperties: false
+                    }
+                  }
+                },
+                required: ["results"],
+                additionalProperties: false
+              }
+            }
+          },
           stream: false,
           chat_template_kwargs: { enable_thinking: false },
           reasoning_budget: 0,
@@ -802,54 +674,26 @@ CRITICAL: "message_id" HARUS berupa STRING (dibungkus tanda kutip ganda). Jangan
     const errorMsg =
       parseError instanceof Error ? parseError.message : String(parseError);
     const content: string = lastInvalidContent;
-    const salvaged = salvageMalformedModerationResponse(content, targetIds);
-    if (salvaged) {
-      log.warn(
-        {
-          error: errorMsg,
-          contentLength: content.length,
-          contentPreview: content.substring(0, 500),
-          targetIds,
-          recoveredIds: salvaged.map((result) => result.messageId),
-          model: config.AI_LLM_MODEL,
-          timestamp: new Date().toISOString(),
-        },
-        "Recovered moderation response from malformed JSON",
-      );
-      const recoveredIds = new Set(salvaged.map((result) => result.messageId));
-      parsed = [
-        ...salvaged,
-        ...targetIds
-          .filter((id) => !recoveredIds.has(id))
-          .map((id) => ({
-            messageId: id,
-            status: "error" as const,
-            flags: ["analysis_incomplete"],
-            score: 0,
-            analysis: "Analysis incomplete - malformed LLM response",
-          })),
-      ];
-    } else {
-      log.error(
-        {
-          error: errorMsg,
-          contentLength: content.length,
-          contentPreview: content.substring(0, 500),
-          fullContent: content,
-          targetIds,
-          model: config.AI_LLM_MODEL,
-          timestamp: new Date().toISOString(),
-        },
-        "Robust Fallback: Failed to parse moderation response. Marking all targets as analysis errors.",
-      );
-      parsed = targetIds.map((id) => ({
-        messageId: id,
-        status: "error",
-        flags: ["analysis_parse_failed"],
-        score: 0,
-        analysis: `Parsing failed: ${errorMsg}.`,
-      }));
-    }
+    
+    log.error(
+      {
+        error: errorMsg,
+        contentLength: content.length,
+        contentPreview: content.substring(0, 500),
+        fullContent: content,
+        targetIds,
+        model: config.AI_LLM_MODEL,
+        timestamp: new Date().toISOString(),
+      },
+      "Robust Fallback: Failed to parse moderation response. Marking all targets as analysis errors.",
+    );
+    parsed = targetIds.map((id) => ({
+      messageId: id,
+      status: "error",
+      flags: ["analysis_parse_failed"],
+      score: 0,
+      analysis: `Parsing failed: ${errorMsg}.`,
+    }));
   }
 
   log.info(

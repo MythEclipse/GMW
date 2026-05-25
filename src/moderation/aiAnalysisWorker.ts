@@ -1,4 +1,3 @@
-import { parentPort } from "node:worker_threads";
 import { config } from "../config.js";
 import { initializeDatabase } from "../database/drizzle.js";
 import { buildConversationPromptMessages } from "./conversationContext.js";
@@ -6,18 +5,29 @@ import { runModerationAnalysis } from "./llmModerationClient.js";
 import {
   getAttachmentsForMessages,
   getConversationContextBefore,
-  updateMessageAIAnalysis,
+  updateMessagesAIAnalysisBulk,
 } from "./messageStore.js";
 import type { MessageRecord } from "./types.js";
 
 let dbInitialized = false;
+let dbInitPromise: Promise<any> | null = null;
 
-interface AnalysisWorkerRequest {
+async function ensureDb() {
+  if (dbInitialized) return;
+  if (!dbInitPromise) {
+    dbInitPromise = initializeDatabase().then(() => {
+      dbInitialized = true;
+    });
+  }
+  await dbInitPromise;
+}
+
+export interface AnalysisWorkerRequest {
   conversationKey: string;
   messages: MessageRecord[];
 }
 
-type AnalysisWorkerResponse =
+export type AnalysisWorkerResponse =
   | {
       ok: true;
       conversationKey: string;
@@ -30,16 +40,13 @@ type AnalysisWorkerResponse =
       error: string;
     };
 
-async function processAnalysisRequest({
+export default async function processAnalysisRequest({
   conversationKey,
   messages,
 }: AnalysisWorkerRequest): Promise<AnalysisWorkerResponse> {
   try {
     try {
-      if (!dbInitialized) {
-        await initializeDatabase();
-        dbInitialized = true;
-      }
+      await ensureDb();
     } catch (dbError) {
       const msg = dbError instanceof Error ? dbError.message : String(dbError);
       return {
@@ -77,9 +84,9 @@ async function processAnalysisRequest({
       attachments,
     });
 
-    const rows: MessageRecord[] = [];
-    for (const analysisResult of result.results) {
-      const row = await updateMessageAIAnalysis(analysisResult.messageId, {
+    const updates = result.results.map((analysisResult) => ({
+      messageId: analysisResult.messageId,
+      result: {
         status: analysisResult.status,
         flags: JSON.stringify(analysisResult.flags),
         score: analysisResult.score,
@@ -87,9 +94,10 @@ async function processAnalysisRequest({
         analysis: analysisResult.analysis,
         analyzedAt: Date.now(),
         error: null,
-      });
-      if (row) rows.push(row);
-    }
+      }
+    }));
+    
+    const rows = await updateMessagesAIAnalysisBulk(updates);
 
     return { ok: true, conversationKey, rows };
   } catch (error) {
@@ -112,7 +120,3 @@ async function processAnalysisRequest({
     return { ok: false, conversationKey, rows, error: errorMessage };
   }
 }
-
-parentPort?.on("message", async (request: AnalysisWorkerRequest) => {
-  parentPort?.postMessage(await processAnalysisRequest(request));
-});

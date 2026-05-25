@@ -48,6 +48,7 @@
     "opusscript": "^0.0.8",
     "p-retry": "^8.0.0",
     "pg": "^8.21.0",
+    "piscina": "^5.1.4",
     "play-dl": "^1.9.7",
     "prism-media": "2.0.0-alpha.0",
     "prom-client": "^15.1.3",
