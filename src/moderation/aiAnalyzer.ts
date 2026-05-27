@@ -13,6 +13,8 @@ import { runModerationAnalysis } from "./llmModerationClient.js";
 import {
   getAttachmentsForMessages,
   getConversationContextBefore,
+  getConversationKeysWithIncompleteAnalysis,
+  getIncompleteMessagesByConversation,
   getMessageById,
   getPendingConversationKeys,
   getPendingMessagesByConversation,
@@ -34,19 +36,21 @@ function getModerationBroadcaster(): ModerationBroadcaster | undefined {
   return (globalThis as ModerationGlobal).moderationBroadcaster;
 }
 
-// Debounce state per conversation key
-const conversationDebounceTimers = new Map<string, NodeJS.Timeout>();
-// Track conversations currently being processed
-const conversationProcessing = new Map<string, number>();
-// Track conversations in error cooldown (failed recently)
-const conversationErrorCooldown = new Map<string, number>();
+// ---------------------------------------------------------------------------
+// Batch pipeline state
+// ---------------------------------------------------------------------------
 
-const AI_PROCESSING_OVERLAP_MS = 30000;
+/** Debounce timer handle per conversation key. */
+const conversationDebounceTimers = new Map<string, NodeJS.Timeout>();
+/** Timestamp of when processing started per conversation key. */
+const conversationProcessing = new Map<string, number>();
+/** Cooldown expiry timestamp per conversation key after an error. */
+const conversationErrorCooldown = new Map<string, number>();
 
 let activeRequests = 0;
 let lastError: string | null = null;
 
-// Global circuit breaker state
+// Batch circuit breaker
 let consecutiveErrors = 0;
 const MAX_CONSECUTIVE_ERRORS = 5;
 let globalCooldownUntil = 0;
@@ -54,17 +58,37 @@ let globalCooldownUntil = 0;
 // ---------------------------------------------------------------------------
 // Individual fallback queue — runs PARALLEL to the batch pipeline.
 //
-// When a batch LLM call returns but some message IDs are absent from the
-// response (analysis_incomplete), those IDs are enqueued here.  Each message
-// is processed independently and concurrently: there is no serialisation
-// per-conversation, and a dedup Set prevents the same ID being in-flight twice.
+// Design guarantees:
+//  • Concurrency is capped at config.AI_ANALYSIS_INDIVIDUAL_MAX_CONCURRENT.
+//  • A flat Set<messageId> de-duplicates so the same message can't be
+//    in-flight twice (Discord snowflakes are globally unique, but be safe).
+//  • A Map<conversationKey, count> lets the recovery worker skip conversations
+//    that already have individual work in progress (#4 fix).
+//  • A separate circuit breaker prevents a cascade of individual failures
+//    from hammering a down/rate-limited LLM endpoint (#1+#5 fix).
 // ---------------------------------------------------------------------------
 
-/** IDs currently being processed one-by-one (in-flight or waiting to start). */
+/** IDs currently being processed one-by-one. */
 const individualInFlight = new Set<string>();
 
-/** Counter for observability (mirrors activeRequests but for individual path). */
+/**
+ * Per-conversation count of in-flight individual messages.
+ * Used by the recovery worker to avoid re-scheduling a conversation that
+ * already has individual fallback work running for it.
+ */
+const individualInFlightByConversation = new Map<string, number>();
+
+/** Counter for observability. */
 let activeIndividualRequests = 0;
+
+// Individual fallback circuit breaker (independent of batch CB)
+let individualConsecutiveErrors = 0;
+let individualCooldownUntil = 0;
+const INDIVIDUAL_COOLDOWN_MS = 30000;
+
+// ---------------------------------------------------------------------------
+// Piscina worker pool (batch path only)
+// ---------------------------------------------------------------------------
 
 function getAnalysisWorkerUrl(): URL {
   const candidates = [
@@ -94,15 +118,20 @@ interface AnalysisWorkerResponse {
   error?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Exported helpers
+// ---------------------------------------------------------------------------
+
 /**
- * Gets the conversation key for a message (thread_id or channel_id)
+ * Gets the conversation key for a message (thread_id or channel_id).
  */
 export function getConversationKey(message: MessageRecord): string {
   return message.thread_id || message.channel_id;
 }
 
 /**
- * Picks a batch of messages within token budget
+ * Picks a batch of messages within a token budget.
+ * `tokensPerMessage` accounts for JSON structure overhead around each entry.
  */
 export function pickBatchWithinBudget(
   messages: MessageRecord[],
@@ -125,26 +154,44 @@ export function pickBatchWithinBudget(
   return batch;
 }
 
+// ---------------------------------------------------------------------------
+// Conversation lock helpers
+// ---------------------------------------------------------------------------
+
 function isConversationProcessingLocked(conversationKey: string): boolean {
   const startedAt = conversationProcessing.get(conversationKey);
+  // FIX #7: use configurable timeout that exceeds (LLM timeout × max retries).
+  // Old hardcoded value was 30 000 ms — shorter than a single LLM call under retries.
   return Boolean(
-    startedAt && Date.now() - startedAt < AI_PROCESSING_OVERLAP_MS,
+    startedAt &&
+      Date.now() - startedAt < config.AI_ANALYSIS_PROCESSING_TIMEOUT_MS,
   );
 }
 
+// ---------------------------------------------------------------------------
+// Individual fallback pipeline
+// ---------------------------------------------------------------------------
+
 /**
- * Processes a batch of messages for a conversation
- */
-/**
- * Processes a single message through the LLM moderation pipeline directly
- * (no worker pool — avoids IPC overhead for a single-item call).  Called from
- * the individual fallback queue; never from the batch path.
+ * Processes a single message directly in the main process (no IPC/worker
+ * pool overhead).  Never called from the batch path.
+ *
+ * FIX #1+#5: Increments the individual circuit breaker on failure so a
+ * sustained outage stops hammering the LLM endpoint.
  */
 async function processIndividualFallback(
   message: MessageRecord,
 ): Promise<void> {
   const { id: messageId } = message;
+  const conversationKey = getConversationKey(message);
+
   activeIndividualRequests++;
+  // Increment per-conversation counter so the recovery worker can see it.
+  individualInFlightByConversation.set(
+    conversationKey,
+    (individualInFlightByConversation.get(conversationKey) ?? 0) + 1,
+  );
+
   try {
     const contextBefore = await getConversationContextBefore({
       channelId: message.channel_id,
@@ -198,11 +245,29 @@ async function processIndividualFallback(
       getModerationBroadcaster()?.messageAnalyzed(row);
     }
 
+    // Reset individual CB on success.
+    individualConsecutiveErrors = 0;
+
     logger.info(
       { messageId, status: analysisResult.results[0]?.status },
       "Individual fallback analysis complete",
     );
   } catch (error) {
+    // FIX #5: individual failures now feed their own circuit breaker.
+    individualConsecutiveErrors++;
+    if (
+      individualConsecutiveErrors >= config.AI_ANALYSIS_INDIVIDUAL_CB_THRESHOLD
+    ) {
+      individualCooldownUntil = Date.now() + INDIVIDUAL_COOLDOWN_MS;
+      logger.warn(
+        {
+          threshold: config.AI_ANALYSIS_INDIVIDUAL_CB_THRESHOLD,
+          cooldownUntil: new Date(individualCooldownUntil).toISOString(),
+        },
+        "Individual fallback circuit breaker triggered",
+      );
+    }
+
     lastError = error instanceof Error ? error.message : String(error);
     logger.error(
       {
@@ -215,40 +280,92 @@ async function processIndividualFallback(
   } finally {
     activeIndividualRequests--;
     individualInFlight.delete(messageId);
+
+    // Decrement per-conversation counter; remove key when it hits zero.
+    const prev = individualInFlightByConversation.get(conversationKey) ?? 1;
+    if (prev <= 1) {
+      individualInFlightByConversation.delete(conversationKey);
+    } else {
+      individualInFlightByConversation.set(conversationKey, prev - 1);
+    }
   }
 }
 
 /**
- * Fans out a list of message records to the individual fallback queue.
- * Each message starts processing concurrently (fire-and-forget per message).
- * De-duplicated by message ID so no double-processing even if called repeatedly.
+ * Fans out message records to the individual fallback queue.
+ *
+ * FIX #1: Checks concurrency cap before admitting new work.
+ * FIX #5: Checks individual circuit breaker before admitting new work.
+ * Messages that cannot be admitted remain as `error/analysis_incomplete` in
+ * the DB and will be picked up by the recovery worker on the next interval.
  */
 function enqueueIndividualFallbacks(messages: MessageRecord[]): void {
+  // FIX #5: Honour the individual circuit breaker.
+  if (Date.now() < individualCooldownUntil) {
+    logger.warn(
+      {
+        until: new Date(individualCooldownUntil).toISOString(),
+        skipped: messages.length,
+      },
+      "Individual fallback circuit breaker active — messages will be recovered later",
+    );
+    return;
+  }
+
   const newMessages = messages.filter((m) => !individualInFlight.has(m.id));
   if (newMessages.length === 0) return;
 
+  // FIX #1: Enforce concurrency cap.
+  const availableSlots =
+    config.AI_ANALYSIS_INDIVIDUAL_MAX_CONCURRENT - individualInFlight.size;
+  if (availableSlots <= 0) {
+    logger.warn(
+      {
+        cap: config.AI_ANALYSIS_INDIVIDUAL_MAX_CONCURRENT,
+        inFlight: individualInFlight.size,
+        skipped: newMessages.length,
+      },
+      "Individual fallback concurrency cap reached — messages will be recovered by recovery worker",
+    );
+    return;
+  }
+
+  const toProcess = newMessages.slice(0, availableSlots);
+  const skipped = newMessages.length - toProcess.length;
+
   logger.info(
     {
-      count: newMessages.length,
-      messageIds: newMessages.map((m) => m.id),
+      count: toProcess.length,
+      skipped,
+      messageIds: toProcess.map((m) => m.id),
     },
     "Enqueueing individual fallback analysis for batch-incomplete messages",
   );
 
-  for (const msg of newMessages) {
+  for (const msg of toProcess) {
     individualInFlight.add(msg.id);
-    // Fire-and-forget: each message runs concurrently, errors are handled inside.
+    // Fire-and-forget: processIndividualFallback handles all errors internally.
     processIndividualFallback(msg).catch((err) => {
-      // Belt-and-suspenders: processIndividualFallback catches internally,
-      // but guard against any uncaught rejection bubbling here.
+      // Belt-and-suspenders guard — should never reach here.
       logger.error(
         { messageId: msg.id, error: String(err) },
-        "Unexpected error in individual fallback promise",
+        "Unexpected uncaught error escaping processIndividualFallback",
       );
       individualInFlight.delete(msg.id);
+      const ck = getConversationKey(msg);
+      const prev = individualInFlightByConversation.get(ck) ?? 1;
+      if (prev <= 1) {
+        individualInFlightByConversation.delete(ck);
+      } else {
+        individualInFlightByConversation.set(ck, prev - 1);
+      }
     });
   }
 }
+
+// ---------------------------------------------------------------------------
+// Batch pipeline
+// ---------------------------------------------------------------------------
 
 async function processBatch(
   conversationKey: string,
@@ -256,7 +373,6 @@ async function processBatch(
 ): Promise<void> {
   if (messages.length === 0) return;
   if (Date.now() < globalCooldownUntil) {
-    // Should not normally hit here due to checks in scheduleConversationAnalysis, but just in case
     return;
   }
 
@@ -348,7 +464,7 @@ async function processBatch(
       enqueueIndividualFallbacks(incompleteMessages);
     }
 
-    consecutiveErrors = 0; // Reset circuit breaker
+    consecutiveErrors = 0; // Reset batch circuit breaker
     conversationErrorCooldown.delete(conversationKey);
     shouldScheduleNext = true;
   } catch (error) {
@@ -396,76 +512,96 @@ async function processBatch(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Scheduling
+// ---------------------------------------------------------------------------
+
 /**
- * Debounced analysis trigger for a conversation
+ * Schedules a debounced analysis run for a conversation.
+ *
+ * FIX #3: The async work inside setTimeout is now wrapped in an explicit
+ * .catch() so DB errors don't produce unhandled promise rejections.
+ * FIX #6: Calls pickBatchWithinBudget after fetching messages so token budget
+ * is respected before handing the batch to the LLM.
  */
 function scheduleConversationAnalysis(conversationKey: string): void {
-  // Skip if already processing
   if (isConversationProcessingLocked(conversationKey)) {
     return;
   }
 
-  // Check cooldowns
   const convoCooldown = conversationErrorCooldown.get(conversationKey) || 0;
   const activeCooldown = Math.max(convoCooldown, globalCooldownUntil);
 
   if (activeCooldown && Date.now() < activeCooldown) {
-    // Instead of dropping, re-schedule for after cooldown if not already scheduled
     if (!conversationDebounceTimers.has(conversationKey)) {
       const remaining = activeCooldown - Date.now();
       const timer = setTimeout(() => {
         conversationDebounceTimers.delete(conversationKey);
         scheduleConversationAnalysis(conversationKey);
-      }, remaining + 500); // 500ms buffer after cooldown
+      }, remaining + 500);
       conversationDebounceTimers.set(conversationKey, timer);
     }
     return;
   }
 
-  // Clear existing timer
   const existingTimer = conversationDebounceTimers.get(conversationKey);
   if (existingTimer) {
     clearTimeout(existingTimer);
   }
 
-  // Always use shorter debounce for immediate processing (no concurrency limit)
-  const debounceTime = config.AI_ANALYSIS_DEBOUNCE_MS;
-
-  // Set new debounced timer
-  const timer = setTimeout(async () => {
+  const timer = setTimeout(() => {
     conversationDebounceTimers.delete(conversationKey);
 
-    // Get pending messages for this conversation
-    const messages = await getPendingMessagesByConversation(
+    // FIX #3: explicit .catch() — no async arrow function to avoid unhandled rejection.
+    getPendingMessagesByConversation(
       conversationKey,
       config.AI_ANALYSIS_MAX_BATCH_SIZE,
-    );
+    )
+      .then((messages) => {
+        if (messages.length === 0) return;
 
-    if (messages.length > 0) {
-      await processBatch(conversationKey, messages);
-    }
-  }, debounceTime);
+        // FIX #6: trim to token budget before sending to LLM.
+        // 50 tokens overhead accounts for JSON structure + id/username fields.
+        const trimmed = pickBatchWithinBudget(
+          messages,
+          config.AI_ANALYSIS_MAX_TARGET_TOKENS,
+          50,
+        );
+        if (trimmed.length === 0) return;
+
+        return processBatch(conversationKey, trimmed);
+      })
+      .catch((err) => {
+        logger.error(
+          {
+            conversationKey,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          "Failed to fetch or dispatch pending messages for scheduled analysis",
+        );
+      });
+  }, config.AI_ANALYSIS_DEBOUNCE_MS);
 
   conversationDebounceTimers.set(conversationKey, timer);
 }
 
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 /**
- * Queues a message for analysis (debounced by conversation)
+ * Queues a message for analysis (debounced by conversation).
  */
 export async function queueMessageAnalysis(messageId: string): Promise<void> {
   if (!config.AI_ANALYSIS_ENABLED) return;
 
   try {
-    // Look up the message to get its conversation key
     const message = await getMessageById(messageId);
     if (!message) {
       logger.warn({ messageId }, "Message not found for analysis queue");
       return;
     }
-
-    // Schedule its conversation for analysis
-    const conversationKey = getConversationKey(message);
-    queueConversationAnalysis(conversationKey);
+    queueConversationAnalysis(getConversationKey(message));
   } catch (error) {
     logger.error(
       {
@@ -478,17 +614,15 @@ export async function queueMessageAnalysis(messageId: string): Promise<void> {
 }
 
 /**
- * Queues a conversation for analysis (debounced)
+ * Queues a conversation for analysis (debounced).
  */
 export function queueConversationAnalysis(conversationKey: string): void {
   if (!config.AI_ANALYSIS_ENABLED) return;
-
-  // Schedule debounced analysis
   scheduleConversationAnalysis(conversationKey);
 }
 
 /**
- * Gets current analysis queue status
+ * Returns current status of both the batch and individual fallback queues.
  */
 export function getAnalysisQueueStatus(): AnalysisQueueStatus {
   return {
@@ -496,42 +630,76 @@ export function getAnalysisQueueStatus(): AnalysisQueueStatus {
     activeRequests,
     activeIndividualRequests,
     individualInFlightCount: individualInFlight.size,
+    individualCircuitBreakerActive: Date.now() < individualCooldownUntil,
     lastError,
   };
 }
 
 /**
- * Starts the pending AI analysis recovery worker
+ * Starts the periodic recovery worker.
+ *
+ * FIX #4: Now also recovers messages stuck in `error/analysis_incomplete`
+ * state (not just `pending`), and skips conversations that already have
+ * individual fallback work in progress to avoid DB last-write-wins races.
  */
 export function startPendingAIAnalysisWorker(): void {
   if (!config.AI_ANALYSIS_ENABLED) return;
 
-  setInterval(async () => {
-    try {
-      // Get pending conversation keys
-      const conversationKeys = await getPendingConversationKeys(100);
-
-      for (const key of conversationKeys) {
-        // Skip if already scheduled
-        if (conversationDebounceTimers.has(key)) {
-          continue;
+  setInterval(() => {
+    // FIX #3 pattern: no async arrow — chain promises explicitly.
+    Promise.all([
+      getPendingConversationKeys(100),
+      getConversationKeysWithIncompleteAnalysis(50),
+    ])
+      .then(([pendingKeys, incompleteKeys]) => {
+        // --- Batch recovery for `pending` messages ---
+        for (const key of pendingKeys) {
+          if (conversationDebounceTimers.has(key)) continue;
+          if (isConversationProcessingLocked(key)) continue;
+          // FIX #4: skip if individual fallback already running for this conversation.
+          if (individualInFlightByConversation.has(key)) continue;
+          const cooldownUntil = conversationErrorCooldown.get(key);
+          if (cooldownUntil && Date.now() < cooldownUntil) continue;
+          scheduleConversationAnalysis(key);
         }
 
-        // Skip if currently processing
-        if (isConversationProcessingLocked(key)) {
-          continue;
-        }
+        // --- Individual recovery for `error/analysis_incomplete` messages ---
+        // Circuit breaker check: no point iterating if individual CB is active.
+        if (Date.now() >= individualCooldownUntil) {
+          const promises: Promise<void>[] = [];
+          for (const key of incompleteKeys) {
+            // Skip if individual work is already running for this conversation.
+            if (individualInFlightByConversation.has(key)) continue;
+            // Skip if batch processing is running (it will fan-out if it finds more incomplete).
+            if (isConversationProcessingLocked(key)) continue;
 
-        // Skip if in error cooldown
-        const cooldownUntil = conversationErrorCooldown.get(key);
-        if (cooldownUntil && Date.now() < cooldownUntil) {
-          continue;
+            promises.push(
+              getIncompleteMessagesByConversation(
+                key,
+                config.AI_ANALYSIS_INDIVIDUAL_MAX_CONCURRENT,
+              )
+                .then((msgs) => {
+                  if (msgs.length > 0) {
+                    enqueueIndividualFallbacks(msgs);
+                  }
+                })
+                .catch((err) => {
+                  logger.error(
+                    { key, error: String(err) },
+                    "Failed to fetch incomplete messages for recovery",
+                  );
+                }),
+            );
+          }
+          // Errors are handled per-key; return the combined promise for observability.
+          return Promise.all(promises);
         }
-
-        scheduleConversationAnalysis(key);
-      }
-    } catch (error) {
-      logger.error({ error }, "Pending AI analysis recovery worker failed");
-    }
+      })
+      .catch((err) => {
+        logger.error(
+          { error: err instanceof Error ? err.message : String(err) },
+          "Pending AI analysis recovery worker failed",
+        );
+      });
   }, config.AI_ANALYSIS_RECOVERY_INTERVAL_MS);
 }

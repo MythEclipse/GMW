@@ -141,5 +141,7 @@ export interface AnalysisQueueStatus {
   activeIndividualRequests: number;
   /** Number of message IDs sitting in the dedup set (in-flight or about to start). */
   individualInFlightCount: number;
+  /** True when the individual-fallback circuit breaker is tripped. */
+  individualCircuitBreakerActive: boolean;
   lastError: string | null;
 }

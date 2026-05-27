@@ -80,11 +80,40 @@ const configSchema = z
     AI_ANALYSIS_ERROR_COOLDOWN_MS: z.coerce.number().positive().default(30000),
     AI_ANALYSIS_MAX_BATCH_SIZE: z.coerce.number().int().positive().default(25),
     AI_ANALYSIS_MAX_CONTEXT_TOKENS: z.coerce.number().positive().default(8000),
+    /** Token budget for target messages specifically (separate from context window). */
+    AI_ANALYSIS_MAX_TARGET_TOKENS: z.coerce.number().positive().default(4000),
     AI_ANALYSIS_CONTEXT_MESSAGE_LIMIT: z.coerce
       .number()
       .int()
       .positive()
       .default(20),
+    /**
+     * How long a conversation is considered locked while being processed.
+     * Must exceed (LLM timeout × max retries) + network overhead.
+     * LLM client timeout=30s, retries=3 → minimum safe value ≈ 100s.
+     */
+    AI_ANALYSIS_PROCESSING_TIMEOUT_MS: z.coerce
+      .number()
+      .positive()
+      .default(120000),
+    /**
+     * Maximum number of concurrent individual-fallback LLM calls.
+     * Prevents OOM/connection exhaustion when many messages miss a batch.
+     */
+    AI_ANALYSIS_INDIVIDUAL_MAX_CONCURRENT: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(20),
+    /**
+     * How many consecutive individual-fallback errors trigger the individual
+     * circuit breaker (separate from the batch circuit breaker).
+     */
+    AI_ANALYSIS_INDIVIDUAL_CB_THRESHOLD: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(10),
     DATABASE_TYPE: z.enum(["sqlite", "postgres"]).default("sqlite"),
     DATABASE_URL: z.string().optional(),
     POSTGRES_HOST: z.string().default("localhost"),

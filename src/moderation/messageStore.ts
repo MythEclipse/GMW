@@ -715,3 +715,88 @@ export async function searchMessages(input: {
     throw error;
   }
 }
+
+/**
+ * Returns distinct conversation keys (thread_id or channel_id) that have at
+ * least one message stuck in `error` status with the `analysis_incomplete`
+ * flag set.  Used by the recovery worker to re-feed those messages through
+ * the individual-fallback queue.
+ */
+export async function getConversationKeysWithIncompleteAnalysis(
+  limit: number = 50,
+): Promise<string[]> {
+  try {
+    const database = db();
+    const rows = await database
+      .selectDistinct<Array<{ thread_id: string | null; channel_id: string }>>({
+        thread_id: messagesTable.thread_id,
+        channel_id: messagesTable.channel_id,
+      })
+      .from(messagesTable)
+      .where(
+        and(
+          eq(messagesTable.ai_status, "error"),
+          sql`${messagesTable.ai_moderation_flags} LIKE ${"%analysis_incomplete%"}`,
+          isNull(messagesTable.deleted_at),
+        ),
+      )
+      .limit(limit);
+
+    const keys: string[] = [];
+    for (const row of rows) {
+      const key = row.thread_id || row.channel_id;
+      if (key && !keys.includes(key)) {
+        keys.push(key);
+      }
+    }
+    return keys;
+  } catch (error) {
+    logger.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Failed to get conversation keys with incomplete analysis",
+    );
+    throw error;
+  }
+}
+
+/**
+ * Returns MessageRecords for a given conversation key whose AI analysis is
+ * stuck in `error` + `analysis_incomplete`.  Used to feed those records
+ * directly into the individual-fallback queue without touching their status
+ * (the individual pipeline will overwrite status on success).
+ */
+export async function getIncompleteMessagesByConversation(
+  conversationKey: string,
+  limit: number = 20,
+): Promise<MessageRecord[]> {
+  try {
+    const database = db();
+    const rows = await database
+      .select()
+      .from(messagesTable)
+      .where(
+        and(
+          or(
+            eq(messagesTable.thread_id, conversationKey),
+            eq(messagesTable.channel_id, conversationKey),
+          ),
+          eq(messagesTable.ai_status, "error"),
+          sql`${messagesTable.ai_moderation_flags} LIKE ${"%analysis_incomplete%"}`,
+          isNull(messagesTable.deleted_at),
+        ),
+      )
+      .orderBy(asc(messagesTable.created_at))
+      .limit(limit);
+
+    return rows as MessageRecord[];
+  } catch (error) {
+    logger.error(
+      {
+        conversationKey,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "Failed to get incomplete messages by conversation",
+    );
+    throw error;
+  }
+}
