@@ -9,6 +9,7 @@ import type {
   AttachmentRecord,
   MessageRecord,
 } from "./types.js";
+import { extractUrlsFromText, fetchUrlSafely } from "./urlFetcher.js";
 
 const ModerationResponseSchema = z.object({
   results: z.array(
@@ -468,6 +469,49 @@ export async function runModerationAnalysis(
     }),
   );
 
+  // --- Fetch URLs found in target messages ---
+  // To avoid slowing down the pipeline too much, we limit to 3 URLs per message.
+  const messageWebTextMap = new Map<string, string[]>();
+
+  await Promise.all(
+    targets.map(async (msg) => {
+      const content = msg.edited_content ?? msg.content;
+      const urls = extractUrlsFromText(content).slice(0, 3);
+      if (urls.length === 0) return;
+
+      const webTexts: string[] = [];
+
+      await Promise.all(
+        urls.map(async (url) => {
+          const result = await fetchUrlSafely(url);
+
+          if (result.type === "image" && result.data && result.mimeType) {
+            // Append as an image part
+            const dataUrl = `data:${result.mimeType};base64,${result.data.toString("base64")}`;
+            const part: RawImagePart = {
+              type: "image_url",
+              image_url: { url: dataUrl },
+            };
+            const existing = messageImageMap.get(msg.id) ?? [];
+            existing.push(part);
+            messageImageMap.set(msg.id, existing);
+          } else if (result.type === "text" && result.textContent) {
+            webTexts.push(`[Isi Web dari ${url}]: ${result.textContent}`);
+          } else if (result.type === "error") {
+            log.debug(
+              { url, error: result.error },
+              "Failed to fetch URL for moderation context",
+            );
+          }
+        }),
+      );
+
+      if (webTexts.length > 0) {
+        messageWebTextMap.set(msg.id, webTexts);
+      }
+    }),
+  );
+
   const hasImages = messageImageMap.size > 0;
 
   // -------------------------------------------------------------------------
@@ -571,7 +615,10 @@ CRITICAL: "message_id" HARUS berupa STRING (dibungkus tanda kutip ganda). Jangan
       const messagesBlock = targets
         .map((msg) => {
           const content = msg.edited_content ?? msg.content;
-          return `[target] id=${msg.id} user=${msg.username}: ${content}`;
+          const webTexts = messageWebTextMap.get(msg.id) ?? [];
+          const webContext =
+            webTexts.length > 0 ? `\n${webTexts.join("\n")}` : "";
+          return `[target] id=${msg.id} user=${msg.username}: ${content}${webContext}`;
         })
         .join("\n");
 
@@ -588,7 +635,10 @@ CRITICAL: "message_id" HARUS berupa STRING (dibungkus tanda kutip ganda). Jangan
 
     for (const msg of targets) {
       const content = msg.edited_content ?? msg.content;
-      const msgText = `[target] id=${msg.id} user=${msg.username}: ${content}`;
+      const webTexts = messageWebTextMap.get(msg.id) ?? [];
+      const webContext = webTexts.length > 0 ? `\n${webTexts.join("\n")}` : "";
+
+      const msgText = `[target] id=${msg.id} user=${msg.username}: ${content}${webContext}`;
       parts.push({ type: "text", text: msgText });
 
       // Immediately follow the message text with its images
