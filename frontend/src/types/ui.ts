@@ -1,4 +1,4 @@
-export type DashboardTab = "voice" | "media" | "messages" | "review" | "recordings";
+export type DashboardTab = "voice" | "media" | "messages" | "review" | "recordings" | "analytics";
 
 export interface UIState {
   selectedGuild?: string;

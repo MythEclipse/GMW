@@ -45,6 +45,7 @@
     "indonesian-badwords": "^1.0.1",
     "libsodium-wrappers": "^0.8.4",
     "lucide-react": "^1.16.0",
+    "motion": "^12.40.0",
     "openai": "^6.38.0",
     "opusscript": "^0.0.8",
     "p-retry": "^8.0.0",

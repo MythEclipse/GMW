@@ -57,7 +57,21 @@ export function detectIndonesianBadwords(text: string): string[] {
   try {
     const result = badwords.analyze?.(text);
     if (Array.isArray(result?.badwords)) {
-      return Array.from(new Set(result.badwords.map((word) => word.toLowerCase())));
+      let hits = Array.from(new Set(result.badwords.map((word) => word.toLowerCase())));
+      
+      const lowerText = text.toLowerCase();
+      hits = hits.filter(hit => {
+        if (hit === "asu") {
+          const words = lowerText.match(/[\p{L}\p{N}_]+/gu) || [];
+          return words.some(w => 
+            w.includes("asu") && 
+            !["asus", "masuk", "termasuk", "dimasukkan", "memasukkan", "kasur", "asumsi", "asuransi", "asupan", "pasukan", "pasundan"].includes(w)
+          );
+        }
+        return true;
+      });
+
+      return hits;
     }
   } catch {
     // Keep moderation pipeline resilient if dependency changes shape.

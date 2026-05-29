@@ -7,6 +7,7 @@ import { Tabs, TabsContent } from "./components/ui/tabs";
 import { VoicePanel } from "./components/voice/VoicePanel";
 import { RecordingsPanel } from "./components/recordings/RecordingsPanel";
 import { AuthOverlay } from "./components/layout/AuthOverlay";
+import { AnalyticsPanel } from "./components/analytics/AnalyticsPanel";
 import { useDashboardSocket } from "./hooks/useDashboardSocket";
 import { mergeMessages, useMessages } from "./hooks/useMessages";
 import { useMediaControl } from "./hooks/useMediaControl";
@@ -183,7 +184,7 @@ export default function App() {
     await patchUIState({ isListening: true });
   }, [isListening, patchUIState]);
 
-  const tabs = useMemo(() => ["voice", "media", "messages", "recordings", "review"] as DashboardTab[], []);
+  const tabs = useMemo(() => ["voice", "media", "messages", "recordings", "analytics", "review"] as DashboardTab[], []);
 
   return (
     <DashboardLayout
@@ -194,7 +195,7 @@ export default function App() {
     >
       <div className="md:hidden">
         <Tabs value={activeTab} onValueChange={(value) => patchUIState({ activeTab: value as DashboardTab })}>
-          <div className="mb-4 grid grid-cols-5 gap-2 rounded-2xl bg-muted p-1">
+          <div className="mb-4 grid grid-cols-3 gap-1.5 rounded-2xl bg-muted p-1 sm:grid-cols-6">
             {tabs.map((tab) => (
               <button key={tab} className={`rounded-xl px-2 py-2 text-xs font-medium ${activeTab === tab ? "bg-background text-foreground" : "text-muted-foreground"}`} onClick={() => patchUIState({ activeTab: tab })}>
                 {tab}
@@ -261,6 +262,16 @@ export default function App() {
           ) : (
             <RecordingsPanel />
           )}
+        </TabsContent>
+        <TabsContent value="analytics">
+          <AnalyticsPanel
+            guilds={voice.guilds}
+            channels={voice.textChannels}
+            selectedGuild={selectedTextGuild}
+            selectedChannel={selectedTextChannel}
+            onGuildChange={(guildId) => patchUIState({ selectedTextGuild: guildId, selectedTextChannel: "" })}
+            onChannelChange={(channelId) => patchUIState({ selectedTextChannel: channelId })}
+          />
         </TabsContent>
         <TabsContent value="review">
           <ReviewPanel messages={messages.messages} onReanalyze={messages.reanalyze} />

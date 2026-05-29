@@ -667,6 +667,8 @@ Ini adalah server Discord komunitas Indonesia. Kamu harus memahami:
 - Bahasa gaul/slang Indonesia: "anjay", "wkwk", "gws", "gaskeun", "santuy", "njir", "baka", "woy", "woi", "hadeh", dll.
 - Singkatan umum: "gw", "lo", "emg", "kyk", "tdk", "krn", "jgn", dll.
 - Konteks budaya lokal: SARA (Suku, Agama, Ras, Antar-golongan), hoaks, ujaran kebencian berbasis konteks Indonesia.
+- Makian/kata kasar umum (seperti "anjing", "asu", "bangsat") BUKAN pelanggaran SARA. SARA khusus untuk diskriminasi/hinaan terhadap Suku, Agama, Ras, dan Antargolongan.
+- Kata "asus" adalah merk teknologi, jangan pernah dianggap sebagai makian "asu".
 - Perbedaan antara humor/banter biasa vs konten yang benar-benar melanggar.
 - "woy"/"woi" adalah sapaan/interjeksi informal Indonesia dan tidak boleh dianggap SARA, hate speech, atau harassment tanpa target hinaan/ancaman jelas.
 - Discord custom emoji seperti <:hadeh:123> atau [emoji:hadeh] adalah ekspresi/emoji, bukan pelanggaran teks. Gunakan sebagai konteks ekspresi saja.

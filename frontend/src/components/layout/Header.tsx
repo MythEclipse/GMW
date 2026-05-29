@@ -9,6 +9,7 @@ const titles: Record<DashboardTab, string> = {
   media: "Media Player",
   messages: "Messages",
   recordings: "Voice Recordings",
+  analytics: "Analytics & Insights",
   review: "Moderation Review",
 };
 
