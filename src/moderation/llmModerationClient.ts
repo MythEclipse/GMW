@@ -358,8 +358,11 @@ export async function runModerationAnalysis(
   const targetIds = targets.map((t) => t.id);
 
   // Build a lookup: message_id → list of resolved base64 image parts
-  type RawImagePart = { type: "image_url"; image_url: { url: string } };
-  type MessageImagePart = RawImagePart & { sourceLabel: string };
+  type MessageImagePart = {
+    type: "image_url";
+    image_url: { url: string };
+    sourceLabel: string;
+  };
   type MessageImageMap = Map<string, MessageImagePart[]>;
 
   // Resolve and download image attachments, grouped by message_id.
@@ -574,7 +577,61 @@ export async function runModerationAnalysis(
     }),
   );
 
-  const hasImages = messageImageMap.size > 0;
+  const analyzeSingleMediaImage = async (
+    messageId: string,
+    image: MessageImagePart,
+  ): Promise<string | null> => {
+    try {
+      const completion = await openai.chat.completions.create({
+        model: config.AI_LLM_MODEL,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Analisis media Discord berikut sebagai evidence moderasi. ${image.sourceLabel}\nJelaskan isi visual, teks yang terlihat, konteks risiko, dan apakah ada indikasi spam, scam, SARA, harassment, sexual content, violence, self-harm, doxxing, NSFW, gore, atau illegal content. Jawab Bahasa Indonesia, maksimal 3 kalimat. Jangan bilang kurang konteks atau perlu admin cek; berikan observasi langsung dari media.`,
+              },
+              { type: "image_url", image_url: image.image_url },
+            ],
+          },
+        ],
+        temperature: 0.1,
+        top_p: 0.9,
+        max_tokens: 500,
+        stream: false,
+        chat_template_kwargs: { enable_thinking: false },
+        reasoning_budget: 0,
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+
+      const content = completion.choices[0]?.message?.content?.trim();
+      if (!content) return null;
+      return `[Media analysis for message ${messageId}] ${image.sourceLabel}: ${content}`;
+    } catch (error) {
+      log.warn(
+        {
+          messageId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Separate media analysis failed",
+      );
+      return `[Media analysis for message ${messageId}] ${image.sourceLabel}: gagal dianalisis otomatis; gunakan metadata URL/nama media sebagai evidence.`;
+    }
+  };
+
+  const messageMediaAnalysisMap = new Map<string, string[]>();
+  await Promise.all(
+    Array.from(messageImageMap.entries()).flatMap(([messageId, images]) =>
+      images.map(async (image) => {
+        const summary = await analyzeSingleMediaImage(messageId, image);
+        if (!summary) return;
+        const existing = messageMediaAnalysisMap.get(messageId) ?? [];
+        existing.push(summary);
+        messageMediaAnalysisMap.set(messageId, existing);
+      }),
+    ),
+  );
+
 
   // -------------------------------------------------------------------------
   // System prompt — Indonesian-first, English as secondary language.
@@ -593,15 +650,13 @@ export async function runModerationAnalysis(
     error: string;
     preview: string;
   }): string => {
-    const imageInstructions = hasImages
-      ? `
-## Instruksi Analisis Gambar/Sticker/Embed
-Beberapa pesan menyertakan gambar, sticker, preview link, atau embed. Setiap media muncul TEPAT SETELAH baris teks pesan yang memilikinya.
-Media dan teks pesan harus dianalisis sebagai SATU KESATUAN — evaluasilah konten teks, gambar, sticker, dan preview link secara bersamaan untuk membentuk kesimpulan final.
-Jangan pisahkan penilaian media dari konteks teks pesannya.
-Jika gambar/sticker/preview mengandung teks (meme, screenshot), baca dan pertimbangkan teks tersebut sebagai bagian dari konten pesan.
-`
-      : "";
+    const imageInstructions = `
+## Instruksi Analisis Media
+Gambar, sticker, embed image, preview link, dan attachment sudah dianalisis lewat request media terpisah sebelum batch utama.
+Gunakan baris "Media analysis" sebagai evidence visual utama dalam keputusan moderasi batch ini.
+Sticker wajib diperlakukan sebagai image evidence, bukan sekadar nama sticker.
+Jangan abaikan link: gunakan isi web, preview image, atau hasil analisis media link bila tersedia.
+`;
 
     const base = `Kamu adalah asisten moderasi konten untuk server Discord berbahasa Indonesia.
 Bahasa utama komunitas ini adalah BAHASA INDONESIA. Bahasa Inggris adalah bahasa sekunder.
@@ -655,20 +710,14 @@ CRITICAL: "message_id" HARUS berupa STRING (dibungkus tanda kutip ganda). Jangan
 
   // -------------------------------------------------------------------------
   // Build the user-turn content.
-  //
-  // When images exist, we build an interleaved multipart array:
-  //   [system prompt text] → for each target: [msg text part] → [image(s) for that msg]
-  //
-  // This interleaving is the critical fix: it ensures the vision model
-  // processes each image in direct proximity to its owning message text,
-  // rather than receiving all images as a disconnected prologue.
+  // Media images are NOT sent in the main moderation batch. They are analyzed
+  // above through separate vision requests, then injected here as text evidence.
   // -------------------------------------------------------------------------
-  type ContentPart = { type: "text"; text: string } | RawImagePart;
 
   let lastParseError: string | null = null;
   let lastInvalidContent: string | null = null;
 
-  const buildMessageContent = (): string | ContentPart[] => {
+  const buildMessageContent = (): string => {
     const correction = lastParseError
       ? {
           error: lastParseError,
@@ -678,77 +727,32 @@ CRITICAL: "message_id" HARUS berupa STRING (dibungkus tanda kutip ganda). Jangan
 
     const systemText = buildSystemPrompt(correction);
 
-    if (!hasImages) {
-      // Pure-text path: format all targets in a single block
-      const messagesBlock = targets
-        .map((msg) => {
-          const content = msg.edited_content ?? msg.content;
-          const webTexts = messageWebTextMap.get(msg.id) ?? [];
-          const webContext =
-            webTexts.length > 0 ? `\n${webTexts.join("\n")}` : "";
-          const mediaEvidence = extractMessageMediaEvidence(msg.metadata);
-          const mediaContext = [
-            mediaEvidence.stickers.length > 0
-              ? `[sticker evidence: ${mediaEvidence.stickers.map((s) => `${s.name} (${s.url})`).join(" | ")}]`
-              : null,
-            mediaEvidence.embeds.length > 0
-              ? `[embed evidence: ${mediaEvidence.embeds
-                  .map((e) => [e.title, e.description, e.url, e.image, e.thumbnail].filter(Boolean).join(" | "))
-                  .join(" || ")}]`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" ");
-          return `[target] id=${msg.id} user=${msg.username}: ${content}${mediaContext ? ` ${mediaContext}` : ""}${webContext}`;
-        })
-        .join("\n");
+    const messagesBlock = targets
+      .map((msg) => {
+        const content = msg.edited_content ?? msg.content;
+        const webTexts = messageWebTextMap.get(msg.id) ?? [];
+        const mediaAnalyses = messageMediaAnalysisMap.get(msg.id) ?? [];
+        const webContext = webTexts.length > 0 ? `\n${webTexts.join("\n")}` : "";
+        const mediaAnalysisContext =
+          mediaAnalyses.length > 0 ? `\n${mediaAnalyses.join("\n")}` : "";
+        const mediaEvidence = extractMessageMediaEvidence(msg.metadata);
+        const mediaContext = [
+          mediaEvidence.stickers.length > 0
+            ? `[sticker evidence: ${mediaEvidence.stickers.map((s) => `${s.name} (${s.url})`).join(" | ")}]`
+            : null,
+          mediaEvidence.embeds.length > 0
+            ? `[embed evidence: ${mediaEvidence.embeds
+                .map((e) => [e.title, e.description, e.url, e.image, e.thumbnail].filter(Boolean).join(" | "))
+                .join(" || ")}]`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        return `[target] id=${msg.id} user=${msg.username}: ${content}${mediaContext ? ` ${mediaContext}` : ""}${webContext}${mediaAnalysisContext}`;
+      })
+      .join("\n");
 
-      return `${systemText}\n\n## Pesan yang Dianalisis\n${messagesBlock}`;
-    }
-
-    // Multimodal path: interleave text + images per message
-    const parts: ContentPart[] = [
-      {
-        type: "text",
-        text: `${systemText}\n\n## Pesan yang Dianalisis (dengan lampiran gambar)\n`,
-      },
-    ];
-
-    for (const msg of targets) {
-      const content = msg.edited_content ?? msg.content;
-      const webTexts = messageWebTextMap.get(msg.id) ?? [];
-      const webContext = webTexts.length > 0 ? `\n${webTexts.join("\n")}` : "";
-
-      const mediaEvidence = extractMessageMediaEvidence(msg.metadata);
-      const mediaContext = [
-        mediaEvidence.stickers.length > 0
-          ? `[sticker evidence: ${mediaEvidence.stickers.map((s) => `${s.name} (${s.url})`).join(" | ")}]`
-          : null,
-        mediaEvidence.embeds.length > 0
-          ? `[embed evidence: ${mediaEvidence.embeds
-              .map((e) => [e.title, e.description, e.url, e.image, e.thumbnail].filter(Boolean).join(" | "))
-              .join(" || ")}]`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" ");
-      const msgText = `[target] id=${msg.id} user=${msg.username}: ${content}${mediaContext ? ` ${mediaContext}` : ""}${webContext}`;
-      parts.push({ type: "text", text: msgText });
-
-      // Immediately follow the message text with its images
-      const imgs = messageImageMap.get(msg.id);
-      if (imgs && imgs.length > 0) {
-        for (const img of imgs) {
-          parts.push({ type: "image_url", image_url: img.image_url });
-          parts.push({
-            type: "text",
-            text: img.sourceLabel,
-          });
-        }
-      }
-    }
-
-    return parts;
+    return `${systemText}\n\n## Pesan yang Dianalisis\n${messagesBlock}`;
   };
 
   let parsed: AnalysisResult[];
