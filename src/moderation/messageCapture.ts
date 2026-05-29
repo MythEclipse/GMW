@@ -34,6 +34,7 @@ export function shouldCaptureMessageLocation(
   message: MessageLocationInput,
   target: TextCaptureTarget,
 ): boolean {
+  if (message.channelId === "1310988070996414494" || message.channelId === "1265679542144467035") return false; // Skip specific channels
   if (!message.guildId || message.guildId !== target.guildId) return false;
   if (target.channelId && message.channelId !== target.channelId) return false;
   return true;

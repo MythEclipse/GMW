@@ -24,4 +24,20 @@ describe("shouldCaptureMessageLocation", () => {
       ),
     ).toBe(false);
   });
+
+  it("skips ignored channels", () => {
+    expect(
+      shouldCaptureMessageLocation(
+        { guildId: "guild-1", channelId: "1310988070996414494" },
+        { guildId: "guild-1" },
+      ),
+    ).toBe(false);
+    
+    expect(
+      shouldCaptureMessageLocation(
+        { guildId: "guild-1", channelId: "1265679542144467035" },
+        { guildId: "guild-1" },
+      ),
+    ).toBe(false);
+  });
 });
