@@ -11,6 +11,3 @@
 [submodule "vendor/better-sqlite3"]
 	path = vendor/better-sqlite3
 	url = https://github.com/MythEclipse/better-sqlite3.git
-[submodule "vendor/node-datachannel"]
-	path = vendor/node-datachannel
-	url = https://github.com/MythEclipse/node-datachannel.git
