@@ -1,21 +1,29 @@
-name: Deploy to VPS
+name: Build and Push
 
 on:
   push:
     branches:
       - master
-  workflow_dispatch:
+  pull_request:
+    branches:
+      - master
 
 permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/bete
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/ultimate-asepharyana.tech/gmw
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
+    if: github.event_name == "push" && github.ref == "refs/heads/master"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,63 +49,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-      - name: Deploy to VPS
-        uses: appleboy/ssh-action@v1.2.0
-        env:
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          GHCR_USERNAME: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ENV_FILE: ${{ secrets.ENV_FILE }}
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          envs: IMAGE_NAME,GHCR_USERNAME,GHCR_TOKEN,ENV_FILE
-          script: |
-            set -eu
-
-            APP_DIR=/opt/imphenbot
-            mkdir -p "$APP_DIR"
-            cd "$APP_DIR"
-
-            printf '%s\nIMAGE_NAME=%s:latest\n' "$ENV_FILE" "$IMAGE_NAME" > .env
-
-            cat > docker-compose.yml <<'EOF'
-            services:
-              app:
-                image: ${IMAGE_NAME}
-                container_name: imphenbot-app
-                restart: unless-stopped
-                env_file:
-                  - .env
-                volumes:
-                  - ./recordings:/app/recordings
-                  - ./.muxer-queue.db:/app/.muxer-queue.db
-                  - ./.muxer-queue.db-shm:/app/.muxer-queue.db-shm
-                  - ./.muxer-queue.db-wal:/app/.muxer-queue.db-wal
-                labels:
-                  - "traefik.enable=true"
-                  - "traefik.http.routers.imphenbot.rule=Host(`imphnen.asepharyana.tech`)"
-                  - "traefik.http.routers.imphenbot.entrypoints=websecure"
-                  - "traefik.http.routers.imphenbot.tls=true"
-                  - "traefik.http.services.imphenbot.loadbalancer.server.port=3000"
-                networks:
-                  - app-shared-net
-
-            networks:
-              app-shared-net:
-                name: app-shared-net
-                external: true
-            EOF
-
-            touch .muxer-queue.db .muxer-queue.db-shm .muxer-queue.db-wal
-            mkdir -p recordings
-
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-
-            docker compose pull
-            docker compose up -d --force-recreate --remove-orphans
-            docker image prune -f
+            ghcr.io/${{ env.IMAGE_NAME }}:latest
+            ghcr.io/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
