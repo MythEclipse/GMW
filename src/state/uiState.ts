@@ -5,7 +5,8 @@ export type ActiveTab =
   | "messages"
   | "media"
   | "review"
-  | "recordings";
+  | "recordings"
+  | "analytics";
 
 export interface SharedUIState {
   selectedVoiceGuild: string;
@@ -27,6 +28,7 @@ const activeTabs: ActiveTab[] = [
   "media",
   "review",
   "recordings",
+  "analytics",
 ];
 
 export const defaultSharedUIState: SharedUIState = {
