@@ -62,7 +62,7 @@ export async function initializeApp() {
   client.on("ready", async () => {
     logger.info({ user: client.user?.tag }, "Bot logged in");
     registerMessageCapture(client);
-    startPendingAIAnalysisWorker();
+    startPendingAIAnalysisWorker(client);
     syncBacklogMessages(client).catch((error) => {
       logger.warn({ error }, "Backlog sync failed");
     });

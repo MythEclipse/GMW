@@ -1,10 +1,12 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { Client } from "discord.js-selfbot-v13";
 import { AbortError } from "p-retry";
 import { Piscina } from "piscina";
 import { config } from "../config.js";
 import { createChildLogger } from "../logger.js";
 import { retryWithBackoff } from "../retry.js";
+import { attemptAutoDeleteFlaggedMessage } from "./autoDeleteManager.js";
 import {
   buildConversationContext,
   estimateTokens,
@@ -37,6 +39,27 @@ function getModerationBroadcaster(): ModerationBroadcaster | undefined {
   return (globalThis as ModerationGlobal).moderationBroadcaster;
 }
 
+function scheduleAutoDelete(row: MessageRecord): void {
+  if (row.ai_status !== "flagged") return;
+  const run = () => {
+    attemptAutoDeleteFlaggedMessage(moderationClient, row).catch((error) => {
+      logger.error(
+        {
+          messageId: row.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Unexpected auto-delete error",
+      );
+    });
+  };
+
+  if (config.AUTO_DELETE_FLAGGED_DELAY_MS > 0) {
+    setTimeout(run, config.AUTO_DELETE_FLAGGED_DELAY_MS);
+    return;
+  }
+  setImmediate(run);
+}
+
 // ---------------------------------------------------------------------------
 // Batch pipeline state
 // ---------------------------------------------------------------------------
@@ -50,6 +73,7 @@ const conversationErrorCooldown = new Map<string, number>();
 
 let activeRequests = 0;
 let lastError: string | null = null;
+let moderationClient: Client | undefined;
 
 // Batch circuit breaker
 let consecutiveErrors = 0;
@@ -291,6 +315,7 @@ async function processIndividualFallback(
     const rows = await updateMessagesAIAnalysisBulk(updates);
     for (const row of rows) {
       getModerationBroadcaster()?.messageAnalyzed(row);
+      scheduleAutoDelete(row);
     }
 
     // Reset individual CB on success.
@@ -472,6 +497,7 @@ async function processBatch(
 
     for (const row of result.rows) {
       getModerationBroadcaster()?.messageAnalyzed(row);
+      scheduleAutoDelete(row);
     }
 
     if (!result.ok) {
@@ -741,7 +767,8 @@ export function getAnalysisQueueStatus(): AnalysisQueueStatus {
  * state (not just `pending`), and skips conversations that already have
  * individual fallback work in progress to avoid DB last-write-wins races.
  */
-export function startPendingAIAnalysisWorker(): void {
+export function startPendingAIAnalysisWorker(client?: Client): void {
+  moderationClient = client;
   if (!config.AI_ANALYSIS_ENABLED) return;
 
   setInterval(() => {

@@ -114,6 +114,17 @@ const configSchema = z
       .int()
       .positive()
       .default(10),
+    AUTO_DELETE_FLAGGED_ENABLED: z
+      .string()
+      .optional()
+      .transform((v) => v === "true")
+      .default(true),
+    AUTO_DELETE_FLAGGED_DELAY_MS: z.coerce.number().min(0).default(0),
+    AUTO_DELETE_FLAGGED_DRY_RUN: z
+      .string()
+      .optional()
+      .transform((v) => v === "true")
+      .default(true),
     DATABASE_TYPE: z.enum(["sqlite", "postgres"]).default("sqlite"),
     DATABASE_URL: z.string().optional(),
     POSTGRES_HOST: z.string().default("localhost"),
