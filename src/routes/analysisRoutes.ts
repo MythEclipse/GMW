@@ -5,11 +5,7 @@ import {
   getAnalysisQueueStatus,
   queueMessageAnalysis,
 } from "../moderation/aiAnalyzer.js";
-import {
-  getMessageById,
-  searchMessages,
-  updateMessageAIAnalysis,
-} from "../moderation/messageStore.js";
+import { searchMessages, updateMessageAIAnalysis } from "../moderation/messageStore.js";
 import type { MessageRecord } from "../moderation/types.js";
 
 export function createAnalysisRoutes(): Router {
@@ -79,14 +75,8 @@ export function createAnalysisRoutes(): Router {
         throw new AppError("Message ID is required", "MISSING_MESSAGE_ID", 400);
       }
 
-      // Verify message exists
-      const message = await getMessageById(id);
-      if (!message) {
-        throw new AppError("Message not found", "MESSAGE_NOT_FOUND", 404);
-      }
-
-      // Reset analysis status to pending so it gets picked up by the analyzer
-      await updateMessageAIAnalysis(id, {
+      // P3: Single UPDATE + RETURNING instead of GET + UPDATE + GET
+      const updated = await updateMessageAIAnalysis(id, {
         status: "pending",
         flags: null,
         score: null,
@@ -94,6 +84,10 @@ export function createAnalysisRoutes(): Router {
         analyzedAt: null,
         error: null,
       });
+
+      if (!updated) {
+        throw new AppError("Message not found", "MESSAGE_NOT_FOUND", 404);
+      }
 
       // Queue for analysis
       await queueMessageAnalysis(id);

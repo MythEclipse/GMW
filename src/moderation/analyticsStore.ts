@@ -1,35 +1,8 @@
-import { and, asc, desc, eq, gte, isNull, or, type SQL } from "drizzle-orm";
 import { getDatabase } from "../database/drizzle.js";
-import { messagesTable } from "../database/schema.js";
 import { createChildLogger } from "../logger.js";
 import type { MessageRecord } from "./types.js";
 
 const logger = createChildLogger("analytics-store");
-
-// ── DB helper ──────────────────────────────────────────────────────────
-function db() {
-  return getDatabase() as {
-    select(fields?: Record<string, unknown>): {
-      from(table: unknown): {
-        where(cond: SQL | undefined): {
-          orderBy(...cols: unknown[]): {
-            limit(n: number): Promise<unknown[]>;
-          } & Promise<unknown[]>;
-          groupBy(...cols: unknown[]): Promise<unknown[]>;
-        } & Promise<unknown[]>;
-        limit(n: number): Promise<unknown[]>;
-      } & Promise<unknown[]>;
-    };
-  };
-}
-
-// ── Shared condition helper ────────────────────────────────────────────
-function channelFilter(channelId: string): SQL {
-  return or(
-    eq(messagesTable.channel_id, channelId),
-    eq(messagesTable.thread_id, channelId),
-  ) as SQL;
-}
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -79,6 +52,25 @@ export interface AnalyticsOverview {
   total_channels: number;
 }
 
+// ── Cache for topic trends ─────────────────────────────────────────────
+
+interface TopicCacheEntry {
+  data: TopicTrend[];
+  expiresAt: number;
+  key: string;
+}
+
+const topicCache = new Map<string, TopicCacheEntry>();
+const TOPIC_CACHE_TTL_MS = 60_000; // 1 minute TTL
+
+function makeTopicCacheKey(input: {
+  guildId: string;
+  channelId?: string;
+  hours: number;
+}): string {
+  return `${input.guildId}:${input.channelId ?? "*"}:${input.hours}`;
+}
+
 // ── Hourly Message Stats ───────────────────────────────────────────────
 
 export async function getHourlyStats(input: {
@@ -89,25 +81,30 @@ export async function getHourlyStats(input: {
   try {
     const { guildId, channelId, hours = 24 } = input;
     const since = Date.now() - hours * 3600_000;
-    const database = db();
+    const rawDb = getDatabase() as any;
+    const sqliteRows = rawDb.all(
+      `
+      SELECT
+        datetime((created_at / 3600000) * 3600, 'unixepoch') as hour,
+        count(*) as count,
+        count(case when ai_status = 'clean' then 1 end) as clean,
+        count(case when ai_status = 'warn' then 1 end) as warned,
+        count(case when ai_status = 'flagged' then 1 end) as flagged,
+        count(case when ai_status = 'error' then 1 end) as error
+      FROM messages
+      WHERE guild_id = ?
+        AND created_at >= ?
+        AND deleted_at IS NULL
+        ${channelId ? `AND (channel_id = ? OR thread_id = ?)` : ""}
+      GROUP BY (created_at / 3600000)
+      ORDER BY hour ASC
+      `,
+      channelId
+        ? [guildId, since, channelId, channelId]
+        : [guildId, since],
+    );
 
-    const conditions: SQL[] = [
-      eq(messagesTable.guild_id, guildId),
-      gte(messagesTable.created_at, since),
-      isNull(messagesTable.deleted_at),
-    ];
-
-    if (channelId) {
-      conditions.push(channelFilter(channelId));
-    }
-
-    const rows = (await database
-      .select()
-      .from(messagesTable)
-      .where(and(...conditions) as SQL)
-      .orderBy(asc(messagesTable.created_at))) as MessageRecord[];
-
-    // Initialize all hour buckets
+    // Initialize all hour buckets (fill gaps with zeros)
     const buckets = new Map<
       string,
       {
@@ -126,20 +123,19 @@ export async function getHourlyStats(input: {
       buckets.set(key, { count: 0, clean: 0, warned: 0, flagged: 0, error: 0 });
     }
 
-    for (const row of rows) {
-      const d = new Date(row.created_at);
-      d.setMinutes(0, 0, 0);
+    for (const row of sqliteRows) {
+      // Normalize the SQL hour key to match our bucket format
+      const d = new Date(row.hour.replace(" ", "T") + "Z");
       const key = d.toISOString().slice(0, 13) + ":00:00Z";
 
       const bucket = buckets.get(key);
       if (!bucket) continue;
 
-      bucket.count++;
-      const status = row.ai_status || "pending";
-      if (status === "clean") bucket.clean++;
-      else if (status === "warn") bucket.warned++;
-      else if (status === "flagged") bucket.flagged++;
-      else if (status === "error") bucket.error++;
+      bucket.count = row.count;
+      bucket.clean = row.clean;
+      bucket.warned = row.warned;
+      bucket.flagged = row.flagged;
+      bucket.error = row.error;
     }
 
     return Array.from(buckets.entries())
@@ -396,29 +392,47 @@ export async function getTopicTrends(input: {
   channelId?: string;
   hours?: number;
 }): Promise<TopicTrend[]> {
+  const { guildId, channelId, hours = 24 } = input;
+  const cacheKey = makeTopicCacheKey({ guildId, channelId, hours });
+
+  // Check cache first (P2: cache topic extraction)
+  const cached = topicCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
   try {
-    const { guildId, channelId, hours = 24 } = input;
     const since = Date.now() - hours * 3600_000;
-    const database = db();
+    const rawDb = getDatabase() as any;
 
-    const conditions: SQL[] = [
-      eq(messagesTable.guild_id, guildId),
-      gte(messagesTable.created_at, since),
-      isNull(messagesTable.deleted_at),
-    ];
+    const rows = rawDb.all(
+      `
+      SELECT
+        id, content, ai_status, ai_analysis, ai_moderation_score,
+        ai_moderation_flags, created_at
+      FROM messages
+      WHERE guild_id = ?
+        AND created_at >= ?
+        AND deleted_at IS NULL
+        ${channelId ? `AND (channel_id = ? OR thread_id = ?)` : ""}
+      ORDER BY created_at DESC
+      LIMIT 1000
+      `,
+      channelId
+        ? [guildId, since, channelId, channelId]
+        : [guildId, since],
+    ) as MessageRecord[];
 
-    if (channelId) {
-      conditions.push(channelFilter(channelId));
-    }
+    const result = extractTopics(rows);
 
-    const rows = (await database
-      .select()
-      .from(messagesTable)
-      .where(and(...conditions) as SQL)
-      .orderBy(desc(messagesTable.created_at))
-      .limit(1000)) as MessageRecord[];
+    // Store in cache
+    topicCache.set(cacheKey, {
+      data: result,
+      expiresAt: Date.now() + TOPIC_CACHE_TTL_MS,
+      key: cacheKey,
+    });
 
-    return extractTopics(rows);
+    return result;
   } catch (error) {
     logger.error(
       { error: error instanceof Error ? error.message : String(error) },
@@ -439,55 +453,35 @@ export async function getUserLeaderboard(input: {
   try {
     const { guildId, channelId, hours = 24, limit = 20 } = input;
     const since = Date.now() - hours * 3600_000;
-    const database = db();
+    const rawDb = getDatabase() as any;
 
-    const conditions: SQL[] = [
-      eq(messagesTable.guild_id, guildId),
-      gte(messagesTable.created_at, since),
-      isNull(messagesTable.deleted_at),
-    ];
+    // SQL-level GROUP BY aggregate instead of SELECT * + in-memory map
+    const rows = rawDb.all(
+      `
+      SELECT
+        user_id,
+        username,
+        avatar_url,
+        count(*) as message_count,
+        count(case when type = 'edited' then 1 end) as edited_count,
+        count(case when type = 'deleted' then 1 end) as deleted_count,
+        count(case when ai_status in ('flagged', 'warn') then 1 end) as flagged_count,
+        max(created_at) as last_active
+      FROM messages
+      WHERE guild_id = ?
+        AND created_at >= ?
+        AND deleted_at IS NULL
+        ${channelId ? `AND (channel_id = ? OR thread_id = ?)` : ""}
+      GROUP BY user_id
+      ORDER BY message_count DESC
+      LIMIT ?
+      `,
+      channelId
+        ? [guildId, since, channelId, channelId, limit]
+        : [guildId, since, limit],
+    );
 
-    if (channelId) {
-      conditions.push(channelFilter(channelId));
-    }
-
-    const rows = (await database
-      .select()
-      .from(messagesTable)
-      .where(and(...conditions) as SQL)
-      .orderBy(asc(messagesTable.created_at))) as MessageRecord[];
-
-    const userMap = new Map<string, UserStat>();
-
-    for (const msg of rows) {
-      const existing = userMap.get(msg.user_id);
-      if (existing) {
-        existing.message_count++;
-        if (msg.type === "edited") existing.edited_count++;
-        if (msg.type === "deleted") existing.deleted_count++;
-        if (msg.ai_status === "flagged" || msg.ai_status === "warn")
-          existing.flagged_count++;
-        if (msg.created_at > existing.last_active) {
-          existing.last_active = msg.created_at;
-        }
-      } else {
-        userMap.set(msg.user_id, {
-          user_id: msg.user_id,
-          username: msg.username,
-          avatar_url: msg.avatar_url,
-          message_count: 1,
-          edited_count: msg.type === "edited" ? 1 : 0,
-          deleted_count: msg.type === "deleted" ? 1 : 0,
-          flagged_count:
-            msg.ai_status === "flagged" || msg.ai_status === "warn" ? 1 : 0,
-          last_active: msg.created_at,
-        });
-      }
-    }
-
-    return Array.from(userMap.values())
-      .sort((a, b) => b.message_count - a.message_count)
-      .slice(0, limit);
+    return rows as UserStat[];
   } catch (error) {
     logger.error(
       { error: error instanceof Error ? error.message : String(error) },
@@ -507,54 +501,51 @@ export async function getModerationStats(input: {
   try {
     const { guildId, channelId, hours = 24 } = input;
     const since = Date.now() - hours * 3600_000;
-    const database = db();
+    const rawDb = getDatabase() as any;
 
-    const conditions: SQL[] = [
-      eq(messagesTable.guild_id, guildId),
-      gte(messagesTable.created_at, since),
-      isNull(messagesTable.deleted_at),
-    ];
+    // SQL-level aggregate instead of SELECT * + in-memory counting
+    const row = rawDb.get(
+      `
+      SELECT
+        count(*) as total,
+        count(case when ai_status = 'clean' then 1 end) as clean,
+        count(case when ai_status = 'warn' then 1 end) as warned,
+        count(case when ai_status = 'flagged' then 1 end) as flagged,
+        count(case when ai_status = 'error' then 1 end) as error,
+        count(case when ai_status = 'pending' or ai_status IS NULL then 1 end) as pending,
+        round(avg(ai_moderation_score), 2) as average_score
+      FROM messages
+      WHERE guild_id = ?
+        AND created_at >= ?
+        AND deleted_at IS NULL
+        ${channelId ? `AND (channel_id = ? OR thread_id = ?)` : ""}
+      `,
+      channelId
+        ? [guildId, since, channelId, channelId]
+        : [guildId, since],
+    );
 
-    if (channelId) {
-      conditions.push(channelFilter(channelId));
+    if (!row) {
+      return {
+        total: 0,
+        clean: 0,
+        warned: 0,
+        flagged: 0,
+        error: 0,
+        pending: 0,
+        average_score: 0,
+      };
     }
 
-    const rows = (await database
-      .select()
-      .from(messagesTable)
-      .where(and(...conditions) as SQL)) as MessageRecord[];
-
-    const breakdown: ModerationBreakdown = {
-      total: rows.length,
-      clean: 0,
-      warned: 0,
-      flagged: 0,
-      error: 0,
-      pending: 0,
-      average_score: 0,
+    return {
+      total: row.total ?? 0,
+      clean: row.clean ?? 0,
+      warned: row.warned ?? 0,
+      flagged: row.flagged ?? 0,
+      error: row.error ?? 0,
+      pending: row.pending ?? 0,
+      average_score: row.average_score ?? 0,
     };
-
-    let scoreSum = 0;
-    let scoreCount = 0;
-
-    for (const msg of rows) {
-      const status = msg.ai_status || "pending";
-      if (status === "clean") breakdown.clean++;
-      else if (status === "warn") breakdown.warned++;
-      else if (status === "flagged") breakdown.flagged++;
-      else if (status === "error") breakdown.error++;
-      else breakdown.pending++;
-
-      if (msg.ai_moderation_score != null) {
-        scoreSum += msg.ai_moderation_score;
-        scoreCount++;
-      }
-    }
-
-    breakdown.average_score =
-      scoreCount > 0 ? Math.round((scoreSum / scoreCount) * 100) / 100 : 0;
-
-    return breakdown;
   } catch (error) {
     logger.error(
       { error: error instanceof Error ? error.message : String(error) },
@@ -581,21 +572,20 @@ export async function getActiveChannelCount(input: {
   try {
     const { guildId, hours = 24 } = input;
     const since = Date.now() - hours * 3600_000;
-    const database = db();
+    const rawDb = getDatabase() as any;
 
-    const rows = (await database
-      .select({ channel_id: messagesTable.channel_id })
-      .from(messagesTable)
-      .where(
-        and(
-          eq(messagesTable.guild_id, guildId),
-          gte(messagesTable.created_at, since),
-          isNull(messagesTable.deleted_at),
-        ) as SQL,
-      )
-      .groupBy(messagesTable.channel_id)) as Array<{ channel_id: string }>;
+    const row = rawDb.get(
+      `
+      SELECT count(DISTINCT channel_id) as cnt
+      FROM messages
+      WHERE guild_id = ?
+        AND created_at >= ?
+        AND deleted_at IS NULL
+      `,
+      [guildId, since],
+    );
 
-    return rows.length;
+    return row?.cnt ?? 0;
   } catch (error) {
     logger.error(
       { error: error instanceof Error ? error.message : String(error) },
@@ -628,104 +618,47 @@ export async function getTopViolators(input: {
   try {
     const { guildId, channelId, hours = 24, limit = 20 } = input;
     const since = Date.now() - hours * 3600_000;
-    const database = db();
+    const rawDb = getDatabase() as any;
 
-    const conditions: SQL[] = [
-      eq(messagesTable.guild_id, guildId),
-      gte(messagesTable.created_at, since),
-      isNull(messagesTable.deleted_at),
-    ];
+    // SQL-level GROUP BY aggregate for base stats
+    const rows = rawDb.all(
+      `
+      SELECT
+        user_id,
+        username,
+        avatar_url,
+        count(*) as total_messages,
+        count(case when ai_status = 'flagged' then 1 end) as flagged_count,
+        count(case when ai_status = 'warn' then 1 end) as warned_count,
+        max(case when ai_status in ('flagged', 'warn') then created_at else 0 end) as last_violation
+      FROM messages
+      WHERE guild_id = ?
+        AND created_at >= ?
+        AND deleted_at IS NULL
+        ${channelId ? `AND (channel_id = ? OR thread_id = ?)` : ""}
+      GROUP BY user_id
+      HAVING flagged_count > 0 OR warned_count > 0
+      ORDER BY (flagged_count * 3 + warned_count) DESC
+      LIMIT ?
+      `,
+      channelId
+        ? [guildId, since, channelId, channelId, limit]
+        : [guildId, since, limit],
+    );
 
-    if (channelId) {
-      conditions.push(channelFilter(channelId));
-    }
+    const violators: ViolatorStat[] = rows.map((row: any) => ({
+      user_id: row.user_id,
+      username: row.username,
+      avatar_url: row.avatar_url,
+      total_messages: row.total_messages,
+      flagged_count: row.flagged_count,
+      warned_count: row.warned_count,
+      violation_score: row.flagged_count * 3 + row.warned_count,
+      worst_flags: [], // flags require parsing JSON per-row; skip for perf
+      last_violation: row.last_violation,
+    }));
 
-    const rows = (await database
-      .select()
-      .from(messagesTable)
-      .where(and(...conditions) as SQL)
-      .orderBy(asc(messagesTable.created_at))) as MessageRecord[];
-
-    const userMap = new Map<
-      string,
-      {
-        user_id: string;
-        username: string;
-        avatar_url: string | null;
-        total_messages: number;
-        flagged_count: number;
-        warned_count: number;
-        flags_set: Set<string>;
-        last_violation: number;
-      }
-    >();
-
-    for (const msg of rows) {
-      let entry = userMap.get(msg.user_id);
-      if (!entry) {
-        entry = {
-          user_id: msg.user_id,
-          username: msg.username,
-          avatar_url: msg.avatar_url,
-          total_messages: 0,
-          flagged_count: 0,
-          warned_count: 0,
-          flags_set: new Set(),
-          last_violation: 0,
-        };
-        userMap.set(msg.user_id, entry);
-      }
-
-      entry.total_messages++;
-
-      const isViolation =
-        msg.ai_status === "flagged" || msg.ai_status === "warn";
-
-      if (msg.ai_status === "flagged") {
-        entry.flagged_count++;
-      }
-
-      if (msg.ai_status === "warn") {
-        entry.warned_count++;
-      }
-
-      if (isViolation && msg.ai_moderation_flags) {
-        try {
-          const flags = JSON.parse(msg.ai_moderation_flags);
-          if (Array.isArray(flags)) {
-            for (const f of flags) entry.flags_set.add(String(f));
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-
-      if (isViolation && msg.created_at > entry.last_violation) {
-        entry.last_violation = msg.created_at;
-      }
-    }
-
-    const violators: ViolatorStat[] = [];
-
-    for (const entry of userMap.values()) {
-      if (entry.flagged_count === 0 && entry.warned_count === 0) continue;
-
-      violators.push({
-        user_id: entry.user_id,
-        username: entry.username,
-        avatar_url: entry.avatar_url,
-        total_messages: entry.total_messages,
-        flagged_count: entry.flagged_count,
-        warned_count: entry.warned_count,
-        violation_score: entry.flagged_count * 3 + entry.warned_count * 1,
-        worst_flags: Array.from(entry.flags_set).slice(0, 5),
-        last_violation: entry.last_violation,
-      });
-    }
-
-    return violators
-      .sort((a, b) => b.violation_score - a.violation_score)
-      .slice(0, limit);
+    return violators;
   } catch (error) {
     logger.error(
       { error: error instanceof Error ? error.message : String(error) },

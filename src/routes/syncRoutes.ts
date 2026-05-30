@@ -1,4 +1,4 @@
-import type { Client } from "discord.js-selfbot-v13";
+import { Client } from "discord.js-selfbot-v13";
 import type { Router } from "express";
 import express from "express";
 import { AppError } from "../errors.js";
@@ -7,7 +7,10 @@ import { syncSelectedChannelBacklog } from "../moderation/backlogSync.js";
 
 const logger = createChildLogger("sync-routes");
 const BACKLOG_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+const MAX_CONCURRENT_SYNCS = 3; // P3: cap concurrent backlogs
+
 const recentBacklogSyncs = new Map<string, number>();
+let activeSyncCount = 0;
 
 export function shouldSkipRecentBacklogSync(
   guildId: string,
@@ -55,6 +58,19 @@ export function createSyncRoutes(client: Client): Router {
         return;
       }
 
+      // P3: backpressure - reject if too many concurrent syncs
+      if (activeSyncCount >= MAX_CONCURRENT_SYNCS) {
+        res.status(429).json({
+          success: false,
+          error: "TOO_MANY_SYNCS",
+          message: `Too many backlog syncs in progress (${activeSyncCount}/${MAX_CONCURRENT_SYNCS}). Try again later.`,
+          activeSyncCount,
+          maxConcurrentSyncs: MAX_CONCURRENT_SYNCS,
+        });
+        return;
+      }
+
+      activeSyncCount++;
       syncSelectedChannelBacklog(client, guildId, channelId)
         .then(() => {})
         .catch((error) => {
@@ -66,6 +82,9 @@ export function createSyncRoutes(client: Client): Router {
             },
             "Backlog sync failed",
           );
+        })
+        .finally(() => {
+          activeSyncCount--;
         });
 
       res.json({
@@ -78,6 +97,14 @@ export function createSyncRoutes(client: Client): Router {
     } catch (error) {
       next(error);
     }
+  });
+
+  // GET /api/backlog-sync/status - Get current backlog sync status
+  router.get("/backlog-sync/status", (_req, res) => {
+    res.json({
+      activeSyncCount,
+      maxConcurrentSyncs: MAX_CONCURRENT_SYNCS,
+    });
   });
 
   return router;
