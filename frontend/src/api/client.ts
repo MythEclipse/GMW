@@ -26,14 +26,11 @@ export interface MessageRecord {
   ai_status?: AIStatus | null;
   ai_moderation_flags?: string | null;
   ai_moderation_score?: number | null;
-  ai_moderation_raw?: string | null;
   ai_analysis?: string | null;
   ai_categories?: string | null;
   ai_severity?: AISeverity | null;
   ai_confidence?: number | null;
   ai_recommended_action?: AIRecommendedAction | null;
-  ai_policy_version?: string | null;
-  ai_evidence?: string | null;
   ai_analyzed_at?: number | null;
   ai_error?: string | null;
 }

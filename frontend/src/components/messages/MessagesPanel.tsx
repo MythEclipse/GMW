@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { Channel, Guild } from "../../types/voice";
 import type { MessageRecord } from "../../types/messages";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
@@ -8,6 +8,8 @@ import { ImageGrid } from "./ImageGrid";
 import { MessageFeed } from "./MessageFeed";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
+import { Search, X, Filter } from "lucide-react";
 
 interface MessagesPanelProps {
   guilds: Guild[];
@@ -19,6 +21,8 @@ interface MessagesPanelProps {
   onChannelChange: (channelId: string) => void;
   onReanalyze: (id: string) => void;
 }
+
+type AiFilter = "all" | "clean" | "warn" | "flagged" | "error" | "pending";
 
 export function MessagesPanel({
   guilds,
@@ -34,10 +38,13 @@ export function MessagesPanel({
   const [searchResults, setSearchResults] = useState<MessageRecord[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [aiFilter, setAiFilter] = useState<AiFilter>("all");
+  const [viewTab, setViewTab] = useState<"all" | "images">("all");
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
+      setShowSearch(false);
       return;
     }
 
@@ -54,6 +61,7 @@ export function MessagesPanel({
 
       const data = await response.json();
       setSearchResults(data.results || []);
+      setShowSearch(true);
     } catch (error) {
       console.error("Search error:", error);
       setSearchResults([]);
@@ -62,10 +70,33 @@ export function MessagesPanel({
     }
   };
 
-  const displayMessages = showSearch ? searchResults : messages;
+  const stats = useMemo(() => {
+    const base = showSearch ? searchResults : messages;
+    return {
+      total: base.length,
+      clean: base.filter((m) => m.ai_status === "clean").length,
+      warn: base.filter((m) => m.ai_status === "warn").length,
+      flagged: base.filter((m) => m.ai_status === "flagged").length,
+      error: base.filter((m) => m.ai_status === "error").length,
+      pending: base.filter((m) => m.ai_status === "pending" || !m.ai_status).length,
+      deleted: base.filter((m) => m.deleted_at).length,
+      edited: base.filter((m) => m.edited_at).length,
+    };
+  }, [messages, searchResults, showSearch]);
+
+  const filteredMessages = useMemo(() => {
+    const base = showSearch ? searchResults : messages;
+    if (aiFilter === "all") return base;
+    return base.filter((m) => {
+      const status = m.ai_status ?? "pending";
+      if (aiFilter === "pending") return status === "pending" || status === null || status === undefined;
+      return status === aiFilter;
+    });
+  }, [messages, searchResults, showSearch, aiFilter]);
 
   return (
     <div className="grid gap-6">
+      {/* Source selector */}
       <Card>
         <CardHeader>
           <CardTitle>Message Source</CardTitle>
@@ -87,54 +118,72 @@ export function MessagesPanel({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Search Messages</CardTitle>
-          <CardDescription>Search for messages by content</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          <div className="flex gap-2">
-            <Input
-              placeholder="Search message content..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              disabled={isSearching}
-            />
-            <Button onClick={handleSearch} disabled={isSearching || !searchQuery.trim()}>
-              {isSearching ? "Searching..." : "Search"}
-            </Button>
-            {showSearch && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowSearch(false);
-                  setSearchResults([]);
-                  setSearchQuery("");
-                }}
-              >
-                Clear
-              </Button>
-            )}
-          </div>
-          {showSearch && searchResults.length > 0 && (
-            <div className="text-sm text-muted-foreground">
-              Found {searchResults.length} result{searchResults.length !== 1 ? "s" : ""}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Stats bar */}
+      {stats.total > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary" className="text-xs">{stats.total} total</Badge>
+          <Badge variant="outline" className="text-xs text-green-400 border-green-400/30">{stats.clean} clean</Badge>
+          <Badge variant="outline" className="text-xs text-yellow-400 border-yellow-400/30">{stats.warn} warn</Badge>
+          <Badge variant="outline" className="text-xs text-red-400 border-red-400/30">{stats.flagged} flagged</Badge>
+          <Badge variant="outline" className="text-xs text-orange-400 border-orange-400/30">{stats.error} error</Badge>
+          <Badge variant="outline" className="text-xs">{stats.pending} pending</Badge>
+          {stats.deleted > 0 && <Badge variant="destructive" className="text-xs">{stats.deleted} deleted</Badge>}
+          {stats.edited > 0 && <Badge variant="outline" className="text-xs">{stats.edited} edited</Badge>}
+        </div>
+      )}
 
-      <Tabs defaultValue="all">
+      {/* Search + Filter row */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search message content..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            disabled={isSearching}
+          />
+        </div>
+        <Button onClick={handleSearch} disabled={isSearching || !searchQuery.trim()} size="sm">
+          {isSearching ? "Searching..." : "Search"}
+        </Button>
+        {showSearch && (
+          <Button variant="outline" size="sm" onClick={() => { setShowSearch(false); setSearchResults([]); setSearchQuery(""); }}>
+            <X className="mr-1 h-3 w-3" /> Clear
+          </Button>
+        )}
+        <div className="ml-auto flex items-center gap-1.5">
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          {(["all", "clean", "warn", "flagged", "error", "pending"] as AiFilter[]).map((f) => (
+            <button
+              key={f}
+              onClick={() => setAiFilter(f)}
+              className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${aiFilter === f ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {showSearch && searchResults.length > 0 && (
+        <div className="text-sm text-muted-foreground">
+          Found {searchResults.length} result{searchResults.length !== 1 ? "s" : ""}
+        </div>
+      )}
+
+      {/* View tabs */}
+      <Tabs value={viewTab} onValueChange={(v) => setViewTab(v as "all" | "images")}>
         <TabsList>
           <TabsTrigger value="all">
-            {showSearch ? "Search Results" : "All Messages"}
+            {showSearch ? `Search (${filteredMessages.length})` : `All (${filteredMessages.length})`}
           </TabsTrigger>
           <TabsTrigger value="images">Images</TabsTrigger>
         </TabsList>
         <TabsContent value="all">
           <MessageFeed
-            messages={displayMessages}
+            messages={filteredMessages}
             onReanalyze={onReanalyze}
             emptyText={
               showSearch
@@ -146,7 +195,7 @@ export function MessagesPanel({
           />
         </TabsContent>
         <TabsContent value="images">
-          <ImageGrid messages={displayMessages} />
+          <ImageGrid messages={filteredMessages} />
         </TabsContent>
       </Tabs>
     </div>
