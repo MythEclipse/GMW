@@ -1,4 +1,4 @@
-import { Bot, BarChart3, MessageSquare, Radio } from "lucide-react";
+import { BarChart3, MessageSquare, Radio } from "lucide-react";
 import type { DashboardTab } from "../../types/ui";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -18,12 +18,13 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
   return (
     <aside className="hidden w-72 shrink-0 border-r border-border bg-card/60 p-5 backdrop-blur md:block">
       <div className="mb-8 flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/15 text-primary">
-          <Bot className="h-6 w-6" />
-        </div>
+        <img src="/logo.svg" alt="GMW" className="h-11 w-11 rounded-2xl" />
         <div>
-          <div className="font-semibold tracking-tight">Bete Watcher</div>
-          <div className="text-xs text-muted-foreground">Discord control center</div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-bold tracking-tight text-primary text-lg">GMW</span>
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">v1.0</span>
+          </div>
+          <div className="text-xs text-muted-foreground">Discord Moderation Watcher</div>
         </div>
       </div>
       <nav className="space-y-2">

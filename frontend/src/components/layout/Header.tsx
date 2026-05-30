@@ -1,4 +1,4 @@
-import { Wifi, WifiOff, Shield } from "lucide-react";
+import { Wifi, WifiOff } from "lucide-react";
 import type { WebSocketStatus } from "../../hooks/useDashboardSocket";
 import type { DashboardTab } from "../../types/ui";
 import type { VoiceStatus } from "../../types/voice";
@@ -27,11 +27,13 @@ export function Header({ activeTab, wsStatus, voiceStatus }: HeaderProps) {
     <header className="sticky top-0 z-10 border-b border-border bg-background/80 px-4 py-4 backdrop-blur md:px-8">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 text-primary">
-            <Shield className="h-5 w-5" />
-          </div>
+          <img src="/logo.svg" alt="GMW" className="h-9 w-9 rounded-xl" />
           <div>
-            <h1 className="text-xl font-bold tracking-tight">{titles[activeTab]}</h1>
+            <h1 className="text-xl font-bold tracking-tight">
+              <span className="text-primary">GMW</span>
+              <span className="mx-2 text-muted-foreground">·</span>
+              {titles[activeTab]}
+            </h1>
             <p className="text-sm text-muted-foreground">{subtitles[activeTab]}</p>
           </div>
         </div>
