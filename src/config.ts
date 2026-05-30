@@ -136,8 +136,8 @@ const configSchema = z
       .optional()
       .transform((v) => v === "true")
       .default(true),
-    AUTO_DELETE_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.92),
-    AUTO_DELETE_ALLOWED_SEVERITIES: z.string().default("critical"),
+    AUTO_DELETE_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.50),
+    AUTO_DELETE_ALLOWED_SEVERITIES: z.string().default("critical,high,medium"),
     AUTO_DELETE_ALLOWED_CATEGORIES: z.string().default(""),
     AUTO_DELETE_EXCLUDED_CHANNEL_IDS: z.string().default(""),
     AUTO_DELETE_EXCLUDED_USER_IDS: z.string().default(""),
