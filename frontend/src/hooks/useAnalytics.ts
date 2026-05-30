@@ -3,11 +3,15 @@ import { useCallback, useEffect } from "react";
 import {
   fetchAnalyticsOverview,
   fetchViolators,
+  fetchTrend,
+  fetchHeatmap,
   type AnalyticsOverview,
   type HourlyBucket,
   type TopicTrend,
   type UserStat,
   type ViolatorStat,
+  type TrendBucket,
+  type HeatmapCell,
 } from "../api/analytics";
 
 interface UseAnalyticsOptions {
@@ -21,6 +25,8 @@ function analyticsKeys(guildId: string, channelId: string | undefined, hours: nu
   return {
     overview: ["analytics", "overview", guildId, channelId ?? "", hours] as const,
     violators: ["analytics", "violators", guildId, channelId ?? "", hours] as const,
+    trend: ["analytics", "trend", guildId, channelId ?? "", hours] as const,
+    heatmap: ["analytics", "heatmap", guildId, channelId ?? "", hours] as const,
     all: ["analytics"] as const,
   };
 }
@@ -34,8 +40,8 @@ export function useAnalytics({ guildId, channelId, hours = 24 }: UseAnalyticsOpt
     queryKey: keys.overview,
     queryFn: () => fetchAnalyticsOverview({ guildId, channelId, hours }),
     enabled: !!guildId,
-    staleTime: 30_000, // 30s — data is fresh enough; WebSocket invalidates on change
-    placeholderData: keepPreviousData, // show previous data while fetching new params
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
   });
 
   // ── Violators query ──────────────────────────────────────────────────
@@ -48,12 +54,32 @@ export function useAnalytics({ guildId, channelId, hours = 24 }: UseAnalyticsOpt
     placeholderData: keepPreviousData,
   });
 
+  // ── Trend query ──────────────────────────────────────────────────────
+  const trendQuery = useQuery({
+    queryKey: keys.trend,
+    queryFn: () => fetchTrend({ guildId, channelId, hours }),
+    enabled: !!guildId,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
+
+  // ── Heatmap query ────────────────────────────────────────────────────
+  const heatmapQuery = useQuery({
+    queryKey: keys.heatmap,
+    queryFn: () => fetchHeatmap({ guildId, channelId, hours }),
+    enabled: !!guildId,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
+
   // ── Refresh: invalidate & refetch ────────────────────────────────────
   const refresh = useCallback(() => {
     if (!guildId) return;
     queryClient.invalidateQueries({ queryKey: keys.overview });
     queryClient.invalidateQueries({ queryKey: keys.violators });
-  }, [queryClient, keys.overview, keys.violators, guildId]);
+    queryClient.invalidateQueries({ queryKey: keys.trend });
+    queryClient.invalidateQueries({ queryKey: keys.heatmap });
+  }, [queryClient, keys, guildId]);
 
   // Real-time refresh via WebSocket-triggered custom event
   useEffect(() => {
@@ -68,9 +94,7 @@ export function useAnalytics({ guildId, channelId, hours = 24 }: UseAnalyticsOpt
 
   return {
     overview,
-    // isLoading = true only on first load with no cached data
     isLoading,
-    // isFetching = true on background refetch while showing stale data
     isFetching,
     error: overviewQuery.error instanceof Error ? overviewQuery.error.message : null,
     refresh,
@@ -83,7 +107,17 @@ export function useAnalytics({ guildId, channelId, hours = 24 }: UseAnalyticsOpt
       if (guildId) queryClient.invalidateQueries({ queryKey: keys.violators });
     },
 
-    // Convenience accessors (safe navigation into nullable overview)
+    // Trend
+    trend: trendQuery.data ?? [],
+    trendLoading: trendQuery.isLoading && !trendQuery.data,
+    trendFetching: trendQuery.isFetching && !trendQuery.isLoading,
+
+    // Heatmap
+    heatmap: heatmapQuery.data ?? [],
+    heatmapLoading: heatmapQuery.isLoading && !heatmapQuery.data,
+    heatmapFetching: heatmapQuery.isFetching && !heatmapQuery.isLoading,
+
+    // Convenience accessors
     hourly: overview?.hourly ?? ([] as HourlyBucket[]),
     topics: overview?.topics ?? ([] as TopicTrend[]),
     topUsers: overview?.top_users ?? ([] as UserStat[]),
@@ -95,4 +129,4 @@ export function useAnalytics({ guildId, channelId, hours = 24 }: UseAnalyticsOpt
 }
 
 // Re-export for convenience
-export type { AnalyticsOverview, HourlyBucket, TopicTrend, UserStat, ViolatorStat };
+export type { AnalyticsOverview, HourlyBucket, TopicTrend, UserStat, ViolatorStat, TrendBucket, HeatmapCell };

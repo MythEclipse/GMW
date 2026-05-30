@@ -3,7 +3,7 @@ import { DashboardLayout } from "./components/layout/DashboardLayout";
 import { LivePanel } from "./components/live/LivePanel";
 import { MessagesPanel } from "./components/messages/MessagesPanel";
 import { Tabs, TabsContent } from "./components/ui/tabs";
-import { AnalyticsPanel } from "./components/analytics/AnalyticsPanel";
+import { AnalyticsPanel } from "./components/analytics";
 import { AuthOverlay } from "./components/layout/AuthOverlay";
 import { useDashboardSocket } from "./hooks/useDashboardSocket";
 import { mergeMessages, useMessages } from "./hooks/useMessages";

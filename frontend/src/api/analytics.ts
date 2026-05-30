@@ -139,3 +139,47 @@ export async function fetchViolators(params: {
   });
   return request<ViolatorStat[]>(`/api/analytics/violators?${searchParams}`);
 }
+
+export interface TrendBucket {
+  date: string;
+  count: number;
+  clean: number;
+  warned: number;
+  flagged: number;
+  error: number;
+}
+
+export interface HeatmapCell {
+  dayOfWeek: number;
+  hour: number;
+  count: number;
+  clean: number;
+  warned: number;
+  flagged: number;
+}
+
+export async function fetchTrend(params: {
+  guildId: string;
+  channelId?: string;
+  hours?: number;
+}): Promise<TrendBucket[]> {
+  const searchParams = new URLSearchParams({
+    guildId: params.guildId,
+    ...(params.channelId && { channelId: params.channelId }),
+    ...(params.hours && { hours: String(params.hours) }),
+  });
+  return request<TrendBucket[]>(`/api/analytics/trend?${searchParams}`);
+}
+
+export async function fetchHeatmap(params: {
+  guildId: string;
+  channelId?: string;
+  hours?: number;
+}): Promise<HeatmapCell[]> {
+  const searchParams = new URLSearchParams({
+    guildId: params.guildId,
+    ...(params.channelId && { channelId: params.channelId }),
+    ...(params.hours && { hours: String(params.hours) }),
+  });
+  return request<HeatmapCell[]>(`/api/analytics/heatmap?${searchParams}`);
+}

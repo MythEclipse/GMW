@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   buildModerationTextEvidence,
   detectIndonesianBadwords,
@@ -6,6 +6,26 @@ import {
   normalizeDiscordCustomEmoji,
   normalizeIndonesianSlang,
 } from "../../src/moderation/indonesianTextNormalizer";
+import { config } from "../../src/config";
+
+const originalNemotronKey = config.NVIDIA_NEMOTRON_API_KEY;
+const originalPrimaryAiKey = config.AI_LLM_API_KEY;
+
+function disableRemoteModeration(): void {
+  config.NVIDIA_NEMOTRON_API_KEY = undefined;
+  config.AI_LLM_API_KEY = undefined;
+}
+
+disableRemoteModeration();
+
+afterEach(() => {
+  disableRemoteModeration();
+});
+
+afterAll(() => {
+  config.NVIDIA_NEMOTRON_API_KEY = originalNemotronKey;
+  config.AI_LLM_API_KEY = originalPrimaryAiKey;
+});
 
 describe("normalizeDiscordCustomEmoji", () => {
   it("replaces static custom emoji", () => {

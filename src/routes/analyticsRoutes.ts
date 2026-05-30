@@ -2,11 +2,13 @@ import type { Router } from "express";
 import express from "express";
 import { AppError } from "../errors.js";
 import {
+  getActivityHeatmap,
   getAnalyticsOverview,
+  getDailyTrend,
   getHourlyStats,
   getModerationStats,
-  getTopViolators,
   getTopicTrends,
+  getTopViolators,
   getUserLeaderboard,
 } from "../moderation/analyticsStore.js";
 
@@ -206,6 +208,70 @@ export function createAnalyticsRoutes(): Router {
       });
 
       res.json(violators);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // GET /api/analytics/trend - Daily trend data (for line chart)
+  // Query params: guildId (required), channelId, hours (default 168)
+  router.get("/analytics/trend", async (req, res, next) => {
+    try {
+      const { guildId, channelId, hours } = req.query as {
+        guildId?: string;
+        channelId?: string;
+        hours?: string;
+      };
+
+      if (!guildId) {
+        throw new AppError(
+          "guildId query parameter is required",
+          "MISSING_GUILD_ID",
+          400,
+        );
+      }
+
+      const hoursNum = hours ? Math.min(parseInt(hours) || 168, 720) : 168;
+
+      const trend = await getDailyTrend({
+        guildId,
+        channelId,
+        hours: hoursNum,
+      });
+
+      res.json(trend);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // GET /api/analytics/heatmap - Activity heatmap (day × hour)
+  // Query params: guildId (required), channelId, hours (default 168)
+  router.get("/analytics/heatmap", async (req, res, next) => {
+    try {
+      const { guildId, channelId, hours } = req.query as {
+        guildId?: string;
+        channelId?: string;
+        hours?: string;
+      };
+
+      if (!guildId) {
+        throw new AppError(
+          "guildId query parameter is required",
+          "MISSING_GUILD_ID",
+          400,
+        );
+      }
+
+      const hoursNum = hours ? Math.min(parseInt(hours) || 168, 720) : 168;
+
+      const heatmap = await getActivityHeatmap({
+        guildId,
+        channelId,
+        hours: hoursNum,
+      });
+
+      res.json(heatmap);
     } catch (error) {
       next(error);
     }

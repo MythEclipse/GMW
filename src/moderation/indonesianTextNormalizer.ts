@@ -1,7 +1,9 @@
 import axios from "axios";
+import OpenAI from "openai";
 import { config } from "../config.js";
 import { INDONESIAN_SLANG_LEXICON } from "./resources/indonesianSlangLexicon.js";
 import { createChildLogger } from "../logger.js";
+import { retryWithBackoff } from "../retry.js";
 
 const log = createChildLogger("indonesianTextNormalizer");
 
@@ -35,6 +37,46 @@ const CATEGORY_TO_BADWORD_LABEL: Record<string, string> = {
   vulgar: "vulgar_language",
   insult: "harassment",
 };
+
+const VALID_PRIMARY_AI_FLAGS = new Set([
+  "spam",
+  "hate_speech",
+  "sara",
+  "hoaks",
+  "harassment",
+  "vulgar_language",
+  "sexual_content",
+  "sexual_deviation",
+  "violence",
+  "self_harm",
+  "doxxing",
+  "scam",
+  "misinformation",
+  "nsfw_image",
+  "gore_image",
+  "illegal_content",
+  "gambling",
+  "drugs",
+  "child_safety",
+  "financial_scam",
+  "religious_insult",
+  "self_promo",
+]);
+
+const BADWORD_CACHE_TTL_MS = 10 * 60 * 1000;
+const NEMOTRON_RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
+const PRIMARY_AI_RATE_LIMIT_COOLDOWN_MS = 30 * 1000;
+
+interface BadwordCacheEntry {
+  value: string[];
+  expiresAt: number;
+}
+
+const badwordCache = new Map<string, BadwordCacheEntry>();
+const inFlightBadwordLookups = new Map<string, Promise<string[]>>();
+let nemotronUnavailableUntil = 0;
+let primaryAiUnavailableUntil = 0;
+let primaryModerationClient: OpenAI | null = null;
 
 export interface ModerationTextEvidence {
   raw: string;
@@ -159,6 +201,174 @@ function detectLocalBadwords(text: string): string[] {
   return Array.from(new Set(hits));
 }
 
+function normalizeBadwordCacheKey(text: string): string {
+  return text.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function getCachedBadwords(key: string): string[] | null {
+  const entry = badwordCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    badwordCache.delete(key);
+    return null;
+  }
+  return [...entry.value];
+}
+
+function setCachedBadwords(key: string, value: string[]): void {
+  badwordCache.set(key, {
+    value: [...new Set(value)],
+    expiresAt: Date.now() + BADWORD_CACHE_TTL_MS,
+  });
+
+  if (badwordCache.size > 500) {
+    const now = Date.now();
+    for (const [cacheKey, entry] of badwordCache) {
+      if (entry.expiresAt <= now) {
+        badwordCache.delete(cacheKey);
+      }
+    }
+
+    if (badwordCache.size > 500) {
+      const oldestKeys = Array.from(badwordCache.entries())
+        .sort((a, b) => a[1].expiresAt - b[1].expiresAt)
+        .slice(0, badwordCache.size - 500)
+        .map(([cacheKey]) => cacheKey);
+      for (const cacheKey of oldestKeys) {
+        badwordCache.delete(cacheKey);
+      }
+    }
+  }
+}
+
+function getPrimaryModerationClient(): OpenAI | null {
+  if (!config.AI_LLM_API_KEY) {
+    return null;
+  }
+
+  if (!primaryModerationClient) {
+    primaryModerationClient = new OpenAI({
+      apiKey: config.AI_LLM_API_KEY,
+      baseURL: config.AI_LLM_BASE_URL,
+      maxRetries: 0,
+      timeout: 15000,
+    });
+  }
+
+  return primaryModerationClient;
+}
+
+function normalizePrimaryAiFlag(value: string): string | null {
+  const lower = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!lower) return null;
+
+  if (VALID_PRIMARY_AI_FLAGS.has(lower)) {
+    return lower;
+  }
+
+  return CATEGORY_TO_BADWORD_LABEL[lower] ?? null;
+}
+
+function extractFlagsFromPrimaryAiContent(content: string): string[] {
+  const flags = new Set<string>();
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    parsed = null;
+  }
+
+  const addValue = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const normalized = normalizePrimaryAiFlag(value);
+    if (normalized) flags.add(normalized);
+  };
+
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      addValue(item);
+    }
+  } else if (parsed && typeof parsed === "object") {
+    const candidate = parsed as Record<string, unknown>;
+    for (const key of ["flags", "categories", "badwords"]) {
+      const value = candidate[key];
+      if (Array.isArray(value)) {
+        for (const item of value) addValue(item);
+      } else {
+        addValue(value);
+      }
+    }
+  }
+
+  if (flags.size > 0) {
+    return Array.from(flags);
+  }
+
+  const lowerContent = content.toLowerCase();
+  for (const flag of VALID_PRIMARY_AI_FLAGS) {
+    if (lowerContent.includes(flag)) {
+      flags.add(flag);
+    }
+  }
+
+  for (const category of Object.keys(CATEGORY_TO_BADWORD_LABEL)) {
+    if (lowerContent.includes(category)) {
+      const mapped = CATEGORY_TO_BADWORD_LABEL[category];
+      if (mapped) flags.add(mapped);
+    }
+  }
+
+  return Array.from(flags);
+}
+
+async function callPrimaryAiModeration(text: string): Promise<string[]> {
+  const client = getPrimaryModerationClient();
+  if (!client) {
+    return [];
+  }
+
+  const completion = await retryWithBackoff(
+    async () => {
+      return client.chat.completions.create({
+        model: config.AI_LLM_MODEL,
+        messages: [
+          {
+            role: "user",
+            content:
+              "Deteksi kata kasar / pelanggaran ringan dari teks Indonesia berikut. " +
+              "Balas hanya JSON object dengan format {\"flags\":[...]} dan gunakan hanya flag valid ini: " +
+              Array.from(VALID_PRIMARY_AI_FLAGS).join(", ") +
+              ". Jika tidak ada pelanggaran, flags harus array kosong. Teks: " +
+              text,
+          },
+        ],
+        temperature: 0.1,
+        top_p: 0.9,
+        max_tokens: 200,
+        stream: false,
+        response_format: { type: "json_object" },
+        chat_template_kwargs: { enable_thinking: false },
+        reasoning_budget: 0,
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+    },
+    {
+      retries: 1,
+      minTimeout: 500,
+      maxTimeout: 2000,
+      factor: 2,
+      logger: log,
+    },
+  );
+
+  const content = completion.choices[0]?.message?.content?.trim();
+  if (!content) {
+    return [];
+  }
+
+  return extractFlagsFromPrimaryAiContent(content);
+}
+
 // ---------------------------------------------------------------------------
 // NVIDIA Nemotron-3 Content Safety API
 // ---------------------------------------------------------------------------
@@ -236,25 +446,81 @@ async function callNemotronContentSafety(text: string): Promise<string[]> {
 export async function detectIndonesianBadwords(
   text: string,
 ): Promise<string[]> {
-  // Always run local detection first (fast, no network dependency)
-  const localHits = detectLocalBadwords(text);
-
-  // Try NVIDIA API if key is configured
-  const apiKey = config.NVIDIA_NEMOTRON_API_KEY;
-  if (apiKey) {
-    try {
-      const apiCategories = await callNemotronContentSafety(text);
-      const allHits = Array.from(new Set([...localHits, ...apiCategories]));
-      return allHits;
-    } catch (error) {
-      log.warn(
-        { error },
-        "NVIDIA Nemotron API call failed, falling back to local detection",
-      );
-    }
+  const cacheKey = normalizeBadwordCacheKey(text);
+  const cached = getCachedBadwords(cacheKey);
+  if (cached) {
+    return cached;
   }
 
-  return localHits;
+  const inFlight = inFlightBadwordLookups.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const lookupPromise = (async () => {
+    // Always run local detection first (fast, no network dependency)
+    const localHits = detectLocalBadwords(text);
+
+    // If we already have explicit local badword hits, avoid unnecessary API calls.
+    if (localHits.length > 0) {
+      setCachedBadwords(cacheKey, localHits);
+      return localHits;
+    }
+
+    const hits = new Set<string>(localHits);
+
+    // Try NVIDIA API if key is configured and it is not rate limited.
+    const apiKey = config.NVIDIA_NEMOTRON_API_KEY;
+    if (apiKey && Date.now() >= nemotronUnavailableUntil) {
+      try {
+        const apiCategories = await callNemotronContentSafety(text);
+        for (const hit of apiCategories) {
+          hits.add(hit);
+        }
+      } catch (error) {
+        const status = axios.isAxiosError(error) ? error.response?.status : null;
+        if (status === 429) {
+          nemotronUnavailableUntil = Date.now() + NEMOTRON_RATE_LIMIT_COOLDOWN_MS;
+        }
+        log.warn(
+          { error },
+          "NVIDIA Nemotron API call failed, falling back to primary AI then local detection",
+        );
+      }
+    }
+
+    // Try the main AI model next, mirroring the image-analysis fallback path.
+    if (hits.size === 0 && Date.now() >= primaryAiUnavailableUntil) {
+      try {
+        const primaryHits = await callPrimaryAiModeration(text);
+        for (const hit of primaryHits) {
+          hits.add(hit);
+        }
+      } catch (error) {
+        const status = axios.isAxiosError(error) ? error.response?.status : null;
+        if (status === 429) {
+          primaryAiUnavailableUntil =
+            Date.now() + PRIMARY_AI_RATE_LIMIT_COOLDOWN_MS;
+        }
+        log.warn(
+          { error },
+          "Primary AI badword detection failed, falling back to local detection",
+        );
+      }
+    }
+
+    const finalHits = Array.from(hits);
+    setCachedBadwords(cacheKey, finalHits);
+    return finalHits;
+  })();
+
+  inFlightBadwordLookups.set(cacheKey, lookupPromise);
+
+  try {
+    return await lookupPromise;
+  } finally {
+    inFlightBadwordLookups.delete(cacheKey);
+  }
 }
 
 // ---------------------------------------------------------------------------

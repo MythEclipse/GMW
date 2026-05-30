@@ -1,6 +1,6 @@
+import { config } from "../config.js";
 import { executeAll, executeGet } from "../database/drizzle.js";
 import { createChildLogger } from "../logger.js";
-import { config } from "../config.js";
 import type { MessageRecord } from "./types.js";
 
 const logger = createChildLogger("analytics-store");
@@ -130,15 +130,19 @@ export async function getHourlyStats(input: {
       GROUP BY (created_at / 3600000)
       ORDER BY hour ASC
       `,
-      channelId
-        ? [guildId, since, channelId, channelId]
-        : [guildId, since],
+      channelId ? [guildId, since, channelId, channelId] : [guildId, since],
     );
 
     // Initialize all hour buckets (fill gaps with zeros)
     const buckets = new Map<
       string,
-      { count: number; clean: number; warned: number; flagged: number; error: number }
+      {
+        count: number;
+        clean: number;
+        warned: number;
+        flagged: number;
+        error: number;
+      }
     >();
 
     for (let h = 0; h < hours; h++) {
@@ -178,25 +182,156 @@ export async function getHourlyStats(input: {
 // ── Topic Trends ───────────────────────────────────────────────────────
 
 const STOP_WORDS = new Set([
-  "yang", "dan", "itu", "ini", "dengan", "akan", "pada", "dari", "di", "ke",
-  "untuk", "tidak", "ada", "juga", "sudah", "saya", "kamu", "dia", "mereka",
-  "kami", "aku", "lo", "lu", "gua", "gue", "org", "orang", "aja", "sama",
-  "kalo", "kalau", "bisa", "karena", "gak", "nggak", "ga", "tak", "belum",
-  "udah", "dah", "lah", "kah", "pun", "nih", "tuh", "deh", "dong", "si",
-  "nya", "kan", "ya", "yah", "yuk", "kok", "loh", "nah", "wow", "eh",
-  "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-  "have", "has", "had", "having", "do", "does", "did", "doing",
-  "will", "would", "could", "should", "may", "might", "must", "shall",
-  "i", "you", "he", "she", "it", "we", "they",
-  "me", "him", "her", "us", "them",
-  "my", "your", "his", "its", "our", "their",
-  "and", "but", "or", "nor", "not", "so", "yet", "for", "if",
-  "to", "of", "in", "on", "at", "by", "as", "with",
-  "about", "just", "then", "now", "here", "there",
-  "when", "where", "why", "how",
-  "all", "both", "each", "few", "more", "most", "other",
-  "some", "such", "only", "own", "same", "too", "very",
-  "can", "go", "ok", "okay", "yeah", "yes", "no",
+  "yang",
+  "dan",
+  "itu",
+  "ini",
+  "dengan",
+  "akan",
+  "pada",
+  "dari",
+  "di",
+  "ke",
+  "untuk",
+  "tidak",
+  "ada",
+  "juga",
+  "sudah",
+  "saya",
+  "kamu",
+  "dia",
+  "mereka",
+  "kami",
+  "aku",
+  "lo",
+  "lu",
+  "gua",
+  "gue",
+  "org",
+  "orang",
+  "aja",
+  "sama",
+  "kalo",
+  "kalau",
+  "bisa",
+  "karena",
+  "gak",
+  "nggak",
+  "ga",
+  "tak",
+  "belum",
+  "udah",
+  "dah",
+  "lah",
+  "kah",
+  "pun",
+  "nih",
+  "tuh",
+  "deh",
+  "dong",
+  "si",
+  "nya",
+  "kan",
+  "ya",
+  "yah",
+  "yuk",
+  "kok",
+  "loh",
+  "nah",
+  "wow",
+  "eh",
+  "the",
+  "a",
+  "an",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "have",
+  "has",
+  "had",
+  "having",
+  "do",
+  "does",
+  "did",
+  "doing",
+  "will",
+  "would",
+  "could",
+  "should",
+  "may",
+  "might",
+  "must",
+  "shall",
+  "i",
+  "you",
+  "he",
+  "she",
+  "it",
+  "we",
+  "they",
+  "me",
+  "him",
+  "her",
+  "us",
+  "them",
+  "my",
+  "your",
+  "his",
+  "its",
+  "our",
+  "their",
+  "and",
+  "but",
+  "or",
+  "nor",
+  "not",
+  "so",
+  "yet",
+  "for",
+  "if",
+  "to",
+  "of",
+  "in",
+  "on",
+  "at",
+  "by",
+  "as",
+  "with",
+  "about",
+  "just",
+  "then",
+  "now",
+  "here",
+  "there",
+  "when",
+  "where",
+  "why",
+  "how",
+  "all",
+  "both",
+  "each",
+  "few",
+  "more",
+  "most",
+  "other",
+  "some",
+  "such",
+  "only",
+  "own",
+  "same",
+  "too",
+  "very",
+  "can",
+  "go",
+  "ok",
+  "okay",
+  "yeah",
+  "yes",
+  "no",
 ]);
 
 function extractTopics(messages: MessageRecord[], topN = 15): TopicTrend[] {
@@ -232,7 +367,10 @@ function extractTopics(messages: MessageRecord[], topN = 15): TopicTrend[] {
             existing.count++;
             existing.score += msg.ai_moderation_score || 0;
           } else {
-            topicScores.set(cat, { count: 1, score: msg.ai_moderation_score || 0 });
+            topicScores.set(cat, {
+              count: 1,
+              score: msg.ai_moderation_score || 0,
+            });
           }
         }
       } catch {
@@ -267,7 +405,11 @@ function extractTopics(messages: MessageRecord[], topN = 15): TopicTrend[] {
 
   for (const [word, count] of sortedWords) {
     if (!topicScores.has(word)) {
-      results.push({ topic: word, count, score: flaggedWordFreq.get(word) || 0 });
+      results.push({
+        topic: word,
+        count,
+        score: flaggedWordFreq.get(word) || 0,
+      });
     }
   }
 
@@ -289,7 +431,7 @@ export async function getTopicTrends(input: {
 
     // Only fetch messages that have ai_analysis (the ones that actually have topics)
     // This dramatically reduces rows for large guilds
-    const rows = await executeAll(
+    const rows = (await executeAll(
       `
       SELECT
         id, content, ai_status, ai_analysis, ai_moderation_score,
@@ -303,10 +445,8 @@ export async function getTopicTrends(input: {
       ORDER BY created_at DESC
       LIMIT 2000
       `,
-      channelId
-        ? [guildId, since, channelId, channelId]
-        : [guildId, since],
-    ) as MessageRecord[];
+      channelId ? [guildId, since, channelId, channelId] : [guildId, since],
+    )) as MessageRecord[];
 
     const result = extractTopics(rows);
     setCache(cacheKey, result, TOPIC_CACHE_TTL_MS);
@@ -329,7 +469,12 @@ export async function getUserLeaderboard(input: {
   limit?: number;
 }): Promise<UserStat[]> {
   const { guildId, channelId, hours = 24, limit = 20 } = input;
-  const cacheKey = makeCacheKey("leaderboard", { guildId, channelId, hours, limit });
+  const cacheKey = makeCacheKey("leaderboard", {
+    guildId,
+    channelId,
+    hours,
+    limit,
+  });
   const cached = getCached<UserStat[]>(cacheKey);
   if (cached) return cached;
 
@@ -408,9 +553,7 @@ export async function getModerationStats(input: {
         AND deleted_at IS NULL
         ${channelId ? `AND (channel_id = ? OR thread_id = ?)` : ""}
       `,
-      channelId
-        ? [guildId, since, channelId, channelId]
-        : [guildId, since],
+      channelId ? [guildId, since, channelId, channelId] : [guildId, since],
     );
 
     const result: ModerationBreakdown = row
@@ -423,7 +566,15 @@ export async function getModerationStats(input: {
           pending: row.pending ?? 0,
           average_score: row.average_score ?? 0,
         }
-      : { total: 0, clean: 0, warned: 0, flagged: 0, error: 0, pending: 0, average_score: 0 };
+      : {
+          total: 0,
+          clean: 0,
+          warned: 0,
+          flagged: 0,
+          error: 0,
+          pending: 0,
+          average_score: 0,
+        };
 
     setCache(cacheKey, result, AGGREGATE_CACHE_TTL_MS);
     return result;
@@ -432,7 +583,15 @@ export async function getModerationStats(input: {
       { error: error instanceof Error ? error.message : String(error) },
       "Failed to get moderation stats",
     );
-    return { total: 0, clean: 0, warned: 0, flagged: 0, error: 0, pending: 0, average_score: 0 };
+    return {
+      total: 0,
+      clean: 0,
+      warned: 0,
+      flagged: 0,
+      error: 0,
+      pending: 0,
+      average_score: 0,
+    };
   }
 }
 
@@ -493,7 +652,12 @@ export async function getTopViolators(input: {
   limit?: number;
 }): Promise<ViolatorStat[]> {
   const { guildId, channelId, hours = 24, limit = 20 } = input;
-  const cacheKey = makeCacheKey("violators", { guildId, channelId, hours, limit });
+  const cacheKey = makeCacheKey("violators", {
+    guildId,
+    channelId,
+    hours,
+    limit,
+  });
   const cached = getCached<ViolatorStat[]>(cacheKey);
   if (cached) return cached;
 
@@ -551,6 +715,192 @@ export async function getTopViolators(input: {
   }
 }
 
+// ── Daily Trend (for multi-day line chart) ────────────────────────────
+
+export interface TrendBucket {
+  date: string;
+  count: number;
+  clean: number;
+  warned: number;
+  flagged: number;
+  error: number;
+}
+
+export async function getDailyTrend(input: {
+  guildId: string;
+  channelId?: string;
+  hours?: number;
+}): Promise<TrendBucket[]> {
+  const { guildId, channelId, hours = 168 } = input;
+  const cacheKey = makeCacheKey("daily_trend", { guildId, channelId, hours });
+  const cached = getCached<TrendBucket[]>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const since = Date.now() - hours * 3600_000;
+    const isPg = config.DATABASE_TYPE === "postgres";
+
+    const dateExpr = isPg
+      ? `to_char(date_trunc('day', to_timestamp(created_at / 1000)), 'YYYY-MM-DD') as date`
+      : `date(created_at / 1000, 'unixepoch') as date`;
+
+    const rows = await executeAll(
+      `
+      SELECT
+        ${dateExpr},
+        count(*) as count,
+        count(case when ai_status = 'clean' then 1 end) as clean,
+        count(case when ai_status = 'warn' then 1 end) as warned,
+        count(case when ai_status = 'flagged' then 1 end) as flagged,
+        count(case when ai_status = 'error' then 1 end) as error
+      FROM messages
+      WHERE guild_id = ?
+        AND created_at >= ?
+        AND deleted_at IS NULL
+        ${channelId ? `AND (channel_id = ? OR thread_id = ?)` : ""}
+      GROUP BY date(created_at / 1000, 'unixepoch')
+      ORDER BY date ASC
+      `,
+      channelId ? [guildId, since, channelId, channelId] : [guildId, since],
+    );
+
+    // Initialize all day buckets (fill gaps with zeros)
+    const buckets = new Map<
+      string,
+      {
+        count: number;
+        clean: number;
+        warned: number;
+        flagged: number;
+        error: number;
+      }
+    >();
+    const msPerDay = 86400_000;
+    const startDay = Math.floor(since / msPerDay) * msPerDay;
+    const endDay = Math.floor(Date.now() / msPerDay) * msPerDay;
+
+    for (let d = startDay; d <= endDay; d += msPerDay) {
+      const key = new Date(d).toISOString().slice(0, 10);
+      buckets.set(key, { count: 0, clean: 0, warned: 0, flagged: 0, error: 0 });
+    }
+
+    for (const row of rows) {
+      const bucket = buckets.get(row.date);
+      if (!bucket) continue;
+      bucket.count = row.count;
+      bucket.clean = row.clean;
+      bucket.warned = row.warned;
+      bucket.flagged = row.flagged;
+      bucket.error = row.error;
+    }
+
+    const result = Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, data]) => ({ date, ...data }));
+
+    setCache(cacheKey, result, AGGREGATE_CACHE_TTL_MS);
+    return result;
+  } catch (error) {
+    logger.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Failed to get daily trend",
+    );
+    return [];
+  }
+}
+
+// ── Activity Heatmap (day-of-week × hour-of-day) ──────────────────────
+
+export interface HeatmapCell {
+  dayOfWeek: number; // 0=Senin, 6=Minggu
+  hour: number; // 0-23
+  count: number;
+  clean: number;
+  warned: number;
+  flagged: number;
+}
+
+export async function getActivityHeatmap(input: {
+  guildId: string;
+  channelId?: string;
+  hours?: number;
+}): Promise<HeatmapCell[]> {
+  const { guildId, channelId, hours = 168 } = input;
+  const cacheKey = makeCacheKey("heatmap", { guildId, channelId, hours });
+  const cached = getCached<HeatmapCell[]>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const since = Date.now() - hours * 3600_000;
+    const isPg = config.DATABASE_TYPE === "postgres";
+
+    // SQLite: cast to int for modulo; Postgres: use extract()
+    const dayExpr = isPg
+      ? `(extract(isodow from to_timestamp(created_at / 1000)) % 7)::int as day_of_week`
+      : `(cast((created_at / 86400000) as integer) % 7) as day_of_week`;
+    const hourExpr = isPg
+      ? `extract(hour from to_timestamp(created_at / 1000))::int as hour`
+      : `(cast((created_at / 3600000) as integer) % 24) as hour`;
+
+    const rows = await executeAll(
+      `
+      SELECT
+        ${dayExpr},
+        ${hourExpr},
+        count(*) as count,
+        count(case when ai_status = 'clean' then 1 end) as clean,
+        count(case when ai_status = 'warn' then 1 end) as warned,
+        count(case when ai_status = 'flagged' then 1 end) as flagged
+      FROM messages
+      WHERE guild_id = ?
+        AND created_at >= ?
+        AND deleted_at IS NULL
+        ${channelId ? `AND (channel_id = ? OR thread_id = ?)` : ""}
+      GROUP BY day_of_week, hour
+      ORDER BY day_of_week, hour
+      `,
+      channelId ? [guildId, since, channelId, channelId] : [guildId, since],
+    );
+
+    // Initialize all 7×24 cells with zeros
+    const cells = new Map<
+      string,
+      { count: number; clean: number; warned: number; flagged: number }
+    >();
+    for (let d = 0; d < 7; d++) {
+      for (let h = 0; h < 24; h++) {
+        cells.set(`${d}-${h}`, { count: 0, clean: 0, warned: 0, flagged: 0 });
+      }
+    }
+
+    for (const row of rows) {
+      const key = `${row.day_of_week}-${row.hour}`;
+      const cell = cells.get(key);
+      if (!cell) continue;
+      cell.count = row.count;
+      cell.clean = row.clean;
+      cell.warned = row.warned;
+      cell.flagged = row.flagged;
+    }
+
+    const result = Array.from(cells.entries())
+      .map(([key, data]) => {
+        const [dayOfWeek, hour] = key.split("-").map(Number);
+        return { dayOfWeek, hour, ...data };
+      })
+      .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.hour - b.hour);
+
+    setCache(cacheKey, result, AGGREGATE_CACHE_TTL_MS);
+    return result;
+  } catch (error) {
+    logger.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Failed to get activity heatmap",
+    );
+    return [];
+  }
+}
+
 // ── Cache Invalidation (called when new messages arrive) ───────────────
 
 export function invalidateAnalyticsCache(guildId: string): void {
@@ -574,13 +924,15 @@ export async function getAnalyticsOverview(input: {
   const now = Date.now();
   const since = now - hours * 3600_000;
 
-  const [messages, hourly, topics, topUsers, totalChannels] = await Promise.all([
-    getModerationStats(input),
-    getHourlyStats(input),
-    getTopicTrends(input),
-    getUserLeaderboard(input),
-    getActiveChannelCount({ guildId, hours }),
-  ]);
+  const [messages, hourly, topics, topUsers, totalChannels] = await Promise.all(
+    [
+      getModerationStats(input),
+      getHourlyStats(input),
+      getTopicTrends(input),
+      getUserLeaderboard(input),
+      getActiveChannelCount({ guildId, hours }),
+    ],
+  );
 
   return {
     period: { start: since, end: now },
