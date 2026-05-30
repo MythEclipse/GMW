@@ -15,14 +15,16 @@ export function TrendChart({ trend, loading }: TrendChartProps) {
     return null;
   }
 
-  const data = trend.map((b) => ({
-    date: b.date,
-    clean: b.clean,
-    warned: b.warned,
-    flagged: b.flagged,
-    error: b.error,
-    total: b.count,
+  const data = trend.map((bucket) => ({
+    date: bucket.date,
+    clean: bucket.clean,
+    warned: bucket.warned,
+    flagged: bucket.flagged,
+    error: bucket.error,
+    total: bucket.count,
   }));
+
+  const totalMessages = data.reduce((sum, item) => sum + item.total, 0);
 
   return (
     <Card className="col-span-3">
@@ -33,30 +35,52 @@ export function TrendChart({ trend, loading }: TrendChartProps) {
       <CardContent>
         <div className="space-y-4">
           <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-wider text-muted-foreground">
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Total</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Clean</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Warned</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> Flagged</span>
+            <LegendDot color="bg-blue-500" label="Total" />
+            <LegendDot color="bg-emerald-500" label="Clean" />
+            <LegendDot color="bg-amber-500" label="Warned" />
+            <LegendDot color="bg-red-500" label="Flagged" />
           </div>
-          <div className="rounded-2xl border border-border bg-background/50 p-4">
-            <svg viewBox={`0 0 ${Math.max(data.length - 1, 1)} 100`} className="h-55 w-full overflow-visible">
-              <g stroke="#334155" strokeWidth="0.5" opacity="0.6">
-                {Array.from({ length: 5 }, (_, index) => {
-                  const y = (index / 4) * 100;
-                  return <line key={index} x1="0" x2={Math.max(data.length - 1, 1)} y1={y} y2={y} />;
+
+          <div className="overflow-hidden rounded-2xl border border-border bg-background/50 p-4">
+            <div className="mb-3 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Rangkuman 7 hari terakhir</span>
+              <span>{totalMessages} total pesan</span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <svg viewBox={`0 0 ${Math.max((data.length - 1) * 56, 56)} 220`} className="h-55 min-w-130 w-full overflow-visible">
+                <defs>
+                  <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.35" />
+                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.02" />
+                  </linearGradient>
+                </defs>
+
+                <g stroke="#334155" strokeWidth="1" opacity="0.35">
+                  {Array.from({ length: 4 }, (_, index) => {
+                    const y = 40 + index * 45;
+                    return <line key={index} x1="0" x2={Math.max((data.length - 1) * 56, 56)} y1={y} y2={y} />;
+                  })}
+                </g>
+
+                <TrendArea data={data} keyName="total" fill="url(#trendFill)" stroke="#3b82f6" />
+                <TrendLine data={data} keyName="total" stroke="#3b82f6" strokeWidth={2.5} />
+                <TrendLine data={data} keyName="clean" stroke="#10b981" strokeWidth={1.8} />
+                <TrendLine data={data} keyName="warned" stroke="#f59e0b" strokeWidth={1.8} />
+                <TrendLine data={data} keyName="flagged" stroke="#ef4444" strokeWidth={1.8} />
+
+                {data.map((item, index) => {
+                  const x = data.length <= 1 ? 0 : (index / (data.length - 1)) * Math.max((data.length - 1) * 56, 56);
+                  return (
+                    <g key={item.date} transform={`translate(${x}, 188)`}>
+                      <circle cx="0" cy="0" r="2.5" fill="#e2e8f0" />
+                      <text x="0" y="18" textAnchor="middle" className="fill-muted-foreground text-[10px]">
+                        {item.date.slice(5)}
+                      </text>
+                    </g>
+                  );
                 })}
-              </g>
-              <TrendPath data={data} color="#3b82f6" strokeWidth={2} keyName="total" />
-              <TrendPath data={data} color="#10b981" strokeWidth={1.5} keyName="clean" />
-              <TrendPath data={data} color="#f59e0b" strokeWidth={1.5} keyName="warned" />
-              <TrendPath data={data} color="#ef4444" strokeWidth={1.5} keyName="flagged" />
-            </svg>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground sm:grid-cols-4">
-              {data.map((item) => (
-                <div key={item.date} className="truncate rounded-lg bg-muted/30 px-2 py-1 text-center">
-                  {item.date.slice(5)}
-                </div>
-              ))}
+              </svg>
             </div>
           </div>
         </div>
@@ -65,7 +89,15 @@ export function TrendChart({ trend, loading }: TrendChartProps) {
   );
 }
 
-function TrendPath({
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      <span className={`h-2 w-2 rounded-full ${color}`} /> {label}
+    </span>
+  );
+}
+
+function TrendLine({
   data,
   color,
   strokeWidth,
@@ -76,15 +108,57 @@ function TrendPath({
   strokeWidth: number;
   keyName: string;
 }) {
+  const path = buildPath(data, keyName, 220, false);
+
+  return <path d={path} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" strokeLinecap="round" />;
+}
+
+function TrendArea({
+  data,
+  keyName,
+  fill,
+  stroke,
+}: {
+  data: Array<Record<string, number | string>>;
+  keyName: string;
+  fill: string;
+  stroke: string;
+}) {
+  const path = buildPath(data, keyName, 220, true);
+  return <path d={path} fill={fill} stroke={stroke} strokeOpacity={0.2} />;
+}
+
+function buildPath(data: Array<Record<string, number | string>>, keyName: string, height: number, closePath: boolean): string {
   const values = data.map((item) => Number(item[keyName] ?? 0));
   const maxValue = Math.max(...values, 1);
+  const width = Math.max((data.length - 1) * 56, 56);
   const points = values.map((value, index) => {
-    const x = data.length <= 1 ? 0 : (index / (data.length - 1)) * 100;
-    const y = 100 - (value / maxValue) * 90 - 5;
-    return `${x},${y}`;
+    const x = data.length <= 1 ? 0 : (index / (data.length - 1)) * width;
+    const y = height - 35 - (value / maxValue) * 130;
+    return { x, y };
   });
 
-  return <polyline fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" strokeLinecap="round" points={points.join(" ")} />;
+  if (points.length === 0) {
+    return "";
+  }
+
+  const segments: string[] = [`M ${points[0].x} ${points[0].y}`];
+  for (let index = 1; index < points.length; index++) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const controlX = (previous.x + current.x) / 2;
+    segments.push(`Q ${controlX} ${previous.y} ${current.x} ${current.y}`);
+  }
+
+  if (closePath) {
+    const lastPoint = points[points.length - 1];
+    const firstPoint = points[0];
+    segments.push(`L ${lastPoint.x} ${height - 24}`);
+    segments.push(`L ${firstPoint.x} ${height - 24}`);
+    segments.push("Z");
+  }
+
+  return segments.join(" ");
 }
 
 function LoadingBox() {
