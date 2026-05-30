@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardLayout } from "./components/layout/DashboardLayout";
 import { LivePanel } from "./components/live/LivePanel";
 import { MessagesPanel } from "./components/messages/MessagesPanel";
-import { ReviewPanel } from "./components/review/ReviewPanel";
 import { Tabs, TabsContent } from "./components/ui/tabs";
 import { AnalyticsPanel } from "./components/analytics/AnalyticsPanel";
 import { AuthOverlay } from "./components/layout/AuthOverlay";
@@ -122,8 +121,8 @@ export default function App() {
   }, [socket.socketRef]);
 
   const toggleStreaming = useCallback(async () => {
-    if (isStreaming) { stopStreamingLocal(); await patchUIState({ isStreaming: false }); }
-    else { await startStreamingLocal(); await patchUIState({ isStreaming: true }); }
+    if (isStreaming) { stopStreamingLocal(); patchUIState({ isStreaming: false }); }
+    else { await startStreamingLocal(); patchUIState({ isStreaming: true }); }
   }, [isStreaming, startStreamingLocal, stopStreamingLocal, patchUIState]);
 
   useEffect(() => { if (selectedVoiceGuild) voice.loadVoiceChannels(selectedVoiceGuild).catch(() => undefined); }, [selectedVoiceGuild]);
@@ -131,15 +130,15 @@ export default function App() {
   useEffect(() => { if (selectedTextChannel) messages.fetchMessages(selectedTextChannel).catch(() => undefined); }, [selectedTextChannel]);
 
   const toggleListening = useCallback(async () => {
-    if (isListening) { await audioContextListenRef.current?.suspend(); userTimelinesRef.current.clear(); setIsListening(false); await patchUIState({ isListening: false }); return; }
+    if (isListening) { await audioContextListenRef.current?.suspend(); userTimelinesRef.current.clear(); setIsListening(false); patchUIState({ isListening: false }); return; }
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
     audioContextListenRef.current ??= new AudioContextCtor({ sampleRate: SAMPLE_RATE });
     await audioContextListenRef.current.resume();
     setIsListening(true);
-    await patchUIState({ isListening: true });
+    patchUIState({ isListening: true });
   }, [isListening, patchUIState]);
 
-  const tabs = useMemo(() => ["live", "messages", "analytics", "review"] as DashboardTab[], []);
+  const tabs = useMemo(() => ["live", "messages", "analytics"] as DashboardTab[], []);
 
   return (
     <DashboardLayout
@@ -212,9 +211,6 @@ export default function App() {
             onGuildChange={(guildId) => patchUIState({ selectedTextGuild: guildId, selectedTextChannel: "" })}
             onChannelChange={(channelId) => patchUIState({ selectedTextChannel: channelId })}
           />
-        </TabsContent>
-        <TabsContent value="review">
-          <ReviewPanel messages={messages.messages} onReanalyze={messages.reanalyze} />
         </TabsContent>
       </Tabs>
     </DashboardLayout>

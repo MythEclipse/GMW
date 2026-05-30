@@ -8,14 +8,12 @@ const titles: Record<DashboardTab, string> = {
   live: "Voice, Media & Recordings",
   messages: "Messages & Moderation",
   analytics: "Analytics & Insights",
-  review: "Moderation Review",
 };
 
 const subtitles: Record<DashboardTab, string> = {
   live: "Join voice channels, play media, stream audio, and browse recordings.",
   messages: "Capture, analyse, and moderate Discord messages.",
   analytics: "Server moderation statistics and trends.",
-  review: "Review AI-flagged messages for moderation.",
 };
 
 interface HeaderProps {

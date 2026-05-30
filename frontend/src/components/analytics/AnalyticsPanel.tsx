@@ -499,7 +499,12 @@ function HourlyChart({ hourly, loading }: { hourly: HourlyBucket[] | undefined; 
   }
 
   const maxCount = Math.max(...hourly.map((b) => b.count), 1);
-  const labels = hourly.map((b) => b.hour.slice(11, 16));
+  // Convert UTC hour buckets to Jakarta time (UTC+7)
+  const labels = hourly.map((b) => {
+    const utcHour = parseInt(b.hour.slice(11, 13), 10);
+    const jakartaHour = (utcHour + 7) % 24;
+    return `${String(jakartaHour).padStart(2, "0")}:00`;
+  });
 
   return (
     <div ref={containerRef} className="space-y-3">
@@ -553,7 +558,7 @@ function HourlyChart({ hourly, loading }: { hourly: HourlyBucket[] | undefined; 
               </div>
               {/* Hover tooltip */}
               <div className="absolute -top-10 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground opacity-0 shadow-lg transition-opacity group-hover:opacity-100 pointer-events-none">
-                {bucket.hour.slice(11, 16)} — {bucket.count} msgs
+                {labels[hourly.indexOf(bucket)]} — {bucket.count} msgs
               </div>
             </motion.div>
           );
@@ -987,7 +992,9 @@ function pct(part: number, total: number): number {
 }
 
 function formatTimeAgo(ts: number): string {
-  const diff = Date.now() - ts;
+  // Use Jakarta time as reference for "ago" calculations
+  const jakartaNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+  const diff = jakartaNow.getTime() - ts;
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return "baru saja";
   if (minutes < 60) return `${minutes}m lalu`;

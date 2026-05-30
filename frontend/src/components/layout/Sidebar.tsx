@@ -1,4 +1,4 @@
-import { Bot, BarChart3, MessageSquare, ShieldAlert, Radio } from "lucide-react";
+import { Bot, BarChart3, MessageSquare, Radio } from "lucide-react";
 import type { DashboardTab } from "../../types/ui";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -7,7 +7,6 @@ const navItems: Array<{ id: DashboardTab; label: string; icon: typeof Radio }> =
   { id: "live", label: "Live", icon: Radio },
   { id: "messages", label: "Messages", icon: MessageSquare },
   { id: "analytics", label: "Analytics", icon: BarChart3 },
-  { id: "review", label: "Review", icon: ShieldAlert },
 ];
 
 interface SidebarProps {

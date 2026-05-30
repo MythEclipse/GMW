@@ -1,4 +1,4 @@
-export type DashboardTab = "live" | "messages" | "review" | "analytics";
+export type DashboardTab = "live" | "messages" | "analytics";
 
 export interface UIState {
   selectedGuild?: string;
