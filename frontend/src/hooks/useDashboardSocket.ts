@@ -17,6 +17,7 @@ export interface DashboardSocketHandlers {
   onMediaState?: (state: MediaState) => void;
   onVoiceRecordingUploaded?: (recording: any) => void;
   onPcm?: (data: ArrayBuffer) => void;
+  onAnalyticsRefresh?: () => void;
 }
 
 export function useDashboardSocket(handlers: DashboardSocketHandlers) {

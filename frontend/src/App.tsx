@@ -65,13 +65,29 @@ export default function App() {
     userTimelinesRef.current.set(userIdHash, nextStart + audioBuffer.duration);
   }, [isListening]);
 
+  const triggerAnalyticsRefresh = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("analytics_refresh"));
+  }, []);
+
   const socket = useDashboardSocket({
     onUIState: (state) => setUIState((prev) => ({ ...prev, ...state })),
     onUserState: setActiveSpeakers,
-    onMessageCreated: (message) => messages.setMessages((prev) => mergeMessages(prev, [message])),
-    onMessageUpdated: (message) => messages.setMessages((prev) => prev.map((item) => (item.id === message.id ? { ...item, ...message } as MessageRecord : item))),
-    onMessageDeleted: (message) => messages.setMessages((prev) => prev.map((item) => (item.id === message.id ? { ...item, type: "deleted" } : item))),
-    onMessageAnalyzed: (message) => messages.setMessages((prev) => mergeMessages(prev, [message])),
+    onMessageCreated: (message) => {
+      messages.setMessages((prev) => mergeMessages(prev, [message]));
+      triggerAnalyticsRefresh();
+    },
+    onMessageUpdated: (message) => {
+      messages.setMessages((prev) => prev.map((item) => (item.id === message.id ? { ...item, ...message } as MessageRecord : item)));
+      triggerAnalyticsRefresh();
+    },
+    onMessageDeleted: (message) => {
+      messages.setMessages((prev) => prev.map((item) => (item.id === message.id ? { ...item, type: "deleted" } : item)));
+      triggerAnalyticsRefresh();
+    },
+    onMessageAnalyzed: (message) => {
+      messages.setMessages((prev) => mergeMessages(prev, [message]));
+      triggerAnalyticsRefresh();
+    },
     onAttachmentUploaded: () => messages.fetchMessages(selectedTextChannel).catch(() => undefined),
     onMediaState: media.setMediaState,
     onVoiceRecordingUploaded: (recording) => {

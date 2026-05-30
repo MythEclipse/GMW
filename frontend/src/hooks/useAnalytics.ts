@@ -9,7 +9,7 @@ interface UseAnalyticsOptions {
   refreshIntervalMs?: number;
 }
 
-export function useAnalytics({ guildId, channelId, hours = 24, autoRefresh = true, refreshIntervalMs = 60_000 }: UseAnalyticsOptions) {
+export function useAnalytics({ guildId, channelId, hours = 24, autoRefresh = true, refreshIntervalMs = 5_000 }: UseAnalyticsOptions) {
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export function useAnalytics({ guildId, channelId, hours = 24, autoRefresh = tru
     load();
   }, [load]);
 
-  // Auto-refresh
+  // Auto-refresh on interval
   useEffect(() => {
     if (!autoRefresh || !guildId) return;
     intervalRef.current = setInterval(load, refreshIntervalMs);
@@ -41,6 +41,13 @@ export function useAnalytics({ guildId, channelId, hours = 24, autoRefresh = tru
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [load, autoRefresh, refreshIntervalMs, guildId]);
+
+  // Real-time refresh via WebSocket-triggered custom event
+  useEffect(() => {
+    const handler = () => load();
+    window.addEventListener("analytics_refresh", handler);
+    return () => window.removeEventListener("analytics_refresh", handler);
+  }, [load]);
 
   return {
     overview,
