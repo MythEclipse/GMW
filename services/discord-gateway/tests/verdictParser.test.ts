@@ -12,25 +12,6 @@ import {
   parseVerdicts,
 } from "../src/modules/ai-moderation/verdictParser.js";
 
-const ids = (...n: number[]) =>
-  Array.from({ length: n.length }, (_, i) => `m${n[i]}`);
-
-/** A well-formed response for N messages, all clean. */
-function cleanResponse(n: number): string {
-  return JSON.stringify({
-    results: Array.from({ length: n }, (_, i) => ({
-      message_id: `m${i + 1}`,
-      status: "clean",
-      flags: [],
-      analysis: "Tidak ada indikasi pelanggaran.",
-      score: 0.02,
-      confidence: 0.95,
-      recommended_action: "none",
-      severity: "none",
-    })),
-  });
-}
-
 describe("D10: a per-message defect must NOT fail the batch", () => {
   // This is the 120x cost multiplier from the audit: one deferral sentence used
   // to throw, discarding 59 valid verdicts and triggering 4 full re-requests

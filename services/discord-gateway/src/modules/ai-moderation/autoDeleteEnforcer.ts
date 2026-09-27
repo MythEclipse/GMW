@@ -90,6 +90,11 @@ async function claimUnenforced(limit: number): Promise<Row[]> {
         AND m.deleted_at IS NULL
         AND (v.${sql.raw("auto_delete_state")} IS NULL
              OR v.${sql.raw("auto_delete_state")} = 'pending')
+        -- Never delete inside a channel Discord marks NSFW. The flag lives in
+        -- the metadata captured with the message, so an admin toggling the
+        -- channel in Discord takes effect without a config change here.
+        AND COALESCE((m.metadata::jsonb -> 'channel' ->> 'nsfw')::boolean, false)
+            = false
       ORDER BY v.created_at ASC
       LIMIT ${limit}
       FOR UPDATE OF v SKIP LOCKED

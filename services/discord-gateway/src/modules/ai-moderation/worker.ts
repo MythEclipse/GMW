@@ -44,6 +44,13 @@ import { parseVerdicts } from "./verdictParser.js";
 
 const log = createChildLogger("ai-moderation");
 
+/**
+ * How long a message in an NSFW channel waits before being offered again.
+ * Long enough that the loop does not spin on it, short enough that turning
+ * the channel flag off takes effect promptly.
+ */
+const NSFW_RETRY_DELAY_MS = 300_000;
+
 export type MessageState =
   | "pending"
   | "claimed"
@@ -68,6 +75,12 @@ export type ClaimedMessage = {
   /** Incremented by `claim_messages()` at claim time, so it counts this try. */
   attempts: number;
   username: string | null;
+  /**
+   * True when the channel is marked NSFW on Discord, read from the
+   * metadata captured with the message. Such messages are never analysed.
+   */
+  channelIsNsfw?: boolean | null;
+
   /** True when the message has at least one attachment row. */
   hasMedia: boolean;
 };
@@ -192,13 +205,16 @@ function emptyStats(): WorkerStats {
 async function generateVisionDescription(
   pool: Pool,
   message: ClaimedMessage,
+  visionGateway?: LlmGateway,
 ): Promise<string> {
-  // Lazy-import the config first so validation runs before anything
-  // else, then the DB class and the LLM client.
+  // Lazy-import the config first so validation runs before anything else, then
+  // the LLM client. The gateway is injectable so tests do not depend on a
+  // live vision model — the description is the thing under test, not the
+  // network round trip.
   const { config } = await import("../../shared/config/index.js");
   const { createDefaultGateway } = await import("./llmGateway.js");
   try {
-    const vision = createDefaultGateway();
+    const vision = visionGateway ?? createDefaultGateway();
     // AttachmentsDb needs a NodePgDatabase; the worker only holds
     // a Pool. Query attachments directly — same columns.
     const rows = await pool.query<{ discord_url: string | null }>(
@@ -229,15 +245,27 @@ async function generateVisionDescription(
 export class ModerationWorker {
   private readonly pool: Pool;
   private readonly llm: LlmGateway;
+  /**
+   * Describes attached images before moderation. Optional: when absent the
+   * shared default client is created on first use, so production wiring is
+   * unchanged while tests can inject a stub instead of calling a real model.
+   */
+  private readonly vision: LlmGateway | undefined;
   private readonly config: WorkerConfig;
   readonly workerId: string;
   private stopped = false;
   private loop: Promise<void> | null = null;
   readonly stats: WorkerStats = emptyStats();
 
-  constructor(pool: Pool, llm: LlmGateway, config?: Partial<WorkerConfig>) {
+  constructor(
+    pool: Pool,
+    llm: LlmGateway,
+    config?: Partial<WorkerConfig>,
+    vision?: LlmGateway,
+  ) {
     this.pool = pool;
     this.llm = llm;
+    this.vision = vision;
     this.config = { ...DEFAULT_WORKER_CONFIG, ...config };
     assertLeaseCoversLlmTimeout(this.config);
     // A fresh id per process is the point: a restarted worker must not be able
@@ -334,7 +362,8 @@ export class ModerationWorker {
               m.created_at    AS "createdAt",
               m.username      AS "username",
               c.attempts::int AS "attempts",
-              (a.n IS NOT NULL) AS "hasMedia"
+              (a.n IS NOT NULL) AS "hasMedia",
+              (m.metadata::jsonb -> 'channel' ->> 'nsfw')::boolean AS "channelIsNsfw"
          FROM claim_messages($1, $2, $3) AS c
          JOIN messages m ON m.id = c.id
          LEFT JOIN (
@@ -344,6 +373,36 @@ export class ModerationWorker {
       [this.workerId, this.config.claimBatchSize, this.config.leaseMs],
     );
     if (rows.length > 0) logClaimed(this.workerId, rows);
+
+    // Never analyse or moderate inside a channel Discord marks NSFW.
+    //
+    // The flag comes from the channel object itself, captured at message
+    // time and persisted in messages.metadata -> channel -> nsfw, so this
+    // tracks whatever an admin sets in the Discord UI. No hardcoded id
+    // list: production shows 4 flagged channels and 6 safe ones, and the
+    // set changes whenever an admin edits a channel.
+    //
+    // Claimed rows are released straight back to pending rather than
+    // analyzed — otherwise the claim batch would silently shrink and the
+    // worker would spin on the same unanalysable rows every tick.
+    const inNsfw = rows.filter((r) => r.channelIsNsfw === true);
+    if (inNsfw.length > 0) {
+      const safe = rows.filter((r) => r.channelIsNsfw !== true);
+      await this.pool.query(
+        `UPDATE messages
+            SET ai_status = 'pending',
+                worker_id = NULL,
+                lease_until = NULL,
+                ready_for_work_at = $2
+          WHERE id = ANY($1)`,
+        [inNsfw.map((r) => r.id), Date.now() + NSFW_RETRY_DELAY_MS],
+      );
+      log.debug(
+        { skipped: inNsfw.length, kept: safe.length },
+        "skipped NSFW channel messages — not analysed",
+      );
+      return safe;
+    }
     return rows;
   }
 
@@ -368,17 +427,38 @@ export class ModerationWorker {
 
     const system = buildSystemPrompt({ mode: hasMedia ? "mixed" : "text" });
 
+    // Descriptions are resolved BEFORE the prompt is assembled. The previous
+    // version called the vision model inside the .map() and then dropped the
+    // result on the floor — the variable was never interpolated into the
+    // template, so image messages reached the model with no description at
+    // all and the whole feature was inert. It also had to be awaited: the
+    // call is async, and an un-awaited promise stringifies to "[object
+    // Promise]" in a template literal.
+    //
+    // All descriptions for the batch are fetched concurrently rather than one
+    // at a time, so a batch of ten images does not pay the vision latency ten
+    // times over. A failure for one message is contained: the description is
+    // empty and that message is still judged on its text.
+    const visionById = new Map<string, string>();
+    if (hasMedia) {
+      const described = await Promise.all(
+        messages.map(async (m) => {
+          if (!m.hasMedia) return [m.id, ""] as const;
+          return [
+            m.id,
+            await generateVisionDescription(this.pool, m, this.vision),
+          ] as const;
+        }),
+      );
+      for (const [id, desc] of described) {
+        if (desc) visionById.set(id, desc);
+      }
+    }
+
     const body = messages
       .map((m) => {
         const who = m.username ? `${m.username} (${m.authorId})` : m.authorId;
-        // Image descriptions from the vision model are prepended so
-        // the moderation LLM can judge media even when the message
-        // has no text. Generated here because the gateway already
-        // holds the attachment URL and the policy dispatches in
-        // "mixed" mode when hasMedia is true.
-        const vision = m.hasMedia
-          ? generateVisionDescription(this.pool, m)
-          : "";
+        const vision = visionById.get(m.id) ?? "";
         // NOTE: only the CONTENT is sanitised. The id/author/ts attributes are
         // structured data we generate, and passing the id through
         // sanitizeAiContent would wrap it in <![CDATA[…]]> — which breaks the
@@ -389,7 +469,8 @@ export class ModerationWorker {
         // only, without the CDATA wrapper.
         return (
           `<message id="${m.id}" author="${escapeXmlAttr(who)}" ` +
-          `ts="${isoFromEpoch(m.createdAt)}">\n${escapeMessageBody(m.content)}\n</message>`
+          `ts="${isoFromEpoch(m.createdAt)}">\n${vision}` +
+          `${escapeMessageBody(m.content)}\n</message>`
         );
       })
       .join("\n");

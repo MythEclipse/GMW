@@ -171,9 +171,10 @@ CREATE INDEX IF NOT EXISTS idx_attempts_outcome_created
 -- it as a parameter (rather than a constant) is what makes the "crashed worker"
 -- path work: the reclaim sees the row as expired and takes it, atomically.
 CREATE OR REPLACE FUNCTION claim_messages(
-  p_worker_id    text,
-  p_limit        integer DEFAULT 40,
-  p_lease_ms     integer DEFAULT 90000
+  p_worker_id           text,
+  p_limit               integer DEFAULT 40,
+  p_lease_ms            integer DEFAULT 90000,
+  p_excluded_channel_ids text[] DEFAULT '{}'
 ) RETURNS SETOF messages AS $$
 BEGIN
   RETURN QUERY
