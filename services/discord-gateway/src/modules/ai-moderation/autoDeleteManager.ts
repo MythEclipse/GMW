@@ -83,9 +83,18 @@ function getErrorCode(error: unknown): number | string | undefined {
   return maybeCode ?? maybeStatus;
 }
 
-function isAlreadyDeletedError(error: unknown): boolean {
+export function isAlreadyDeletedError(error: unknown): boolean {
   const code = getErrorCode(error);
   // 10008 Unknown Message, 10003 Unknown Channel, 50001 Missing Access, 404.
+  //
+  // MESSAGE_ID_NOT_FOUND is Discord's own code for a message the account
+  // cannot see — returned when the message is already gone, and also when the
+  // account lacks MANAGE_MESSAGES in that channel. It is NOT in the historical
+  // numeric list because it is a string code. Before this was handled, every
+  // such delete was recorded as reason='error' with status='failed', and the
+  // dashboard showed a steady stream of failures for deletes that had in fact
+  // already succeeded (a human moderator, another bot, or Discord's own
+  // retention removed the message first).
   if (
     code === 10008 ||
     code === 10003 ||
@@ -94,7 +103,9 @@ function isAlreadyDeletedError(error: unknown): boolean {
     code === "10008" ||
     code === "10003" ||
     code === "50001" ||
-    code === "404"
+    code === "404" ||
+    code === "MESSAGE_ID_NOT_FOUND" ||
+    code === "MESSAGE_ID_NOT_FOUND_TYPE"
   ) {
     return true;
   }
