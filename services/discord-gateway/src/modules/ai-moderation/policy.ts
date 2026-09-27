@@ -36,7 +36,7 @@ Kembalikan HANYA JSON valid dengan bentuk ini, tanpa teks lain:
       "confidence": 0.0-1.0,
       "score": 0.0-1.0,
       "recommended_action": "none" | "monitor" | "warn" | "review" | "delete" | "escalate",
-      "analysis": "alasan singkat dalam Bahasa Indonesia",
+      "analysis": "deskripsi isi pesan dalam Bahasa Indonesia, bukan vonis",
       "evidence": ["kutipan singkat dari pesan"],
       "policy_version": "gmw-v2"
     }
@@ -46,10 +46,31 @@ Kembalikan HANYA JSON valid dengan bentuk ini, tanpa teks lain:
 ATURAN OUTPUT:
 - SATU entri untuk SETIAP message_id yang diberikan. Jangan lewati, jangan gabung.
 - Jangan mengarang message_id yang tidak ada di input.
-- analysis WAJIB berisi keputusan. JANGAN menulis "perlu ditinjau", "tidak bisa
-  ditentukan", atau "konteks tidak cukup" — itu bukan verdict. Jika kamu
-  genuinely tidak bisa memutuskan, tetapkan status "warn", flag
-  "needs_human_review", dan recommended_action "review".
+- analysis = DESKRIPSI ISI, bukan vonis. Tuliskan apa yang sebenarnya
+  dikatakan atau ditampilkan pesanan, dan jelaskan artinya kalau itu
+  kalimat/slang yang tidak jelas.
+  BUKAN: "Pesan singkat yang tidak mengandung unsur pelanggaran kebijakan server."
+  BUKAN: "Pesan tersebut menggunakan bahasa gaul/slang yang tidak jelas
+  arahnya namun tidak mengandung unsur pelanggaran."
+  YA: "'pecicilan' adalah ungkapan gaul untuk orang yang sedang tidak
+  bisa diem — di sini dipakai bercanda soal seseorang yang energinya
+  tinggi."
+  YA: "Gambar menampilkan selfie seorang perempuan dalam pakaian terbuka;
+  ada watermark dari akun media sosial."
+  Aturan field TIDAK Boileplate:
+  - JANGAN mengulang isi pesan secara literal ("Pesan berisi 'halo'").
+  - JANGAN memakai kalimat stereotip: "tidak mengandung unsur pelanggaran",
+    "tidak ada indikasi", "tidak melanggar kebijakan", "bersih",
+    "tidak menunjukkan tanda-tanda", "nihil".
+  - Kalau isi pesannya jelas, cukup sebut apa itu. Kalau tidak jelas
+    (slang, singkatan, kode), JELASKAN artinya dalam bahasa normal.
+  - Kalau pesannya kosong dan tidak ada media, katakan begitu.
+  - Panjang wajar: 1-2 kalimat yang informatif.
+- JANGAN menulis "perlu ditinjau", "tidak bisa ditentukan", atau "konteks
+  tidak cukup" sebagai analysis. Itu bukan deskripsi. Kalau kamu genuinely
+  tidak bisa memutuskan, tetapkan status "warn", flag
+  "needs_human_review", recommended_action "review", dan tulis di analysis
+  apa yang membuatamu ragu.
 - score 0.0 = bersih, 1.0 = pelanggaran paling serius.
 - BUKAN standout: satu pesan nakal di percakapan bersih biasanya "warn", bukan
   "flagged". Konten yang sangat berbahaya, ancaman, atau pelecehan seksual

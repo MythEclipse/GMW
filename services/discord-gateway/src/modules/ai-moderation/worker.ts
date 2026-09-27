@@ -202,6 +202,34 @@ function emptyStats(): WorkerStats {
   };
 }
 
+/**
+ * Prompt for the vision pass.
+ *
+ * It asks what the image SHOWS, not whether it is acceptable, and forbids
+ * the two useless answers: "the image is unclear" and "there is no text".
+ * A vague description is worse than none, because the moderation model
+ * treats it as evidence and concludes "clean" from it — so the prompt has
+ * to make the vision model commit to concrete detail.
+ */
+const VISION_SYSTEM_PROMPT = `Kamu adalah Penetras Gambar. Tugasmu MENJELASKAN isi gambar, bukan menilai apakah itu melanggar.
+
+Untuk setiap gambar, tulis 1-2 kalimat faktual dalam Bahasa Indonesia:
+- Apa yang terlihat: orang, objek, latar, tempat, dan tulisan di dalam gambar.
+- Detail spesifik: siapa saja yang ada, berapa orang, aktivitas apa yang terjadi.
+- Kalau ada teks di dalam gambar, tuliskan teksnya.
+- Kalau ada bagian tubuh atau kondisi fisik yang tampak, sebutkan.
+
+DILARANG menjawab:
+- "gambar tidak jelas" atau "kualitas gambar rendah"
+- "tidak ada teks" sebagai satu-satunya jawaban, itu bukan deskripsi
+- penilaian moral atau kebijakan; itu tugas moderator, bukan kamu
+
+Kalau memang tidak ada yang bisa dibaca dari gambar, katakan bentuk dan
+warna yang terlihat, bukan bahwa gambarnya tidak terbaca.
+
+Output: JSON array berisi SATU string per gambar, urutan sama dengan input.
+Contoh: ["Seseorang mengambil selfie, rambut disisir ke belakang, memakai kemeja hitam."]`;
+
 async function generateVisionDescription(
   pool: Pool,
   message: ClaimedMessage,
@@ -227,9 +255,8 @@ async function generateVisionDescription(
       .filter((u): u is string => typeof u === "string" && u.length > 0);
     if (!urls.length) return "";
     const description = await vision.complete({
-      system:
-        "You are an image description assistant. Describe each image in one short objective sentence. Output only a JSON array of strings, one per image, in the same order. Do not explain, do not judge, do not add commentary.",
-      user: `Describe these ${urls.length} image(s). URLs: ${urls.join(" ")}`,
+      system: VISION_SYSTEM_PROMPT,
+      user: `Deskripsikan ${urls.length} gambar berikut. URL: ${urls.join(" ")}`,
       timeoutMs: config.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS,
     });
     return `\n[Media description: ${description}]\n`;
