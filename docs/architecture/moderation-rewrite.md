@@ -149,6 +149,38 @@ Recorded because the tests that caught them are the reason to trust the rest.
   `hasMediaContent(message)` with no attachments, so the media lane never fired.
 - The migration must backfill **before** adding the CHECK constraint.
 
+## The 48,290 "unjudged" messages
+
+After the split, every message the old pipeline had judged showed as
+**unjudged** in the dashboard. Not a display bug — migration 0020 set
+`ai_status = 'analyzed'` and moved the judgement to the new `verdicts` table,
+but never copied the judgement itself. 48,290 of 49,186 messages ended up
+`analyzed` with no verdict row, while every field needed to rebuild one was
+still sitting untouched in the legacy `messages.ai_*` columns.
+
+Migration `0021_backfill_legacy_verdicts.sql` copies those columns into
+`verdicts`. Only two things are synthesised, both marked: `status`, because the
+old pipeline recorded severity + recommended_action but no outcome column
+(`delete`/`escalate` → flagged, `warn`/`review` → warn, else clean), and
+`model = 'legacy'` so reconstructed history is never confused with live worker
+output. Everything else is copied verbatim, asserted field-by-field.
+
+`error` is deliberately **not** synthesised: the old pipeline recorded
+failures as analysis text with severity `none`, indistinguishable from a clean
+verdict, so claiming otherwise would invent data.
+
+Two things only rehearsal caught:
+
+- **`ai_analysis_duration_ms` has no migration behind it.** It exists in
+  production as an unmanaged leftover, so referencing it made 0021 fail
+  outright on any database built from scratch — while passing happily against
+  a copy of production. Duration is left NULL. Run the *real* migrator against
+  a clean DB, not just a replica.
+- **The journal entry did not land.** An earlier attempt to append 0021 to
+  `meta/_journal.json` reported success but never wrote, so Drizzle saw 20
+  files and silently skipped the migration. Verify the entry is on disk and
+  that `readMigrationFiles` sees the new `folderMillis`.
+
 ## Backend and frontend read the new data
 
 Both services still spoke the pre-rewrite vocabulary. Nothing errored — every
