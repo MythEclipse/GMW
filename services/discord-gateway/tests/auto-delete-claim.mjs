@@ -37,23 +37,31 @@ const check = (name, ok, detail = "") => {
 const admin = new pg.Pool({ connectionString: dsn, max: 1 });
 const scratch = dsn.replace(/\/[^/]+$/, "/gmw_enforce");
 
-// The claim query, copied verbatim from autoDeleteEnforcer.ts.
+// The claim query, verbatim from autoDeleteEnforcer.ts.
+//
+// The candidates come from a CTE and `messages` is joined in the UPDATE's own
+// FROM clause, because Postgres will not RETURN a column that appears only in
+// a subquery. The first version did exactly that and failed with
+// "missing FROM-clause entry for table m" on every tick.
 const CLAIM = `
+  WITH candidates AS (
+    SELECT v.message_id
+    FROM verdicts v
+    JOIN messages m ON m.id = v.message_id
+    WHERE v.status IN ('flagged', 'warn')
+      AND m.deleted_at IS NULL
+      AND (v.auto_delete_state IS NULL OR v.auto_delete_state = 'pending')
+    ORDER BY v.created_at ASC
+    LIMIT $2
+    FOR UPDATE OF v SKIP LOCKED
+  )
   UPDATE verdicts v
   SET auto_delete_state = 'claimed',
       auto_delete_claimed_at = $1
-  WHERE v.message_id IN (
-    SELECT vv.message_id
-    FROM verdicts vv
-    JOIN messages m ON m.id = vv.message_id
-    WHERE vv.status IN ('flagged', 'warn')
-      AND m.deleted_at IS NULL
-      AND (vv.auto_delete_state IS NULL OR vv.auto_delete_state = 'pending')
-    ORDER BY vv.created_at ASC
-    LIMIT $2
-    FOR UPDATE SKIP LOCKED
-  )
-  RETURNING v.message_id, v.status, v.auto_delete_state`;
+  FROM messages m
+  WHERE v.message_id IN (SELECT message_id FROM candidates)
+    AND m.id = v.message_id
+  RETURNING v.message_id, v.status, m.content, v.auto_delete_state`;
 
 try {
   await admin.query(`

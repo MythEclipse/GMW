@@ -69,35 +69,45 @@ interface Row {
 /** Verdicts awaiting a decision, oldest first. */
 async function claimUnenforced(limit: number): Promise<Row[]> {
   const db = getDatabase();
-  // Claim by stamping `claimed` and filtering on it, so two gateway processes
-  // (or a restart mid-batch) cannot both act on the same message. Same pattern
-  // the worker uses for its own queue.
-  return db
-    .execute(sql`
+  // Two things this has to get right:
+  //
+  // 1. The candidate set is a CTE, and `messages` is joined in the UPDATE's own
+  //    FROM clause. The first version put the join only in a subquery and then
+  //    tried to RETURN the message columns — Postgres rejects that outright
+  //    ("missing FROM-clause entry for table m"), so the loop failed every tick
+  //    even with the columns present. A column is only RETURNable if it appears
+  //    in the UPDATE's own FROM.
+  //
+  // 2. `FOR UPDATE OF v SKIP LOCKED` locks only the verdict rows, so two
+  //    gateway processes can never both act on the same message and neither
+  //    blocks waiting on the other.
+  const res = await db.execute(sql`
+    WITH candidates AS (
+      SELECT v.message_id
+      FROM verdicts v
+      JOIN messages m ON m.id = v.message_id
+      WHERE v.status IN ('flagged', 'warn')
+        AND m.deleted_at IS NULL
+        AND (v.${sql.raw("auto_delete_state")} IS NULL
+             OR v.${sql.raw("auto_delete_state")} = 'pending')
+      ORDER BY v.created_at ASC
+      LIMIT ${limit}
+      FOR UPDATE OF v SKIP LOCKED
+    )
     UPDATE verdicts v
     SET ${sql.raw("auto_delete_state")} = 'claimed',
         ${sql.raw("auto_delete_claimed_at")} = ${Date.now()}
-    WHERE v.message_id IN (
-      SELECT vv.message_id
-      FROM verdicts vv
-      JOIN messages m ON m.id = vv.message_id
-      WHERE vv.status IN ('flagged', 'warn')
-        AND m.deleted_at IS NULL
-        AND (vv.${sql.raw("auto_delete_state")} IS NULL
-             OR vv.${sql.raw("auto_delete_state")} = 'pending')
-      ORDER BY vv.created_at ASC
-      LIMIT ${limit}
-      FOR UPDATE SKIP LOCKED
-    )
+    FROM messages m
+    WHERE v.message_id IN (SELECT message_id FROM candidates)
+      AND m.id = v.message_id
     RETURNING v.message_id, v.status, v.severity, v.confidence, v.score,
               v.recommended_action, v.categories, v.flags, v.analysis,
-              v.${sql.raw("auto_delete_state")},
               m.guild_id, m.channel_id, m.user_id, m.thread_id, m.username,
               m.content, m.edited_content, m.metadata
-  `)
-    .then((r) =>
-      Array.isArray(r) ? r : ((r as unknown as { rows: Row[] }).rows ?? []),
-    );
+  `);
+  return Array.isArray(res)
+    ? (res as unknown as Row[])
+    : ((res as unknown as { rows: Row[] }).rows ?? []);
 }
 
 async function markState(messageId: string, state: string): Promise<void> {
