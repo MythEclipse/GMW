@@ -112,6 +112,21 @@ Recorded because the tests that caught them are the reason to trust the rest.
 10. **The new process had no way to start in production.** `flake.nix` only
    installed a wrapper for `dist/index.js`; `dist/moderation-worker.js` was built
    but unlaunchable. Added the `gmw-discord-gateway-worker` wrapper.
+11. **The reconciler stamped 0020 applied without running it.**
+   `seedDrizzleHistory` decides "is the schema at the latest migration" by
+   testing `moderation_actions.server_nick` — a column added at 0019 that every
+   production database has. So the sentinel reported "at latest" and INSERTed a
+   `<tag>@<when>-reconciled` marker into `__drizzle_migrations` for 0020. The
+   gateway booted green, logged "migrations completed successfully", and
+   `verdicts` / `analysis_attempts` / `lease_until` / `claim_messages()` did not
+   exist. `messages.ai_status` *looked* present only because v1 had an unrelated
+   column of that name, which is what made this hard to see. Fixed by testing
+   0020's own objects and by deleting stale `%-reconciled` markers whose objects
+   are absent — Drizzle never retries a migration it believes it already ran.
+12. **The worker had no systemd unit.** The units live on the VPS, not in the
+   repo, so deploying the code produced a built process that nothing started and
+   moderation silently did nothing. Created
+   `gmw-discord-gateway-worker.service` mirroring the gateway unit's sandbox.
 7. The first e2e run reported 4 failures that were my assertions being wrong,
    not the code: two `runOnce()` calls drain the queue, so nothing stays
    `pending`. The expectations were corrected; the behaviour was right.
