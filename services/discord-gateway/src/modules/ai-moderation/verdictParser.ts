@@ -1,3 +1,5 @@
+import { POLICY_VERSION } from "./policy.js";
+
 /**
  * v2 verdict parser.
  *
@@ -296,10 +298,11 @@ export function parseVerdicts(
           ? analysis
           : `Tidak ada indikasi pelanggaran. Pesan dinilai wajar dalam konteks percakapan.`,
       evidence: asStringArray(raw_.evidence),
-      policyVersion:
-        typeof raw_.policy_version === "string"
-          ? raw_.policy_version
-          : undefined,
+      // The version that actually produced this verdict, not whatever the
+      // model echoed back. The prompt's policy_version field is advisory and
+      // the model frequently omits it, which left every verdict with
+      // policy_version = NULL and no way to tell which policy ruled.
+      policyVersion: POLICY_VERSION,
     });
   }
 

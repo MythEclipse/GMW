@@ -5,6 +5,7 @@ import {
   errorMessage,
 } from "@/shared/errors/index.js";
 import { createChildLogger } from "@/shared/logger/index.js";
+import { startAutoDeleteEnforcer } from "../modules/ai-moderation/autoDeleteEnforcer.js";
 import { CommandHandler } from "../modules/command-handler/commandHandler.js";
 import {
   EventBroadcaster,
@@ -21,7 +22,6 @@ import {
 } from "../shared/database/drizzle.js";
 import { runMigrations } from "../shared/database/migrate.js";
 import { createDiscordClientOptions } from "../shared/discord/clientOptions.js";
-import { startAutoDeleteEnforcer } from "../modules/ai-moderation/autoDeleteEnforcer.js";
 import { startGatewayLifecycle } from "./lifecycle.js";
 import { registerPipelineMetrics } from "./metrics-collector.js";
 import { registerProcessGuards } from "./process-guards.js";

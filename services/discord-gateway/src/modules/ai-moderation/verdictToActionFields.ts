@@ -33,12 +33,13 @@ export function verdictToActionFields(
   const status = verdict?.status ?? message.ai_status ?? "unknown";
   const severity = verdict?.severity ?? message.ai_severity ?? "none";
   const confidence =
-    verdict?.confidence ?? message.ai_confidence ?? message.ai_moderation_score ?? 0;
+    verdict?.confidence ??
+    message.ai_confidence ??
+    message.ai_moderation_score ??
+    0;
   const score = verdict?.score ?? message.ai_moderation_score ?? null;
-  const categories =
-    list(verdict?.categories) || message.ai_categories || "";
-  const flags =
-    list(verdict?.flags) || message.ai_moderation_flags || "";
+  const categories = list(verdict?.categories) || message.ai_categories || "";
+  const flags = list(verdict?.flags) || message.ai_moderation_flags || "";
 
   return {
     status,

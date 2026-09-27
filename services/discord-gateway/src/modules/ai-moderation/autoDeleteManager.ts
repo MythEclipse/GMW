@@ -162,9 +162,11 @@ async function logAutoDeleteAttempt(
       username: message.username ?? null,
       server_nick: resolveServerNick(message),
       executed_by: "auto-delete-manager",
-      status: result.deleted || result.reason === "dry_run" ? "executed" : "failed",
+      status:
+        result.deleted || result.reason === "dry_run" ? "executed" : "failed",
       error: result.reason === "error" ? result.reason : null,
-      executed_at: result.deleted || result.reason === "dry_run" ? Date.now() : null,
+      executed_at:
+        result.deleted || result.reason === "dry_run" ? Date.now() : null,
     } as never);
   } catch (error) {
     logger.warn(
@@ -250,7 +252,10 @@ export async function resetOffensiveNickname(
 
     const guild = client.guilds.cache.get(guildId);
     if (!guild) {
-      logger.warn({ messageId, guildId }, "Nick reset skipped: guild not found");
+      logger.warn(
+        { messageId, guildId },
+        "Nick reset skipped: guild not found",
+      );
       return false;
     }
     const member = await guild.members.fetch(userId);
@@ -471,7 +476,10 @@ export async function attemptAutoDeleteFlaggedMessage(
     // ── Perform the deletion ───────────────────────────────────────
     const discordMessage = await channel.messages.fetch(message.id);
     await discordMessage.delete();
-    logger.info({ messageId: message.id, channelId }, "Message deleted from Discord");
+    logger.info(
+      { messageId: message.id, channelId },
+      "Message deleted from Discord",
+    );
 
     // Notifications must never fail the deletion that already succeeded.
     await sendDeletionNotification(client, message, verdict, guild.name);

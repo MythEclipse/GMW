@@ -244,7 +244,9 @@ export function isEligibleForAutoDelete(
     }
   }
 
-  const allowedCategories = parseStringList(config.AUTO_DELETE_ALLOWED_CATEGORIES);
+  const allowedCategories = parseStringList(
+    config.AUTO_DELETE_ALLOWED_CATEGORIES,
+  );
   if (allowedCategories.length > 0) {
     const messageCategories = v.categories ?? [];
     const hasAllowedCategory = messageCategories.some((cat) =>

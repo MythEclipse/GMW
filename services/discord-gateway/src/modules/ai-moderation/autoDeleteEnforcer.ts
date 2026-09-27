@@ -26,11 +26,11 @@ import { sql } from "drizzle-orm";
 import { config } from "../../shared/config/index.js";
 import { getDatabase } from "../../shared/database/drizzle.js";
 import { createChildLogger } from "../../shared/logger/index.js";
-import {
-  attemptAutoDeleteFlaggedMessage,
-  type AutoDeleteResult,
-} from "./autoDeleteManager.js";
 import type { VerdictLike } from "./autoDeleteEligibility.js";
+import {
+  type AutoDeleteResult,
+  attemptAutoDeleteFlaggedMessage,
+} from "./autoDeleteManager.js";
 
 const logger = createChildLogger("auto-delete-enforcer");
 
@@ -72,7 +72,8 @@ async function claimUnenforced(limit: number): Promise<Row[]> {
   // Claim by stamping `claimed` and filtering on it, so two gateway processes
   // (or a restart mid-batch) cannot both act on the same message. Same pattern
   // the worker uses for its own queue.
-  return db.execute(sql`
+  return db
+    .execute(sql`
     UPDATE verdicts v
     SET ${sql.raw("auto_delete_state")} = 'claimed',
         ${sql.raw("auto_delete_claimed_at")} = ${Date.now()}
@@ -93,7 +94,10 @@ async function claimUnenforced(limit: number): Promise<Row[]> {
               v.${sql.raw("auto_delete_state")},
               m.guild_id, m.channel_id, m.user_id, m.thread_id, m.username,
               m.content, m.edited_content, m.metadata
-  `).then((r) => (Array.isArray(r) ? r : (r as unknown as { rows: Row[] }).rows ?? []));
+  `)
+    .then((r) =>
+      Array.isArray(r) ? r : ((r as unknown as { rows: Row[] }).rows ?? []),
+    );
 }
 
 async function markState(messageId: string, state: string): Promise<void> {
@@ -131,7 +135,10 @@ async function tick(client: Client): Promise<void> {
   try {
     const released = await releaseStaleClaims();
     if (released > 0) {
-      logger.warn({ released }, "Re-queued auto-delete claims left by a dead gateway");
+      logger.warn(
+        { released },
+        "Re-queued auto-delete claims left by a dead gateway",
+      );
     }
 
     const rows = await claimUnenforced(BATCH_LIMIT);
@@ -151,17 +158,21 @@ async function tick(client: Client): Promise<void> {
 
       let result: AutoDeleteResult;
       try {
-        result = await attemptAutoDeleteFlaggedMessage(client, {
-          id: row.message_id,
-          guild_id: row.guild_id,
-          channel_id: row.channel_id,
-          user_id: row.user_id,
-          thread_id: row.thread_id,
-          username: row.username,
-          content: row.content,
-          edited_content: row.edited_content,
-          metadata: row.metadata,
-        }, verdict);
+        result = await attemptAutoDeleteFlaggedMessage(
+          client,
+          {
+            id: row.message_id,
+            guild_id: row.guild_id,
+            channel_id: row.channel_id,
+            user_id: row.user_id,
+            thread_id: row.thread_id,
+            username: row.username,
+            content: row.content,
+            edited_content: row.edited_content,
+            metadata: row.metadata,
+          },
+          verdict,
+        );
       } catch (error) {
         // attemptAutoDeleteFlaggedMessage is contracted not to throw. If it
         // ever does, record the failure and move on — one bad message must not
@@ -191,7 +202,11 @@ async function tick(client: Client): Promise<void> {
       );
 
       logger.info(
-        { messageId: row.message_id, reason: result.reason, deleted: result.deleted },
+        {
+          messageId: row.message_id,
+          reason: result.reason,
+          deleted: result.deleted,
+        },
         "Auto-delete decision applied",
       );
     }
@@ -210,13 +225,19 @@ async function tick(client: Client): Promise<void> {
  */
 export function startAutoDeleteEnforcer(client: Client): void {
   if (!config.AUTO_DELETE_FLAGGED_ENABLED) {
-    logger.info("Auto-delete disabled by config — enforcement loop not started");
+    logger.info(
+      "Auto-delete disabled by config — enforcement loop not started",
+    );
     return;
   }
   if (timer) return;
 
   logger.info(
-    { intervalMs: POLL_INTERVAL_MS, batch: BATCH_LIMIT, dryRun: config.AUTO_DELETE_FLAGGED_DRY_RUN },
+    {
+      intervalMs: POLL_INTERVAL_MS,
+      batch: BATCH_LIMIT,
+      dryRun: config.AUTO_DELETE_FLAGGED_DRY_RUN,
+    },
     "Starting auto-delete enforcement loop",
   );
   timer = setInterval(() => {
@@ -231,12 +252,6 @@ export function stopAutoDeleteEnforcer(): void {
     clearInterval(timer);
     timer = null;
   }
-}
-
-/** Exposed for tests. */
-export async function runAutoDeleteTick(client: Client): Promise<number> {
-  const rows = await claimUnenforced(BATCH_LIMIT);
-  return rows.length;
 }
 
 export { MARKER_COLUMNS };

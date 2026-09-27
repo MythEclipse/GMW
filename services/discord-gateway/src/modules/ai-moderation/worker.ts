@@ -28,7 +28,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { createChildLogger } from "@/shared/logger/index";
 import type { LlmGateway } from "./llmGateway.js";
-import { buildSystemPrompt, POLICY_VERSION } from "./policy.js";
+import { buildSystemPrompt } from "./policy.js";
 import {
   logBatchResult,
   logClaimed,

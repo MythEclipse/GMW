@@ -24,7 +24,10 @@ const logger = createChildLogger("auto-delete-logger");
  */
 export async function logDeletionToChannel(
   guild: Guild,
-  message: MessageLike & { content?: string | null; edited_content?: string | null },
+  message: MessageLike & {
+    content?: string | null;
+    edited_content?: string | null;
+  },
   verdict: VerdictLike | null | undefined,
   channelId: string,
 ): Promise<void> {
@@ -47,10 +50,11 @@ export async function logDeletionToChannel(
         message.ai_moderation_flags ||
         "—";
       const reason = verdict?.analysis ?? message.ai_analysis ?? "—";
-      const snippet = (message.edited_content ?? message.content ?? "").substring(
-        0,
-        200,
-      );
+      const snippet = (
+        message.edited_content ??
+        message.content ??
+        ""
+      ).substring(0, 200);
       await (logChannel as ChannelWithSend).send(
         `**🧹 Auto-Delete** — Pesan dari <@${message.user_id}> di <#${channelId}>\n` +
           `**Status:** ${status}\n` +
