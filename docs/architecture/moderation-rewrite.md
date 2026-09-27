@@ -169,6 +169,32 @@ output. Everything else is copied verbatim, asserted field-by-field.
 failures as analysis text with severity `none`, indistinguishable from a clean
 verdict, so claiming otherwise would invent data.
 
+Then the backfill shipped as a no-op. The reconciler's `schemaAtLatest` sentinel
+tested only 0020's objects, so on a database where 0020 had run but 0021's data
+backfill had not, it reported "at latest" — and then **stamped 0021 as applied
+without running it**. Drizzle only applies migrations newer than the tracked
+max, so 0021 was skipped permanently. The same class of bug the sentinel was
+written to prevent, one migration later, and it was silent: the migration
+recorded as applied, the rows never appeared.
+
+Three defects, all in `migrate.ts`:
+
+- The sentinel tested the wrong migration. It now also asserts 0021's own
+  effect — no judged message missing its verdict — which is precisely what the
+  data backfill delivers, and is vacuously true where there is nothing to
+  judge.
+- The rollback only removed `LIKE '%-reconciled'` rows, i.e. markers it had
+  written itself. A plain hash row left by a failed apply looks legitimately
+  applied and is skipped forever. It now removes the row outright.
+- Having removed the marker it `return`ed, so Drizzle still never ran. The log
+  line claimed Drizzle "will now apply it" while guaranteeing it would not.
+
+`tests/reconcile-data-only-migration.mjs` builds that exact poisoned state
+(tracking table says 0021 ran, no verdict rows) and drives the real reconciler
+and the real migrator over it. `tests/drizzle-skip-behaviour.mjs` proves the
+mechanism underneath: Drizzle skips a tracked migration, and applies it once
+the row is gone.
+
 Two things only rehearsal caught:
 
 - **`ai_analysis_duration_ms` has no migration behind it.** It exists in

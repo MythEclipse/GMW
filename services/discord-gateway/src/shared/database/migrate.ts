@@ -103,7 +103,10 @@ async function getLastMigrationWhen(): Promise<number> {
  * reflects the latest migration, we seed the tracking table up to the latest
  * journal `when` so Drizzle skips everything instead of re-applying it.
  */
-async function seedDrizzleHistory(client: PoolClient): Promise<void> {
+// Exported for tests: the reconciler is where a data-only migration can be
+// silently stamped as applied, and that is only reproducible by driving this
+// function directly against a poisoned tracking table.
+export async function seedDrizzleHistory(client: PoolClient): Promise<void> {
   // Check whether the app tables pre-exist (old ./migrations/ SQL or manual
   // creation). If not, this is a brand-new database — let Drizzle handle it.
   const hasTextCache = await client.query(`
@@ -132,6 +135,7 @@ async function seedDrizzleHistory(client: PoolClient): Promise<void> {
   // ran and the reconcile is safe; if any is missing, Drizzle must apply it.
   const atLatest = await client.query(`
     SELECT
+      -- 0020's own objects: a column unique to it plus both new tables.
       EXISTS (
         SELECT FROM information_schema.columns
         WHERE table_name = 'messages' AND column_name = 'lease_until'
@@ -143,7 +147,24 @@ async function seedDrizzleHistory(client: PoolClient): Promise<void> {
       AND EXISTS (
         SELECT FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'analysis_attempts'
-      ) AS ok
+      )
+      -- 0021's own effect. It is DATA-ONLY: it creates no table, column or
+      -- function, so testing 0020's objects alone made this sentinel report
+      -- "at latest" on a database where the backfill had never run. The
+      -- reconciler then stamped 0021 as applied without executing it, and
+      -- 48,290 messages stayed permanently "unjudged" — the exact failure this
+      -- sentinel exists to prevent, one migration later.
+      --
+      -- The test is "no judged message is missing its verdict", which is
+      -- precisely what 0021 delivers. It is vacuously true on a database with
+      -- no judged messages, which is the correct answer there.
+      AND NOT EXISTS (
+        SELECT 1
+        FROM messages m
+        WHERE m.ai_analysis IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM verdicts v WHERE v.message_id = m.id)
+      )
+      AS ok
   `);
   const schemaAtLatest = atLatest.rows[0]?.ok === true;
 
@@ -204,20 +225,33 @@ async function seedDrizzleHistory(client: PoolClient): Promise<void> {
     // Without this, production boots healthy forever against a schema that has
     // no verdicts table and no claim_messages(), and the worker silently
     // analyses nothing.
+    // Roll back the marker so Drizzle re-runs the newest migration for real.
+    //
+    // Two shapes have to go:
+    //   - `<tag>@<when>-reconciled`: seeded by the reconciler itself.
+    //   - a plain `<when>` row: Drizzle's own hash. If a previous run applied
+    //     the tracking row but the statement failed, or the sentinel stamped
+    //     the newest `when` while the backfill behind it never ran, the row
+    //     looks legitimately applied and Drizzle skips it forever. Since
+    //     `schemaAtLatest` is false, the objects really are missing, so
+    //     removing the row is the only way to get the work done.
     const stale = await client.query(
-      `DELETE FROM "__drizzle_migrations"
-        WHERE created_at >= $1
-          AND hash LIKE '%-reconciled'`,
+      `DELETE FROM "__drizzle_migrations" WHERE created_at = $1`,
       [lastMigrationWhen],
     );
     if (stale.rowCount && stale.rowCount > 0) {
       logger.warn(
         { lastMigrationWhen, removed: stale.rowCount },
-        "Rolled back a reconciled migration marker whose objects are missing — " +
+        "Rolled back a migration marker whose objects are missing — " +
           "Drizzle will now apply it for real",
       );
     }
-    return;
+    // Deliberately NO return here. The whole point of rolling the marker back
+    // is to let Drizzle run the migration, and runMigrations() calls Drizzle
+    // unconditionally after this function. Returning early (as this did when
+    // the block was written) rolled the marker back and then still skipped the
+    // work, leaving the database exactly as broken as before — the log line
+    // claimed Drizzle "will now apply it" while guaranteeing it would not.
   }
 
   if (trackedMax >= lastMigrationWhen) {

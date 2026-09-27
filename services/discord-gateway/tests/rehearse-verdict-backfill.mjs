@@ -27,6 +27,17 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 };
 
+// Rebuild the replica from production first. Without this the rehearsal is not
+// self-contained: it reuses whatever gmw_backfill happens to hold, and once
+// production has been backfilled every other test that writes there leaves the
+// replica looking "already done", so the two baseline assertions fail for a
+// reason that has nothing to do with the migration.
+const { execSync } = await import("node:child_process");
+execSync("bun tests/build-legacy-replica.mjs", {
+  env: { ...process.env, DSN: dsn },
+  stdio: "pipe",
+});
+
 const pool = new pg.Pool({
   connectionString: dsn.replace(/\/[^/]+$/, "/gmw_backfill"),
   max: 1,
