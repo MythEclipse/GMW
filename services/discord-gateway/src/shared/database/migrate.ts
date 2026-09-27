@@ -116,17 +116,36 @@ async function seedDrizzleHistory(client: PoolClient): Promise<void> {
     return; // brand-new database, let Drizzle handle everything
   }
 
-  // Final schema "at latest migration" sentinel: the moderation_actions
-  // table at 0019 has a server_nick column. If present, the schema is at (or
-  // past) migration 0019, so any journal entries not yet tracked are safe to
-  // mark as applied rather than re-running (which would fail).
+  // Final schema "at latest migration" sentinel.
+  //
+  // This MUST name the newest migration's own objects, not some older one.
+  // It previously tested `moderation_actions.server_nick` (added at 0019),
+  // which every production database has. So when 0020 was added, the sentinel
+  // still reported "at latest" and this function stamped 0020 into
+  // __drizzle_migrations as applied WITHOUT RUNNING IT — production booted
+  // against a schema with no verdicts table, no claim_messages(), and no
+  // ai_status state machine. `ai_status` looked present only because v1 had
+  // an unrelated column of that name.
+  //
+  // The test below checks 0020's actual objects: a column unique to it
+  // (`messages.lease_until`) plus both new tables. If they exist, 0020 really
+  // ran and the reconcile is safe; if any is missing, Drizzle must apply it.
   const atLatest = await client.query(`
-    SELECT EXISTS (
-      SELECT FROM information_schema.columns
-      WHERE table_name = 'moderation_actions' AND column_name = 'server_nick'
-    )
+    SELECT
+      EXISTS (
+        SELECT FROM information_schema.columns
+        WHERE table_name = 'messages' AND column_name = 'lease_until'
+      )
+      AND EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'verdicts'
+      )
+      AND EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'analysis_attempts'
+      ) AS ok
   `);
-  const schemaAtLatest = atLatest.rows[0]?.exists === true;
+  const schemaAtLatest = atLatest.rows[0]?.ok === true;
 
   const lastMigrationWhen = await getLastMigrationWhen();
 
@@ -173,6 +192,33 @@ async function seedDrizzleHistory(client: PoolClient): Promise<void> {
     SELECT COALESCE(MAX(created_at), 0) AS max_created FROM "__drizzle_migrations"
   `);
   const trackedMax = Number(tracked.rows[0]?.max_created ?? 0);
+
+  if (trackedMax >= lastMigrationWhen && !schemaAtLatest) {
+    // The tracking table claims the newest migration ran, but its objects are
+    // absent. This is the self-inflicted wound from the old sentinel: a
+    // previous boot seeded `<tag>@<when>-reconciled` while testing a column
+    // unrelated to 0020, permanently marking it applied.
+    //
+    // Drizzle only applies migrations NEWER than the tracked max, so it will
+    // never retry 0020 on its own — the row has to be rolled back first.
+    // Without this, production boots healthy forever against a schema that has
+    // no verdicts table and no claim_messages(), and the worker silently
+    // analyses nothing.
+    const stale = await client.query(
+      `DELETE FROM "__drizzle_migrations"
+        WHERE created_at >= $1
+          AND hash LIKE '%-reconciled'`,
+      [lastMigrationWhen],
+    );
+    if (stale.rowCount && stale.rowCount > 0) {
+      logger.warn(
+        { lastMigrationWhen, removed: stale.rowCount },
+        "Rolled back a reconciled migration marker whose objects are missing — " +
+          "Drizzle will now apply it for real",
+      );
+    }
+    return;
+  }
 
   if (trackedMax >= lastMigrationWhen) {
     return; // already fully tracked — Drizzle will apply only genuinely-pending ones
