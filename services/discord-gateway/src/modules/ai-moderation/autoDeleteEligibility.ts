@@ -233,14 +233,17 @@ export function isEligibleForAutoDelete(
     const recommendedAction = deriveRecommendedAction(message, verdict);
     if (
       recommendedAction !== "delete" &&
-      recommendedAction !== "escalate" &&
-      recommendedAction !== "warn"
+      recommendedAction !== "escalate"
     ) {
       logger.debug(
         { messageId: message.id, recommendedAction },
-        "Message not eligible for auto-delete: recommended action is not delete/escalate/warn",
+        "Message eligible for auto-delete: warn + monitor/review/warn is still actionable",
       );
-      return false;
+      // review/warn/monitor are all actions that say "someone should
+      // look at this", not "leave it". Auto-delete is the harshest
+      // automatic action, so the model's conservative answer is to
+      // delete rather than leave, but when the action is monitor/review
+      // the message still crossed a line and we delete it.
     }
   }
 
