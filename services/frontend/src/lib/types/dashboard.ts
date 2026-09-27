@@ -13,6 +13,11 @@ export interface DashboardStats {
   active_users_24h: number;
   top_channels: TopChannel[];
   moderation_overview: ModerationOverview;
+  /** Pipeline states, also hoisted to the top level for convenience. */
+  total_pending?: number;
+  total_claimed?: number;
+  total_retry_wait?: number;
+  total_dead?: number;
 }
 
 export interface TopChannel {
@@ -21,9 +26,23 @@ export interface TopChannel {
   message_count: number;
 }
 
+/**
+ * Queue health from `messages.ai_status`.
+ *
+ * `processing` is gone: the rewrite replaced it with the real pipeline states
+ * (claimed / retry_wait / dead). The backend kept returning the key, resolved
+ * against a column that no longer exists, so it was always 0 and the dashboard
+ * under-reported the queue by whatever was in flight.
+ */
 export interface ModerationOverview {
   pending: number;
-  processing: number;
+  /** Claimed by a worker right now. */
+  claimed: number;
+  /** Waiting out a retry backoff. */
+  retry_wait: number;
+  /** Ran out of attempts — the only state that needs a human. */
+  dead: number;
+  /** Errored verdicts. */
   error: number;
 }
 

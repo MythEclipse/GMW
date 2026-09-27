@@ -74,6 +74,12 @@ export class DashboardRepository {
       total_clean: msgRow?.total_clean ?? 0,
       total_warned: msgRow?.total_warned ?? 0,
       total_error: msgRow?.total_error ?? 0,
+      // Pipeline states, hoisted to the top level so the dashboard can show
+      // them without digging into moderation_overview.
+      total_pending: msgRow?.total_pending ?? 0,
+      total_claimed: msgRow?.total_claimed ?? 0,
+      total_retry_wait: msgRow?.total_retry_wait ?? 0,
+      total_dead: msgRow?.total_dead ?? 0,
       total_voice_recordings: voiceResult.rows[0]?.count ?? 0,
       total_profiles: profileResult.rows[0]?.count ?? 0,
       today_messages: msgRow?.today_messages ?? 0,
@@ -84,9 +90,17 @@ export class DashboardRepository {
         channel_name: r.channel_name ? String(r.channel_name) : null,
         message_count: Number(r.message_count),
       })),
+      // Queue health, using the real pipeline vocabulary. `processing` was
+      // aliased to total_processing — a column the rewrite renamed, so it
+      // resolved to undefined and always rendered 0 — and the states that
+      // actually exist now (claimed, retry_wait, dead) were never surfaced at
+      // all. `dead` is the one that matters: it is the only state needing a
+      // human.
       moderation_overview: {
         pending: msgRow?.total_pending ?? 0,
-        processing: msgRow?.total_processing ?? 0,
+        claimed: msgRow?.total_claimed ?? 0,
+        retry_wait: msgRow?.total_retry_wait ?? 0,
+        dead: msgRow?.total_dead ?? 0,
         error: msgRow?.total_error ?? 0,
       },
     };

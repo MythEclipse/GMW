@@ -105,7 +105,11 @@ export function DashboardView({
   const total = s.total_flagged + s.total_clean || 1;
   const cleanRatio = s.total_clean / total;
   const mod = s.moderation_overview;
-  const hasModQueue = mod.pending > 0 || mod.processing > 0 || mod.error > 0;
+  // Queue depth = everything the worker still owes. `dead` is counted here
+  // because abandoned work never resolves on its own.
+  const queueDepth =
+    mod.pending + mod.claimed + mod.retry_wait + mod.dead + mod.error;
+  const hasModQueue = queueDepth > 0;
 
   return (
     <PageTransition>
@@ -126,7 +130,7 @@ export function DashboardView({
             {hasModQueue && (
               <span className="flex items-center gap-1 rounded bg-amber/15 px-2 py-0.5 font-medium text-amber border border-amber/30">
                 <Zap className="size-3" />
-                {mod.pending + mod.processing + mod.error} IN QUEUE
+                {queueDepth} IN QUEUE
               </span>
             )}
           </div>
@@ -162,12 +166,20 @@ export function DashboardView({
           />
           <MetricTile
             label="Mod Queue"
-            value={formatNumber(mod.pending + mod.processing)}
-            hint={mod.error > 0 ? `${mod.error} errors` : "Processing pipeline"}
+            value={formatNumber(queueDepth)}
+            hint={
+              // Dead work is the only number that needs a human, so it wins the
+              // hint over transient errors.
+              mod.dead > 0
+                ? `${mod.dead} abandoned`
+                : mod.error > 0
+                  ? `${mod.error} errors`
+                  : "Pipeline in flight"
+            }
             tone={
-              mod.error > 0
+              mod.dead > 0 || mod.error > 0
                 ? "vermilion"
-                : mod.pending > 0
+                : queueDepth > 0
                   ? "amber"
                   : "neutral"
             }
@@ -187,16 +199,28 @@ export function DashboardView({
                 {mod.pending} PENDING
               </span>
             )}
-            {mod.processing > 0 && (
+            {mod.claimed > 0 && (
               <span className="flex items-center gap-1.5">
                 <span className="size-1.5 rounded-full bg-signal animate-pulse" />
-                {mod.processing} PROCESSING
+                {mod.claimed} CLAIMED
+              </span>
+            )}
+            {mod.retry_wait > 0 && (
+              <span className="flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-amber/70" />
+                {mod.retry_wait} RETRYING
               </span>
             )}
             {mod.error > 0 && (
               <span className="flex items-center gap-1.5">
                 <span className="size-1.5 rounded-full bg-vermilion" />
                 {mod.error} ERROR
+              </span>
+            )}
+            {mod.dead > 0 && (
+              <span className="flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-vermilion" />
+                {mod.dead} DEAD
               </span>
             )}
           </div>
