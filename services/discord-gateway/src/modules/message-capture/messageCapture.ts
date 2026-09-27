@@ -1,7 +1,6 @@
 import type { Client, Message } from "discord.js-selfbot-v13";
 import { createChildLogger } from "@/shared/logger/index";
 import { config } from "../../shared/config/index.js";
-import { queueMessageAnalysis } from "../ai-moderation/aiAnalyzer.js";
 import { processAttachmentUpload } from "../attachment-upload/attachmentUploader.js";
 import type { EventBroadcaster } from "../event-broadcaster/eventBroadcaster.js";
 import {
@@ -263,11 +262,11 @@ export async function captureMessage(
   }
 
   if (!isBacklog) {
-    // AI analysis starts immediately — attachment upload runs in parallel.
-    // Media analysis path downloads images directly from Discord CDN,
-    // so it does NOT depend on the upload completing first.
-    queueMessageAnalysis(message.id);
-
+    // No enqueue call is needed. The row is already `ai_status='pending'`
+    // (column default), so the moderation worker claims it on its next poll.
+    // v1 called queueMessageAnalysis() here, which pushed the id into an
+    // in-process Map — work that vanished on restart and left the row stuck
+    // in 'processing' forever.
     if (attachmentUploadTasks.length > 0) {
       await Promise.allSettled(attachmentUploadTasks);
     }
@@ -339,7 +338,8 @@ export function registerMessageCapture(client: Client): void {
           getDisplayContent(newMessage as Message),
           editedAt,
         );
-        queueMessageAnalysis(newMessage.id);
+        // Re-analysis of an edited message happens because the update resets
+        // the status to 'pending'; the worker picks it up from there.
 
         if (_eventBroadcaster) {
           _eventBroadcaster.messageUpdated({

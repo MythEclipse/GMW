@@ -1,35 +1,33 @@
 /**
- * Public surface of the AI-moderation module.
+ * Public surface of the moderation module.
  *
- * The module has ~50 internal files; callers outside it (app/, tests, other
- * modules) should import from THIS barrel so internal files can be moved
- * without touching call sites.
- *
- * Deep imports remain valid inside the module itself.
+ * Deliberately tiny. v1's barrel exported 9 symbols across 56 files, which
+ * meant callers could reach any layer and the module's real shape was
+ * invisible from outside. Everything here is a deliberate seam.
  */
 
-export type {
-  AIRecommendedAction,
-  AISeverity,
-  AIStatus,
-  AnalysisQueueStatus,
-  AnalysisResult,
-} from "../../shared/moderation-types.js";
-// ── Entry API: queueing, status, recovery worker ──────────────────────────
 export {
-  getAnalysisQueueStatus,
-  queueConversationAnalysis,
-  queueMessageAnalysis,
-  startPendingAIAnalysisWorker,
-} from "./aiAnalyzer.js";
-// ── Worker pools (app/metrics-collector reads their live thread counters) ──
+  createDefaultGateway,
+  HttpLlmGateway,
+  LlmUnavailableError,
+} from "./llmGateway.js";
 export {
-  getConversationKey,
-  mediaWorkerPool,
-  textWorkerPool,
-} from "./circuitBreaker.js";
-// ── Pipeline state hooks the bootstrap injects into ───────────────────────
+  type BuildPromptOptions,
+  buildSystemPrompt,
+  clearPromptCache,
+  POLICY_VERSION,
+  type PromptMode,
+} from "./policy.js";
 export {
-  setModerationClient,
-  setSharedEventBroadcaster,
-} from "./moderationState.js";
+  type ParseBatchResult,
+  type ParsedVerdict,
+  parseVerdicts,
+} from "./verdictParser.js";
+export {
+  assertLeaseCoversLlmTimeout,
+  type ClaimedMessage,
+  DEFAULT_WORKER_CONFIG,
+  ModerationWorker,
+  type WorkerConfig,
+  type WorkerStats,
+} from "./worker.js";

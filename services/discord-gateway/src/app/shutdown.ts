@@ -1,9 +1,5 @@
 import type { Client } from "discord.js-selfbot-v13";
 import type { createChildLogger } from "@/shared/logger/index";
-import {
-  mediaWorkerPool,
-  textWorkerPool,
-} from "../modules/ai-moderation/circuitBreaker.js";
 import type { CommandHandler } from "../modules/command-handler/commandHandler.js";
 import type { EventBroadcaster } from "../modules/event-broadcaster/index.js";
 import type { stopMetricsServer } from "../modules/gateway-metrics/index.js";
@@ -49,29 +45,13 @@ export function createGracefulShutdown(
       options.logger.info("Closing command handler...");
       await options.commandHandler.close();
 
-      // ½. Tear down AI-analysis worker pools BEFORE closing the DB.
-      // Piscina worker threads survive process.exit() as orphans otherwise —
-      // they keep holding DB connections/locks after the main process is gone.
-      // (Two live gateways fighting over the same rows was the root cause of
-      // messages stuck in ai_status='processing'.)
-      options.logger.info("Destroying AI worker pools...");
-      const destroyPool = (pool: { destroy: () => Promise<void> }) =>
-        Promise.race([
-          pool.destroy(),
-          new Promise<void>((resolve) =>
-            setTimeout(() => {
-              options.logger.warn(
-                "Timed out destroying worker pool; exiting anyway",
-              );
-              resolve();
-            }, 5000),
-          ),
-        ]);
-      await Promise.allSettled([
-        destroyPool(textWorkerPool),
-        destroyPool(mediaWorkerPool),
-      ]);
-      options.logger.info("AI worker pools destroyed");
+      // NOTE: there is no worker pool to tear down here. Moderation runs in
+      // its own process (services/discord-gateway/src/moderation-worker.ts),
+      // and its queue lives in Postgres. This gateway only captures messages;
+      // it holds no moderation state, so a gateway shutdown can never strand
+      // an in-flight analysis. The worker releases its own leases on SIGTERM,
+      // and anything it fails to release is reclaimed when its lease expires.
+      options.logger.info("No in-process moderation state to release");
 
       // 2. DB pool
       options.logger.info("Closing database...");

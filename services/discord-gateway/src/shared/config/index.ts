@@ -242,81 +242,47 @@ export const configSchema = z
       .default(5),
 
     // ── AI Analysis Timing ──────────────────────────────────────────────
-    AI_ANALYSIS_DEBOUNCE_MS: z.coerce.number().positive().default(250),
-    AI_ANALYSIS_RECOVERY_INTERVAL_MS: z.coerce
-      .number()
-      .positive()
-      .default(10000),
-    AI_ANALYSIS_ERROR_COOLDOWN_MS: z.coerce.number().positive().default(30000),
-    // Upload-pending batch poll (2026-08-25): when a batch is deferred because
-    // attachments are still uploading, the processor re-schedules with this
-    // base delay (linear ramp per consecutive poll, capped) instead of the
-    // 250ms debounce — the old path hot-looped ~300ms for the whole upload.
-    AI_ANALYSIS_UPLOAD_POLL_MS: z.coerce.number().positive().default(1500),
-    AI_ANALYSIS_MAX_UPLOAD_POLL_MS: z.coerce.number().positive().default(8000),
-
-    // ── AI Analysis Batch ───────────────────────────────────────────────
-    AI_ANALYSIS_MAX_BATCH_SIZE: z.coerce.number().int().positive().default(200),
-    // Global exact-cache reuse guard (2026-08-24): a context-scoped miss may
-    // fall back to the legacy bare (context-free) key, but ONLY for verdicts
-    // that cannot trigger an action and are fresh + confident. These knobs
-    // bound that reuse.
-    AI_CACHE_GLOBAL_REUSE_MIN_CONFIDENCE: z.coerce
-      .number()
-      .min(0)
-      .max(1)
-      .default(0.85),
-    AI_CACHE_GLOBAL_REUSE_MAX_AGE_H: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(120),
-    AI_ANALYSIS_MAX_CONTEXT_TOKENS: z.coerce.number().positive().default(8000),
-    AI_ANALYSIS_MAX_TARGET_TOKENS: z.coerce.number().positive().default(14000),
-    AI_ANALYSIS_CONTEXT_MESSAGE_LIMIT: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(20),
-    // Recency gates for conversation context. A silence longer than GAP_MS
-    // between context messages = the conversation restarted (older messages
-    // dropped); MAX_AGE_MS caps how far back context is considered relevant.
-    AI_ANALYSIS_CONTEXT_GAP_MS: z.coerce
-      .number()
-      .positive()
-      .default(12 * 60 * 1000),
-    AI_ANALYSIS_CONTEXT_MAX_AGE_MS: z.coerce
-      .number()
-      .positive()
-      .default(45 * 60 * 1000),
+    // ── Moderation worker ──────────────────────────────────────────────
+    //
+    // The scheduler, the text/media lanes, the per-conversation locks, the
+    // cooldown maps and the circuit breaker are all gone. What is left is a
+    // claim loop, and these are the only knobs it has. Each one exists because
+    // the worker reads it — there is no configuration for a subsystem that
+    // no longer exists.
+    //
+    // Messages claimed per LLM call. Larger batches are cheaper per message
+    // but risk a timeout that loses the whole batch's work.
+    AI_ANALYSIS_MAX_BATCH_SIZE: z.coerce.number().int().positive().default(25),
+    // How long a claim is held. MUST exceed AI_ANALYSIS_LLM_TIMEOUT_MS, or a
+    // slow call outlives its lease and a second worker re-processes messages
+    // that are still in flight. The worker asserts this at construction.
     AI_ANALYSIS_PROCESSING_TIMEOUT_MS: z.coerce
       .number()
+      .int()
       .positive()
       .default(120000),
-    AI_ANALYSIS_INDIVIDUAL_MAX_CONCURRENT: z.coerce
+    // Deadline for one LLM call.
+    AI_ANALYSIS_LLM_TIMEOUT_MS: z.coerce
       .number()
       .int()
       .positive()
-      .default(50),
-    AI_ANALYSIS_INDIVIDUAL_CB_THRESHOLD: z.coerce
+      .default(90000),
+    // Poll interval when the queue is empty.
+    AI_ANALYSIS_POLL_INTERVAL_MS: z.coerce
       .number()
       .int()
       .positive()
-      .default(50),
-    // Text-analysis worker pool size (2026-08-31: split from the media pool
-    // below so a slow image/vision batch can never occupy every thread and
-    // starve the far more common text-only batches). Default 4 (not
-    // availableParallelism) because each Piscina thread owns its own
-    // pLimit(5) semaphore — on big VPSes availableParallelism × 5 concurrent
-    // LLM calls would overwhelm the router. Keep threads modest; concurrency
-    // is capped per-thread anyway.
-    PISCINA_MAX_THREADS: z.coerce.number().int().positive().default(4),
-    // Media-analysis worker pool size — dedicated threads for batches that
-    // contain images/stickers/embeds (download + vision + LLM, much slower
-    // than text). Kept small since media batches are less frequent and each
-    // one is long-running; sized independently from PISCINA_MAX_THREADS so
-    // tuning one never starves the other.
-    PISCINA_MEDIA_MAX_THREADS: z.coerce.number().int().positive().default(2),
+      .default(2000),
+    // Attempts before a message is parked in 'dead' for a human. This is the
+    // only bound on LLM spend per message, and it replaces the old
+    // per-lane retry + parse-repair + individual-fallback cascade.
+    AI_ANALYSIS_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+    // Base of the exponential backoff; attempt N waits base * 2^(N-1).
+    AI_ANALYSIS_RETRY_BACKOFF_MS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(15000),
 
     // ── Auto Delete ─────────────────────────────────────────────────────
     AUTO_DELETE_FLAGGED_ENABLED: z
@@ -383,6 +349,25 @@ export const configSchema = z
         code: z.ZodIssueCode.custom,
         path: ["AI_LLM_API_KEY"],
         message: "AI_LLM_API_KEY is required when AI_ANALYSIS_ENABLED=true",
+      });
+    }
+
+    // A claim lease shorter than the LLM timeout means a slow call outlives
+    // its own claim: the sweeper hands the messages to a second worker while
+    // the first is still paying for them. That reintroduces exactly the
+    // duplicate-verdict class this design exists to make impossible, so it is
+    // rejected at boot rather than discovered in production.
+    if (
+      value.AI_ANALYSIS_ENABLED &&
+      value.AI_ANALYSIS_PROCESSING_TIMEOUT_MS <=
+        value.AI_ANALYSIS_LLM_TIMEOUT_MS
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["AI_ANALYSIS_PROCESSING_TIMEOUT_MS"],
+        message:
+          "AI_ANALYSIS_PROCESSING_TIMEOUT_MS (the claim lease) must be greater than " +
+          "AI_ANALYSIS_LLM_TIMEOUT_MS, otherwise messages are reprocessed while still in flight",
       });
     }
 

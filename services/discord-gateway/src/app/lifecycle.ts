@@ -1,6 +1,5 @@
 import type { Client } from "discord.js-selfbot-v13";
 import type { Logger } from "@/shared/logger/index.js";
-import { startPendingAIAnalysisWorker } from "../modules/ai-moderation/index.js";
 import { registerChannelTopicCapture } from "../modules/channel-topic/index.js";
 import type { CommandHandler } from "../modules/command-handler/commandHandler.js";
 import type { EventBroadcaster } from "../modules/event-broadcaster/index.js";
@@ -50,8 +49,13 @@ export function startGatewayLifecycle({
   registerChannelTopicCapture(client, eventBroadcaster);
   registerGuildMemberEvents(client, eventBroadcaster);
 
-  // 3. Background workers + schedulers.
-  startPendingAIAnalysisWorker(client, eventBroadcaster);
+  // 3. Background schedulers.
+  //
+  // Moderation is NOT started here — it is a separate process
+  // (src/moderation-worker.ts). Messages land in the queue simply by being
+  // captured: the `ai_status` column defaults to 'pending', and the worker
+  // claims from there. The gateway therefore carries no moderation state,
+  // which is what makes it safe to restart at any moment.
   commandHandler.start(client);
   logger.info("Command handler started");
 

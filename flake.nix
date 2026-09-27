@@ -185,6 +185,21 @@ export PATH=${pkgs.ffmpeg-headless}/bin:${pkgs.yt-dlp}/bin:\$PATH
 exec ${nodejs}/bin/node dist/index.js
 WRAPPER
             chmod +x $out/bin/gmw-discord-gateway
+
+            # The moderation worker is a SEPARATE PROCESS from the gateway. It
+            # holds no in-memory queue state, so the gateway can restart without
+            # stranding analysis work, and the worker can be scaled by starting
+            # more copies — they contend for the same Postgres rows.
+            #
+            # The VPS systemd unit (gmw-discord-gateway-worker.service) is
+            # defined OUTSIDE this repo; this wrapper is what it ExecStart's.
+            cat > $out/bin/gmw-discord-gateway-worker << WORKER
+#!${pkgs.runtimeShell}
+cd $out/lib/gmw-discord-gateway
+export PATH=${pkgs.ffmpeg-headless}/bin:\$PATH
+exec ${nodejs}/bin/node dist/moderation-worker.js
+WORKER
+            chmod +x $out/bin/gmw-discord-gateway-worker
           '';
 
           meta = {

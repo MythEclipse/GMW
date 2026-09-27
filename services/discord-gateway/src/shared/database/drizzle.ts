@@ -3,6 +3,7 @@ import {
   executeAll as sharedExecAll,
   executeGet as sharedExecGet,
   getDatabase as sharedGetDb,
+  getPool as sharedGetPool,
   initializeDatabase as sharedInit,
   withDatabaseClient as sharedWithClient,
 } from "@/shared/database/init";
@@ -33,6 +34,7 @@ export function getDatabase() {
 }
 
 export const closeDatabase = sharedCloseDb;
+export const getPool = sharedGetPool;
 export const executeAll = sharedExecAll;
 export const executeGet = sharedExecGet;
 export const withDatabaseClient = sharedWithClient;

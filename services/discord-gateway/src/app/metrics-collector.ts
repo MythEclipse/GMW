@@ -1,77 +1,73 @@
 import type { Logger } from "@/shared/logger/index.js";
 import {
-  getAnalysisQueueStatus,
-  mediaWorkerPool,
-  textWorkerPool,
-} from "../modules/ai-moderation/index.js";
-import {
   registerCollector,
   setGauge,
 } from "../modules/gateway-metrics/index.js";
 import { config } from "../shared/config/index.js";
-
-/** Piscina exposes its live thread counters on `_poolState`. */
-type PoolState = { _poolState?: { size: number; active: number } };
+import { getPool } from "../shared/database/drizzle.js";
 
 /**
- * Registers the AI-pipeline Prometheus gauges.
+ * Queue metrics, read from Postgres instead of process memory.
  *
- * The collector refreshes on every scrape, so Prometheus sees real queue
- * depth / concurrency / worker-thread state instead of an empty stub.
- * Registered before the metrics server starts.
+ * ## Why this queries the database
+ *
+ * v1 exported `getAnalysisQueueStatus()` from the scheduler, which answered
+ * from a `Map` of pending conversations plus a few module-level counters.
+ * Those numbers described THIS process only — so a restarted gateway reported
+ * an empty queue while thousands of messages sat in `retry_wait`, and a
+ * second worker was entirely invisible. Every gauge here is now a GROUP BY
+ * over the queue itself, which is both the truth and visible to any process.
+ *
+ * The old gauges (per-lane request depth, Piscina thread counts, circuit
+ * breaker state) are deliberately NOT reimplemented. The lanes, thread pools,
+ * and breaker no longer exist, and a metric with no way to become non-zero is
+ * worse than no metric.
  */
 export function registerPipelineMetrics(logger: Logger): void {
   registerCollector(() => {
     if (!config.AI_ANALYSIS_ENABLED) return;
-    try {
-      const status = getAnalysisQueueStatus();
-      setGauge("ai_analysis_queued_conversations", status.queuedConversations);
-      setGauge("ai_analysis_active_batch_requests", status.activeRequests);
-      setGauge(
-        "ai_analysis_active_text_requests",
-        status.activeTextRequests ?? status.activeRequests,
-      );
-      setGauge(
-        "ai_analysis_active_media_requests",
-        status.activeMediaRequests ?? 0,
-      );
-      setGauge(
-        "ai_analysis_active_individual_requests",
-        status.activeIndividualRequests,
-      );
-      setGauge(
-        "ai_analysis_individual_in_flight",
-        status.individualInFlightCount,
-      );
-      setGauge(
-        "ai_analysis_individual_circuit_breaker_active",
-        status.individualCircuitBreakerActive ? 1 : 0,
-      );
-      if (typeof status.lastError === "string") {
-        setGauge("ai_analysis_last_error_present", status.lastError ? 1 : 0);
-      }
-
-      // Reported per queue (2026-08-31 text/media pool split) so the text
-      // and media backlogs are distinguishable in dashboards/alerts instead
-      // of one combined "worker threads" number.
-      const textPool = textWorkerPool as unknown as PoolState;
-      const mediaPool = mediaWorkerPool as unknown as PoolState;
-      if (textPool._poolState) {
-        setGauge("ai_analysis_worker_threads_text", textPool._poolState.size);
-        setGauge(
-          "ai_analysis_worker_threads_active_text",
-          textPool._poolState.active,
-        );
-      }
-      if (mediaPool._poolState) {
-        setGauge("ai_analysis_worker_threads_media", mediaPool._poolState.size);
-        setGauge(
-          "ai_analysis_worker_threads_active_media",
-          mediaPool._poolState.active,
-        );
-      }
-    } catch (err) {
-      logger.warn({ error: String(err) }, "AI metrics collector failed");
-    }
+    void emitQueueGauges(logger);
   });
+}
+
+async function emitQueueGauges(logger: Logger): Promise<void> {
+  try {
+    const pool = getPool();
+    const { rows } = await pool.query<{ ai_status: string; n: number }>(
+      `SELECT ai_status, count(*)::int AS n
+         FROM messages
+        WHERE deleted_at IS NULL
+        GROUP BY 1`,
+    );
+
+    const byState = Object.fromEntries(rows.map((r) => [r.ai_status, r.n]));
+
+    // Backlog is work that exists and is not yet finished. `claimed` counts:
+    // those rows are being actively worked, not lost.
+    setGauge(
+      "moderation_queue_backlog",
+      (byState.pending ?? 0) + (byState.claimed ?? 0),
+    );
+    setGauge("moderation_queue_pending", byState.pending ?? 0);
+    setGauge("moderation_queue_claimed", byState.claimed ?? 0);
+    setGauge("moderation_queue_retry_wait", byState.retry_wait ?? 0);
+    setGauge("moderation_queue_analyzed", byState.analyzed ?? 0);
+    // `dead` is the actionable number: messages only a human can resolve.
+    setGauge("moderation_queue_dead", byState.dead ?? 0);
+
+    // Overdue retries. A sustained non-zero value means the LLM endpoint is
+    // failing and the queue is filling up behind it.
+    const { rows: overdue } = await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n
+         FROM messages
+        WHERE ai_status = 'retry_wait'
+          AND ready_for_work_at <= (extract(epoch FROM now()) * 1000)::bigint
+          AND deleted_at IS NULL`,
+    );
+    setGauge("moderation_queue_retry_overdue", overdue[0]?.n ?? 0);
+  } catch (err) {
+    // A metrics scrape must never take the process down — and must not log on
+    // every scrape either, since this runs on the Prometheus interval.
+    logger.debug({ err }, "moderation queue metrics unavailable");
+  }
 }
