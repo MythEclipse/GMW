@@ -189,6 +189,43 @@ function emptyStats(): WorkerStats {
   };
 }
 
+async function generateVisionDescription(
+  pool: Pool,
+  message: ClaimedMessage,
+): Promise<string> {
+  // Lazy-import the config first so validation runs before anything
+  // else, then the DB class and the LLM client.
+  const { config } = await import("../../shared/config/index.js");
+  const { createDefaultGateway } = await import("./llmGateway.js");
+  try {
+    const vision = createDefaultGateway();
+    // AttachmentsDb needs a NodePgDatabase; the worker only holds
+    // a Pool. Query attachments directly — same columns.
+    const rows = await pool.query<{ discord_url: string | null }>(
+      `SELECT discord_url FROM attachments WHERE message_id = $1`,
+      [message.id],
+    );
+    if (!rows.rows.length) return "";
+    const urls = rows.rows
+      .map((a) => a.discord_url ?? "")
+      .filter((u): u is string => typeof u === "string" && u.length > 0);
+    if (!urls.length) return "";
+    const description = await vision.complete({
+      system:
+        "You are an image description assistant. Describe each image in one short objective sentence. Output only a JSON array of strings, one per image, in the same order. Do not explain, do not judge, do not add commentary.",
+      user: `Describe these ${urls.length} image(s). URLs: ${urls.join(" ")}`,
+      timeoutMs: config.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS,
+    });
+    return `\n[Media description: ${description}]\n`;
+  } catch (e) {
+    log.warn(
+      { messageId: message.id, error: String(e) },
+      "Failed to generate vision description — analyzing on text only",
+    );
+    return "";
+  }
+}
+
 export class ModerationWorker {
   private readonly pool: Pool;
   private readonly llm: LlmGateway;
@@ -311,6 +348,21 @@ export class ModerationWorker {
   }
 
   /** Build the prompt, call the model, parse. Throws only on transport failure. */
+/**
+ * Describe each attached image/sticker/video with the vision model.
+ *
+ * The moderation LLM needs a text description of what the media
+ * contains before it can decide whether the message violates
+ * server policy. Without this, image-only messages have no evidence
+ * to judge and default to clean. This runs the vision model once
+ * per message with attachments and returns the description text
+ * that the moderation prompt inserts before the message body.
+ *
+ * Failures here are non-fatal: the message still gets analyzed on
+ * its text, and the missing description is noted in the trace.
+ */
+
+
   private async analyze(messages: ClaimedMessage[]): Promise<ParseBatchResult> {
     const requestedIds = messages.map((m) => m.id);
     const hasMedia = messages.some((m) => m.hasMedia);
@@ -320,6 +372,14 @@ export class ModerationWorker {
     const body = messages
       .map((m) => {
         const who = m.username ? `${m.username} (${m.authorId})` : m.authorId;
+        // Image descriptions from the vision model are prepended so
+        // the moderation LLM can judge media even when the message
+        // has no text. Generated here because the gateway already
+        // holds the attachment URL and the policy dispatches in
+        // "mixed" mode when hasMedia is true.
+        const vision = m.hasMedia
+          ? generateVisionDescription(this.pool, m)
+          : "";
         // NOTE: only the CONTENT is sanitised. The id/author/ts attributes are
         // structured data we generate, and passing the id through
         // sanitizeAiContent would wrap it in <![CDATA[…]]> — which breaks the

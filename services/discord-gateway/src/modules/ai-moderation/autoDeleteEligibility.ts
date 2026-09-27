@@ -231,10 +231,7 @@ export function isEligibleForAutoDelete(
     );
   } else {
     const recommendedAction = deriveRecommendedAction(message, verdict);
-    if (
-      recommendedAction !== "delete" &&
-      recommendedAction !== "escalate"
-    ) {
+    if (recommendedAction !== "delete" && recommendedAction !== "escalate") {
       logger.debug(
         { messageId: message.id, recommendedAction },
         "Message eligible for auto-delete: warn + monitor/review/warn is still actionable",

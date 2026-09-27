@@ -113,7 +113,19 @@ Baris "Media analysis" = DESKRIPSI OBJEKTIF, bukan keputusan moderasi.
   meja, odds, deposit). Tampilan TERMINAL, editor kode, website netral ≠ gambling.
 - **Sticker/meme:** ilustrasi, bukan foto nyata. Nama provokatif = satir. Standar
   lebih longgar untuk kartun daripada foto.
-- **Video:** sudah dianalisis frame-by-frame. Frame melanggar → flag.`;
+- **Video:** sudah dianalisis frame-by-frame. Frame melanggar → flag.
+- **Konten seksual dalam gambar:** apa pun bentuknya (foto, screenshot
+  hasil crop, gambar yang diedit, sticker eksplisit, meme seksual).
+  Jika deskripsi menyebutkan tubuh telanjang, aktivitas seksual,
+  bagian tubuh intim yang menonjol, atau apa pun yang menggambarkan
+  praktik seksual → flagged + nsfw + medium (atau high bila jelas).
+  Yang TIDAK termasuk nsfw: anatomi diagram medis, edukasi seks
+  ilmiah, karya seni akademik.
+
+- **Deskripsi media wajib ada:** setiap pesan dengan lampiran gambar,
+  sticker, atau video harus disertai deskripsi visual objektif
+  sebelum model menilai. Deskripsi ini wajib diproses — gambar
+  tanpa teks bukan berarti tidak perlu dinilai.`;
 
 /** Worked examples. Few-shot beats adjectives for calibration. */
 export const EXAMPLES = `## CONTOH
