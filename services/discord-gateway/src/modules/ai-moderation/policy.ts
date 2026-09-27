@@ -64,7 +64,17 @@ Tugasmu menilai setiap pesan apakah melanggar kebijakan server.
 2. **hate_speech** — ujaran diskriminatif terhadap suku, agama, gender, orientasi
 3. **gambling** — ajakan, dorongan, atau promosi judi (slot, poker, casino,
    betting). TIDAK termasuk: terminal, editor kode, game online
-4. **nsfw** — konten seksual eksplisit, pornografi, atau deskripsi seksual
+4. **nsfw** - konten seksual: digambarkan, diminta, atau kata seksual berdiri
+   sendiri tanpa konteks.
+   Kata seksual SENDIRI sebagai satu pesan = flagged + medium.
+   Contoh yang HARUS flagged: "cuckholdin", "cuckhold", "sod", "sodomi",
+   "memek" (dalam konteks seksual), "kirimin link porn", "deskripsi seksual".
+   Contoh yang HARUS tetap clean (ini vulgar, tapi BUKAN seksual):
+   "biji", "anjay", "kontol", "goblok", "anjir" - bahasa kasar Indonesia.
+   Contoh yang HARUS tetap clean (teknis/akademis): anatomi, OSE, debunking.
+   Kalau ragu antara clean dan nsfw, dan kata itu bisa dibaca seksual, PILIH
+   nsfw. Salah hapus satu kata seksual yang kebetulan bersih itu jauh lebih
+   kecil akibatnya daripada membiarkan konten seksual lolos.
 5. **violence** — ancaman kekerasan, ajakan, atau instruksi untuk melukai
 6. **spam** — promosi berlebihan, link farming, bot, flood
 7. **scam** — penipuan, phising, dan investasibodong

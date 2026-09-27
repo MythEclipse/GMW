@@ -16,8 +16,8 @@ import {
   deriveSeverity,
   isEligibleForAutoDelete,
   isNicknameOnlyViolation,
-  parseStringList,
   type MessageLike,
+  parseStringList,
   type VerdictLike,
 } from "../src/modules/ai-moderation/autoDeleteEligibility.js";
 
@@ -185,15 +185,15 @@ describe("isEligibleForAutoDelete", () => {
   });
 
   test("a clean message is never eligible", () => {
-    expect(
-      isEligibleForAutoDelete(msg(), verdict({ status: "clean" })),
-    ).toBe(false);
+    expect(isEligibleForAutoDelete(msg(), verdict({ status: "clean" }))).toBe(
+      false,
+    );
   });
 
   test("an error verdict is never eligible", () => {
-    expect(
-      isEligibleForAutoDelete(msg(), verdict({ status: "error" })),
-    ).toBe(false);
+    expect(isEligibleForAutoDelete(msg(), verdict({ status: "error" }))).toBe(
+      false,
+    );
   });
 
   // The regression this guards: an `analyzed` message with a flagged verdict

@@ -21,9 +21,9 @@ describe("isAlreadyDeletedError", () => {
 
   it("treats MESSAGE_ID_NOT_FOUND as already gone", () => {
     expect(isAlreadyDeletedError({ code: "MESSAGE_ID_NOT_FOUND" })).toBe(true);
-    expect(
-      isAlreadyDeletedError({ code: "MESSAGE_ID_NOT_FOUND_TYPE" }),
-    ).toBe(true);
+    expect(isAlreadyDeletedError({ code: "MESSAGE_ID_NOT_FOUND_TYPE" })).toBe(
+      true,
+    );
   });
 
   it("reads the code out of the nested discord.js error shape", () => {

@@ -21,7 +21,7 @@
  * order, the dry-run behaviour, the nickname-reset carve-out, the role-hierarchy
  * guard and the audit columns are all preserved.
  */
-import type { Client, PermissionString } from "discord.js-selfbot-v13";
+import type { Client, Guild, PermissionString } from "discord.js-selfbot-v13";
 import { LRUCache } from "lru-cache";
 import { config } from "../../shared/config/index.js";
 import { createChildLogger } from "../../shared/logger/index.js";
@@ -33,7 +33,7 @@ import {
   type MessageLike,
   type VerdictLike,
 } from "./autoDeleteEligibility.js";
-import { logDeletionToChannel } from "./autoDeleteLogger.js";
+import { logAlreadyDeleted, logDeletionToChannel } from "./autoDeleteLogger.js";
 import { sendDeletionNotification } from "./autoDeleteNotify.js";
 import { createDefaultGateway } from "./llmGateway.js";
 import { verdictToActionFields } from "./verdictToActionFields.js";
@@ -422,6 +422,10 @@ export async function attemptAutoDeleteFlaggedMessage(
   }
 
   // ── Deletion flow ────────────────────────────────────────────────
+  // Hoisted out of the try so the catch branch can report the channel even
+  // when resolution itself is what failed.
+  const channelId = message.thread_id ?? message.channel_id;
+  let guild: Guild | undefined;
   try {
     // Resolve the guild and channel, fetching from Discord only if they are
     // not already cached.
@@ -431,7 +435,7 @@ export async function attemptAutoDeleteFlaggedMessage(
     // for a channel the account never interacts with, and the first version
     // retried that message every 5s forever. A fetch is the correct answer
     // here: the user account is a member, so it can read the channel list.
-    const guild = client.guilds.cache.get(message.guild_id);
+    guild = client.guilds.cache.get(message.guild_id);
     if (!guild) {
       logger.warn(
         { messageId: message.id, guildId: message.guild_id },
@@ -440,7 +444,6 @@ export async function attemptAutoDeleteFlaggedMessage(
       return { deleted: false, skipped: true, reason: "guild_not_found" };
     }
 
-    const channelId = message.thread_id ?? message.channel_id;
     let channel = guild.channels.cache.get(channelId);
     if (!channel) {
       try {
@@ -534,15 +537,23 @@ export async function attemptAutoDeleteFlaggedMessage(
     return result;
   } catch (error) {
     if (isAlreadyDeletedError(error)) {
+      // The message is gone, but not by us. A human moderator, another bot, or
+      // Discord's own retention removed it between our verdict and this
+      // attempt. That is worth a line in the mod log: it is the difference
+      // between "the system deleted this" and "someone beat us to it", and
+      // without it the audit log looks like the system silently did nothing.
       logger.info(
-        { messageId: message.id },
-        "Message already gone from Discord — treating as deleted",
+        { messageId: message.id, channelId },
+        "Message already gone from Discord (deleted by someone else) — treating as deleted",
       );
       const result: AutoDeleteResult = {
         deleted: true,
         skipped: false,
         reason: "already_deleted",
       };
+      if (guild) {
+        await logAlreadyDeleted(guild, message, verdict, channelId);
+      }
       await logAutoDeleteAttempt(message, verdict, result);
       return result;
     }
