@@ -21,6 +21,7 @@ import {
 } from "../shared/database/drizzle.js";
 import { runMigrations } from "../shared/database/migrate.js";
 import { createDiscordClientOptions } from "../shared/discord/clientOptions.js";
+import { startAutoDeleteEnforcer } from "../modules/ai-moderation/autoDeleteEnforcer.js";
 import { startGatewayLifecycle } from "./lifecycle.js";
 import { registerPipelineMetrics } from "./metrics-collector.js";
 import { registerProcessGuards } from "./process-guards.js";
@@ -122,6 +123,10 @@ export async function initializeDiscordGateway() {
       commandHandler,
       logger,
     });
+    // Enforcement needs a live client, so it starts only once logged in. It
+    // polls the verdicts the worker wrote — the gateway never waits on the
+    // worker, and the worker never waits on the gateway.
+    startAutoDeleteEnforcer(client);
   });
 
   client.on("error", (err) => {

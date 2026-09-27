@@ -207,6 +207,41 @@ Two things only rehearsal caught:
   files and silently skipped the migration. Verify the entry is on disk and
   that `readMigrationFiles` sees the new `folderMillis`.
 
+## Auto-delete was dead for the whole rewrite
+
+The rewrite deleted 894 lines of enforcement — `autoDeleteManager.ts` (562),
+`autoDeleteEligibility.ts` (271), `autoDeleteLogger.ts` (61),
+`autoDeleteNotify.ts` (50) — and left the config, the `msg.delete()` call and
+the `MANAGE_MESSAGES` check behind with nothing calling them. Nothing broke;
+nothing logged. `messages.deleted_at` simply stopped moving, and every flagged
+message stayed standing in Discord.
+
+The old manager ran inside the AI pipeline. The rewrite made the worker a
+separate process with a database pool and no Discord client, so there was no
+longer anywhere for a delete to happen. The enforcement modules were ported
+back with the judgement input changed from `messages.ai_status` to the
+`verdicts` row, and the decision moved to the gateway, which is where the
+client lives.
+
+**The poll, and why not an event.** The worker does not publish to Redis, and
+adding that would re-couple the two processes the split was meant to separate.
+So the gateway polls `verdicts` every 5s. The dependency direction is
+unchanged: the gateway reads what the worker wrote, and neither waits on the
+other.
+
+**A sentinel, not a timestamp.** Re-reading recent rows by `created_at` would
+re-delete after every restart and require guessing a lookback window. Instead
+`0022` adds `verdicts.auto_delete_state` (NULL → pending → claimed → done /
+failed). Claiming stamps `claimed` in the same UPDATE that selects the row,
+with `FOR UPDATE SKIP LOCKED`, so two gateways cannot both act on one message
+and a crash mid-batch is recovered by re-queueing claims older than 60s.
+
+A real bug surfaced while porting: the "high/critical severity is always a
+delete" rule was written as `status === 'flagged' && severity in (high,
+critical)`, which left a `warn` verdict at high severity keeping the model's
+conservative `recommended_action: "review"` and so never being deleted. The
+guard belongs on severity alone.
+
 ## Backend and frontend read the new data
 
 Both services still spoke the pre-rewrite vocabulary. Nothing errored — every

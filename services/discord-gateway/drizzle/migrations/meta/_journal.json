@@ -148,6 +148,13 @@
       "when": 1788003600000,
       "tag": "0021_backfill_legacy_verdicts",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788086400000,
+      "tag": "0022_enforce_verdicts",
+      "breakpoints": true
     }
   ]
 }
