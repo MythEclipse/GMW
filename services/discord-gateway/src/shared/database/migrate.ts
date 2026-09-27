@@ -130,12 +130,23 @@ export async function seedDrizzleHistory(client: PoolClient): Promise<void> {
   // ai_status state machine. `ai_status` looked present only because v1 had
   // an unrelated column of that name.
   //
-  // The test below checks 0020's actual objects: a column unique to it
-  // (`messages.lease_until`) plus both new tables. If they exist, 0020 really
-  // ran and the reconcile is safe; if any is missing, Drizzle must apply it.
+  // A MIGRATION'S SENTINEL MUST TEST THAT MIGRATION, NOT AN OLDER ONE.
+  //
+  // Hardcoding the newest migration's objects here has now failed twice:
+  //   - it tested 0020's objects, so a database where 0020 had run but 0021's
+  //     data backfill had not reported "at latest", 0021 got stamped as
+  //     applied without running, and 48,290 messages stayed "unjudged";
+  //   - after adding 0021's effect, 0022 was added and the sentinel did not
+  //     know about it, so the same thing happened again: 0022 was recorded as
+  //     applied and the auto-delete columns it adds do not exist.
+  //
+  // So the objects are listed per migration below, and ANY one of them missing
+  // means the newest migration is not really applied. Adding a migration means
+  // adding its objects here — which is the point: a migration nobody thought
+  // about should not be able to be silently stamped.
   const atLatest = await client.query(`
     SELECT
-      -- 0020's own objects: a column unique to it plus both new tables.
+      -- 0020: a column unique to it, plus both new tables.
       EXISTS (
         SELECT FROM information_schema.columns
         WHERE table_name = 'messages' AND column_name = 'lease_until'
@@ -148,16 +159,19 @@ export async function seedDrizzleHistory(client: PoolClient): Promise<void> {
         SELECT FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'analysis_attempts'
       )
-      -- 0021's own effect. It is DATA-ONLY: it creates no table, column or
-      -- function, so testing 0020's objects alone made this sentinel report
-      -- "at latest" on a database where the backfill had never run. The
-      -- reconciler then stamped 0021 as applied without executing it, and
-      -- 48,290 messages stayed permanently "unjudged" — the exact failure this
-      -- sentinel exists to prevent, one migration later.
-      --
-      -- The test is "no judged message is missing its verdict", which is
-      -- precisely what 0021 delivers. It is vacuously true on a database with
-      -- no judged messages, which is the correct answer there.
+      -- 0022: both enforcement columns on verdicts.
+      AND EXISTS (
+        SELECT FROM information_schema.columns
+        WHERE table_name = 'verdicts' AND column_name = 'auto_delete_state'
+      )
+      AND EXISTS (
+        SELECT FROM information_schema.columns
+        WHERE table_name = 'verdicts' AND column_name = 'auto_delete_claimed_at'
+      )
+      -- 0021 is DATA-ONLY: it creates no object, so nothing above can detect
+      -- it. Its sentinel is the absence of the state it was written to fix —
+      -- a judged message with no verdict row. Vacuously true where there is
+      -- nothing to judge, which is the correct answer there.
       AND NOT EXISTS (
         SELECT 1
         FROM messages m
