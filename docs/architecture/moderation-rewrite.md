@@ -149,6 +149,56 @@ Recorded because the tests that caught them are the reason to trust the rest.
   `hasMediaContent(message)` with no attachments, so the media lane never fired.
 - The migration must backfill **before** adding the CHECK constraint.
 
+## Following one message through the pipeline
+
+The audit that produced the trace module: over 12 minutes of production
+running, the worker emitted **one** log line, and it was a failure. There was
+no way to ask "where is this message?" or "how long did it take?".
+
+Every stage now logs the same `trace` id (the last 12 characters of the
+message id), so one grep returns a message's whole life in order:
+
+```
+scripts/trace-message.sh                    # current activity
+scripts/trace-message.sh <message-id>        # one message, all stages
+scripts/trace-message.sh <message-id> --wide # + raw model request/response
+```
+
+Real output:
+
+```
+claimed        tr-1        5.0s                     <- sat in queue 5s
+claimed-batch  tr-1        count=3
+llm            tr-1        1ms model=stub-model     <- model call
+parsed         tr-1        ok=3 errored=0 missing=0
+verdict        tr-1        5.0s status=clean attempts=1 score=0.01
+cycle          tr-1        16ms count=3
+```
+
+Stages: `captured` (gateway) → `claimed` → `llm` → `parsed` → `verdict`,
+with `requeued` / `dead` for the unhappy paths. `waitHuman` is queue latency,
+`durationHuman` is the model call, `elapsedHuman` is capture-to-verdict, and
+`cycleHuman` is total wall time for the batch. Per-message lines are `debug`
+(the default production level hides them); batch lines are `info` so a normal
+log still shows throughput. `LOG_LEVEL=debug` turns on the raw model
+request/response, which is the only way to diagnose a parse failure.
+
+`tests/trace-e2e.mjs` asserts the trace is actually *followable* — every stage
+present, in order, and timed — rather than merely present. 28 checks.
+
+### Bugs the tracing itself exposed
+
+- **`attempts` was always logged as 0.** The claim read `m.attempts` from a
+  re-join of `messages` inside the same statement, which sees the pre-UPDATE
+  snapshot — so it was always one behind the increment `claim_messages()`
+  performs. Now read from the function's own `RETURNING` row. This also meant
+  the `analysis_attempts` log recorded attempt 1 for every retry. Two unit
+  tests now pin the counter advancing 1, 2, 3.
+- **`ClaimedMessage.createdAt` was typed `Date`.** `messages.created_at` is a
+  bigint and node-postgres returns bigint as a *string*, so the type was simply
+  false.
+- **`analysis_attempts.attempt` was hardcoded to `1`.**
+
 ## Still open
 
 - **The backend executes no commands.** `publishCommandNoReply` is imported once

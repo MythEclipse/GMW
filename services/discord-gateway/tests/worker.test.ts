@@ -291,6 +291,48 @@ describe("moderation worker state machine", () => {
     expect(await statesOf()).toEqual({ analyzed: 2, pending: 2 });
   });
 
+  test("a claimed message reports its post-increment attempt number", async () => {
+    if (!reachable) return expect(true).toBe(true);
+    await seed(2);
+    const gw = scriptedGateway((req) => responseFor(req));
+    const w = new ModerationWorker(pool as never, gw, cfg());
+
+    await w.runOnce();
+
+    // attempts MUST be read from claim_messages()' own RETURNING row. Reading
+    // it from a re-join of `messages` inside the same statement sees the
+    // pre-UPDATE snapshot, so it is always one behind — which made every
+    // attempt log line claim attempt 0.
+    const { rows } = await pool.query<{ id: string; attempts: number }>(
+      "SELECT id, attempts FROM messages WHERE id LIKE 'w-%' ORDER BY id",
+    );
+    expect(rows.map((r) => r.attempts)).toEqual([1, 1]);
+  });
+
+  test("a retried message reports an increasing attempt number", async () => {
+    if (!reachable) return expect(true).toBe(true);
+    await seed(1);
+    const w = new ModerationWorker(
+      pool as never,
+      scriptedGateway(() => "not json"),
+      cfg({ maxAttempts: 4 }),
+    );
+
+    // Read AFTER each run: the increment happens inside claim_messages(), so
+    // the value observed post-run is the attempt just consumed.
+    const seen: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      await pool.query("UPDATE messages SET ready_for_work_at = 0");
+      await w.runOnce();
+      const { rows } = await pool.query<{ attempts: number }>(
+        "SELECT attempts FROM messages LIMIT 1",
+      );
+      seen.push(rows[0].attempts);
+    }
+
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
   test("the attempt cap bounds total LLM spend on a poisoned message", async () => {
     if (!reachable) return expect(true).toBe(true);
     await seed(1);

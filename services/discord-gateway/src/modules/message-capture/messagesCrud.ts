@@ -1,5 +1,6 @@
 import { and, desc, eq, or, type SQL } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { traceId } from "@/modules/ai-moderation/trace";
 import { createChildLogger, type Logger } from "@/shared/logger/index";
 import type * as schema from "../../shared/database/schema.js";
 import {
@@ -69,6 +70,36 @@ export class MessagesCrud {
         .values(messageWithAIStatus as MessageInsert)
         .onConflictDoNothing()
         .returning({ id: messagesTable.id });
+
+      // Stage 1 of the trace. `inserted` distinguishes a genuinely new message
+      // from a re-delivery (edits, gateway reconnects replaying history), which
+      // is the difference between "queued for analysis" and "already known" —
+      // worth one line, because a duplicate-delivery storm looks exactly like a
+      // capture failure otherwise.
+      if (rows.length > 0) {
+        this.logger.info(
+          {
+            trace: traceId(message.id),
+            messageId: message.id,
+            stage: "captured",
+            channelId: message.channel_id,
+            authorId: message.user_id,
+            contentChars: (message.content ?? "").length,
+            inserted: true,
+          },
+          "message captured; queued for analysis",
+        );
+      } else {
+        this.logger.debug(
+          {
+            trace: traceId(message.id),
+            messageId: message.id,
+            stage: "captured",
+            inserted: false,
+          },
+          "message already stored; not re-queued",
+        );
+      }
 
       return rows.length > 0;
     } catch (error) {

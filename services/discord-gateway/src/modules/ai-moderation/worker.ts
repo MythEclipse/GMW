@@ -29,6 +29,16 @@ import type { Pool, PoolClient } from "pg";
 import { createChildLogger } from "@/shared/logger/index";
 import type { LlmGateway } from "./llmGateway.js";
 import { buildSystemPrompt, POLICY_VERSION } from "./policy.js";
+import {
+  logBatchResult,
+  logClaimed,
+  logCycle,
+  logLlmDone,
+  logMessageRequeued,
+  logParked,
+  logVerdictWritten,
+  traceId,
+} from "./trace.js";
 import type { ParseBatchResult, ParsedVerdict } from "./verdictParser.js";
 import { parseVerdicts } from "./verdictParser.js";
 
@@ -48,7 +58,15 @@ export type ClaimedMessage = {
   channelId: string;
   authorId: string;
   content: string;
-  createdAt: Date;
+  /**
+   * `messages.created_at` is a bigint of epoch MILLISECONDS, and node-postgres
+   * returns bigint as a STRING. This was typed `Date`, which is simply false —
+   * anything calling `.toISOString()` on it would have thrown at runtime. It is
+   * a string here, and `isoFromEpoch` / `toEpochMs` convert it where needed.
+   */
+  createdAt: string;
+  /** Incremented by `claim_messages()` at claim time, so it counts this try. */
+  attempts: number;
   username: string | null;
   /** True when the message has at least one attachment row. */
   hasMedia: boolean;
@@ -196,11 +214,18 @@ export class ModerationWorker {
 
   /** Claim work, process it, write verdicts. Returns false when drained. */
   async runOnce(): Promise<boolean> {
+    const cycleStart = Date.now();
     const messages = await this.claim();
     if (messages.length === 0) return false;
 
     this.stats.batches += 1;
     this.stats.claimed += messages.length;
+
+    // Snapshot the counters so the heartbeat reports THIS cycle, not the
+    // process lifetime. A monotonic total is useless for spotting a batch
+    // that suddenly gets slow.
+    const before = { ...this.stats };
+    const trace = traceId(messages[0].id);
 
     let result: ParseBatchResult;
     try {
@@ -212,6 +237,7 @@ export class ModerationWorker {
       // instead of retrying forever.
       this.stats.llmErrors += 1;
       await this.handleLlmFailure(messages, e);
+      this.logCycle(before, cycleStart, trace, messages.length);
       return true;
     }
 
@@ -221,11 +247,34 @@ export class ModerationWorker {
         messages,
         new Error(result.batchError ?? "unparseable response"),
       );
+      this.logCycle(before, cycleStart, trace, messages.length);
       return true;
     }
 
     await this.persist(messages, result);
+    this.logCycle(before, cycleStart, trace, messages.length);
     return true;
+  }
+
+  /** Emit one heartbeat per cycle with this cycle's deltas, not lifetime totals. */
+  private logCycle(
+    before: WorkerStats,
+    cycleStart: number,
+    trace: string,
+    count: number,
+  ): void {
+    logCycle({
+      workerId: this.workerId,
+      trace,
+      count,
+      claimed: this.stats.claimed - before.claimed,
+      analyzed: this.stats.analyzed - before.analyzed,
+      retried: this.stats.retried - before.retried,
+      dead: this.stats.dead - before.dead,
+      skipped: this.stats.skipped - before.skipped,
+      llmErrors: this.stats.llmErrors - before.llmErrors,
+      cycleMs: Date.now() - cycleStart,
+    });
   }
 
   private async claim(): Promise<ClaimedMessage[]> {
@@ -234,6 +283,11 @@ export class ModerationWorker {
     // (analysisLanes.ts:17 called hasMediaContent(message) with no attachments
     // argument at all), which is why lane assignment disagreed with the
     // orchestrator and media landed in the text lane.
+    // `attempts` MUST come from the function's own RETURNING row, not from a
+    // re-read of `messages`. Inside that one statement the join sees the
+    // pre-UPDATE snapshot, so `m.attempts` is always one behind — the
+    // increment claim_messages() performs is only visible to a later
+    // statement. Reading it from `c` gives the post-increment value.
     const { rows } = await this.pool.query<ClaimedMessage>(
       `SELECT m.id,
               m.guild_id      AS "guildId",
@@ -242,6 +296,7 @@ export class ModerationWorker {
               m.content,
               m.created_at    AS "createdAt",
               m.username      AS "username",
+              c.attempts::int AS "attempts",
               (a.n IS NOT NULL) AS "hasMedia"
          FROM claim_messages($1, $2, $3) AS c
          JOIN messages m ON m.id = c.id
@@ -251,6 +306,7 @@ export class ModerationWorker {
          ) a ON a.message_id = m.id`,
       [this.workerId, this.config.claimBatchSize, this.config.leaseMs],
     );
+    if (rows.length > 0) logClaimed(this.workerId, rows);
     return rows;
   }
 
@@ -283,13 +339,44 @@ export class ModerationWorker {
       `Analisis ${messages.length} pesan berikut dan kembalikan JSON ` +
       `dengan satu entri per message_id di dalam field results.\n\n${body}`;
 
+    const llmStart = Date.now();
     const raw = await this.llm.complete({
       system,
       user: userPrompt,
       timeoutMs: this.config.llmTimeoutMs,
     });
+    const llmMs = Date.now() - llmStart;
 
-    return parseVerdicts(raw, requestedIds, 1);
+    // The batch's trace id is the FIRST message's id. That is deliberate: one
+    // grep for it returns this whole model call, and `ids` below lists every
+    // message that went into it, so the sibling ids are discoverable from the
+    // same line.
+    const trace = traceId(messages[0].id);
+    logLlmDone({
+      trace,
+      batchSize: messages.length,
+      model: this.llm.modelLabel ?? "unknown",
+      durationMs: llmMs,
+      promptChars: system.length + userPrompt.length,
+      completionChars: raw.length,
+      streamed: true,
+      content: raw,
+      ids: messages.map((m) => traceId(m.id)),
+    });
+
+    const parseStart = Date.now();
+    const result = parseVerdicts(raw, requestedIds, 1);
+    logBatchResult({
+      trace,
+      requested: requestedIds.length,
+      ok: result.verdicts.length,
+      errored: result.verdicts.filter((v) => v.status === "error").length,
+      missing: result.missing.length,
+      batchFailed: result.batchFailed,
+      batchError: result.batchError,
+      durationMs: Date.now() - parseStart,
+    });
+    return result;
   }
 
   /**
@@ -325,6 +412,17 @@ export class ModerationWorker {
             WHERE id = ANY($1::text[]) AND ai_status = 'claimed' AND worker_id = $2`,
           [result.missing, this.workerId],
         );
+        for (const id of result.missing) {
+          const msg = byId.get(id);
+          logMessageRequeued({
+            trace: traceId(id),
+            messageId: id,
+            reason: "omitted_by_model",
+            detail: "the model returned no verdict for this message",
+            attempts: msg ? msg.attempts : null,
+            createdAt: msg?.createdAt,
+          });
+        }
       }
 
       await client.query("COMMIT");
@@ -381,7 +479,10 @@ export class ModerationWorker {
       [
         msg.id,
         this.workerId,
-        1,
+        // The real attempt number, which claim_messages() already incremented.
+        // Hardcoding 1 made the attempt log useless for spotting a message
+        // that keeps failing on retry.
+        msg.attempts,
         isError ? "parse_error" : "success",
         v.perMessageError ?? null,
         v.perMessageError ? v.analysis : null,
@@ -401,6 +502,17 @@ export class ModerationWorker {
 
     if (isError) this.stats.skipped += 1;
     else this.stats.analyzed += 1;
+
+    logVerdictWritten({
+      trace: traceId(msg.id),
+      messageId: msg.id,
+      status: isError ? "error" : v.status,
+      recommendedAction: v.recommendedAction,
+      score: v.score,
+      attempts: msg.attempts,
+      createdAt: msg.createdAt,
+      perMessageError: v.perMessageError ?? null,
+    });
   }
 
   /**
@@ -412,9 +524,26 @@ export class ModerationWorker {
     error: unknown,
   ): Promise<void> {
     const detail = error instanceof Error ? error.message : String(error);
+    // Every id in the failed batch, so the operator can grep any ONE of them and
+    // find the model call that killed it. This is the line that makes a stuck
+    // message traceable back to a single bad API response.
     log.warn(
-      { workerId: this.workerId, count: messages.length, err: detail },
+      {
+        workerId: this.workerId,
+        trace: traceId(messages[0].id),
+        stage: "llm-failed",
+        count: messages.length,
+        ids: messages.map((m) => traceId(m.id)),
+        attempts: messages.map((m) => m.attempts),
+        err: detail,
+      },
       "LLM batch failed; rescheduling with backoff",
+    );
+    // The raw text is the whole diagnosis for a parse failure ("no results
+    // array", "unexpected token <"), and it is invisible at info level.
+    log.debug(
+      { trace: traceId(messages[0].id), stage: "llm-failed-raw", err: detail },
+      "failure detail for the failed batch",
     );
 
     for (const msg of messages) {
@@ -457,10 +586,29 @@ export class ModerationWorker {
           this.llm.modelLabel ?? null,
         ],
       );
-      if (rows[0] && rows[0].attempts >= this.config.maxAttempts) {
+      const attempts = rows[0]?.attempts ?? msg.attempts;
+      const isDead = attempts >= this.config.maxAttempts;
+      if (isDead) {
         this.stats.dead += 1;
+        logParked({
+          trace: traceId(msg.id),
+          messageId: msg.id,
+          attempts,
+          reason: detail.slice(0, 200),
+          createdAt: msg.createdAt,
+        });
       } else {
         this.stats.retried += 1;
+        // Per-message, because "why is this one message still queued?" is the
+        // question that gets asked, and it is unanswerable from a batch line.
+        logMessageRequeued({
+          trace: traceId(msg.id),
+          messageId: msg.id,
+          reason: "llm_failure",
+          detail: detail.slice(0, 200),
+          attempts,
+          createdAt: msg.createdAt,
+        });
       }
     }
   }
