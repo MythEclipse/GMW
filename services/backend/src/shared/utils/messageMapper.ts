@@ -35,6 +35,33 @@ export interface MappedMessage {
   type: string;
   metadata: string | null;
   ai_status: string | null;
+  // Claim/retry bookkeeping from `messages`
+  attempts?: number | null;
+  worker_id?: string | null;
+  lease_until?: number | null;
+  ready_for_work_at?: number | null;
+  // The mapper's OUTPUT names for that bookkeeping — kept under the `ai_`
+  // prefix so existing dashboard code can find them next to ai_status.
+  /** Retry count; the cap is maxAttempts. `dead` means it ran out. */
+  ai_attempts: number | null;
+  /** Worker currently holding the claim lease, if any. */
+  ai_worker_id: string | null;
+  /** Epoch millis when the current claim lease expires. */
+  ai_lease_until: number | null;
+  /** Epoch millis before which the worker must not touch this message. */
+  ai_ready_for_work_at: number | null;
+  // Joined verdict columns (aliased `verdict_*` by the repository)
+  verdict_status?: string | null;
+  verdict_severity?: string | null;
+  verdict_score?: number | null;
+  verdict_confidence?: number | null;
+  verdict_flags?: string[] | null;
+  verdict_categories?: string[] | null;
+  verdict_recommended_action?: string | null;
+  verdict_analysis?: string | null;
+  verdict_evidence?: unknown;
+  verdict_model?: string | null;
+  verdict_updated_at?: number | null;
   ai_moderation_flags: string | null;
   ai_moderation_score: number | null;
   ai_analysis: string | null;
@@ -70,7 +97,34 @@ export function mapMessageRow(row: Record<string, unknown>): MappedMessage {
     deleted_at: (row.deleted_at as number | null) ?? null,
     type: String(row.type ?? "text"),
     metadata: (row.metadata as string | null) ?? null,
+    // Pipeline position, NOT the judgement. `analyzed` only means the worker is
+    // finished with this message. The moderation outcome is `verdict_status`
+    // below, which comes from the `verdicts` table.
     ai_status: (row.ai_status as string | null) ?? null,
+    // Retry bookkeeping, so the dashboard can show stuck work without a second
+    // query. `dead` is the state that means "a human must look at this".
+    ai_attempts: (row.attempts as number | null) ?? null,
+    ai_worker_id: (row.worker_id as string | null) ?? null,
+    ai_lease_until: (row.lease_until as number | null) ?? null,
+    ai_ready_for_work_at: (row.ready_for_work_at as number | null) ?? null,
+    // ── Verdict (from `verdicts`, joined by the repository) ────────────────
+    // null means "not judged yet" — which is now distinguishable from
+    // "judged clean". Before the split those were the same value.
+    verdict_status: (row.verdict_status as string | null) ?? null,
+    verdict_severity: (row.verdict_severity as string | null) ?? null,
+    verdict_score: (row.verdict_score as number | null) ?? null,
+    verdict_confidence: (row.verdict_confidence as number | null) ?? null,
+    verdict_flags: (row.verdict_flags as string[] | null) ?? null,
+    verdict_categories: (row.verdict_categories as string[] | null) ?? null,
+    verdict_recommended_action:
+      (row.verdict_recommended_action as string | null) ?? null,
+    verdict_analysis: (row.verdict_analysis as string | null) ?? null,
+    verdict_evidence: (row.verdict_evidence as unknown) ?? null,
+    verdict_model: (row.verdict_model as string | null) ?? null,
+    verdict_updated_at: (row.verdict_updated_at as number | null) ?? null,
+    // Legacy `messages.ai_*` columns. The new worker writes NOTHING here, so
+    // these stay null for anything analysed after the rewrite; kept for older
+    // rows and existing frontend code paths.
     ai_moderation_flags: (row.ai_moderation_flags as string | null) ?? null,
     ai_moderation_score: (row.ai_moderation_score as number | null) ?? null,
     ai_analysis: (row.ai_analysis as string | null) ?? null,

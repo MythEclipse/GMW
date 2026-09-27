@@ -149,6 +149,36 @@ Recorded because the tests that caught them are the reason to trust the rest.
   `hasMediaContent(message)` with no attachments, so the media lane never fired.
 - The migration must backfill **before** adding the CHECK constraint.
 
+## Backend and frontend read the new data
+
+Both services still spoke the pre-rewrite vocabulary. Nothing errored — every
+query returned zero rows, so the dashboard reported a clean, quiet guild while
+the worker was actively flagging messages. Three separate causes:
+
+1. **`messages.ai_status` no longer holds a judgement.** It is pipeline
+   position (`pending`/`claimed`/`analyzed`/`retry_wait`/`dead`) and the worker
+   only ever writes `analyzed` to it. `ai_status = 'flagged'` matched nothing —
+   18 such filters across six dashboard queries, plus the review queue and the
+   chatbot's "top flagged" tool. The outcome is `verdicts.status`.
+2. **`ai_analysis_runs` and `moderation_actions` are dead tables.** The first
+   was written by the old in-process pipeline (coverage read 0% forever); the
+   second was the gateway's auto-delete log, frozen the moment enforcement moved
+   to the backend. Coverage now reads `analysis_attempts`, which is append-only
+   and records failures too.
+3. **The frontend decided colour from `ai_status` alone.** `aiTone()` tested
+   for `"clean"`/`"warn"`/`"flagged"`, so every analysed message rendered
+   neutral grey. It now takes the verdict first, falling back to pipeline state.
+
+The backend declares `verdicts` and `analysis_attempts` read-only and joins them
+with a **LEFT** join — an inner join would drop the ~48k messages that have no
+verdict, which is most of the table. `findById` also returns
+`analysis_attempts`, because a message that never got a verdict has no row in
+`verdicts` at all and was otherwise undebuggable from the UI.
+
+Three tests assert this against production, because the failure mode is silent:
+`verdict-queries-live.mjs` and `dashboard-verdict-live.mjs` (SQL) and
+`be-verdict-service-live.mjs` (the real repository/service layer, 28 checks).
+
 ## Following one message through the pipeline
 
 The audit that produced the trace module: over 12 minutes of production

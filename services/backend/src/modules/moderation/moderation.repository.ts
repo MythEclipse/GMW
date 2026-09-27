@@ -32,18 +32,36 @@ function parseJsonArray(value: unknown): string[] | null {
 }
 
 export class ModerationRepository {
+  /**
+   * Headline moderation counts.
+   *
+   * This used to aggregate `moderation_actions`, the gateway's auto-delete log.
+   * The rewrite removed gateway-side enforcement — deletion and DMs are now the
+   * backend's job — so nothing writes that table any more and it is frozen at
+   * the moment of the cutover. Counting it produced a dashboard that looked
+   * static while moderation was in fact working.
+   *
+   * The live signal is `verdicts` (what the model decided) joined to `messages`
+   * (where each message sits in the pipeline). `executed`/`failed` are kept in
+   * the response so the frontend contract does not change, but they now mean
+   * "actionable vs errored verdict" rather than "action succeeded".
+   */
   async getStats() {
     const db = getDatabase();
     const result = await db.execute(sql`
-      SELECT action_type, status, COUNT(*)::int AS c
-      FROM moderation_actions
-      GROUP BY action_type, status
+      SELECT
+        COALESCE(v.status, 'unjudged') AS status,
+        COALESCE(v.recommended_action, 'none') AS action_type,
+        COUNT(*)::int AS c
+      FROM messages m
+      LEFT JOIN verdicts v ON v.message_id = m.id
+      GROUP BY 1, 2
     `);
 
     const rows = (result.rows as Record<string, unknown>[]) || [];
-    let executed = 0;
-    let failed = 0;
-    let pending = 0;
+    let executed = 0; // verdicts that call for action
+    let failed = 0; // errored verdicts
+    let pending = 0; // nothing concluded yet
 
     const byAction: Record<
       string,
@@ -52,18 +70,19 @@ export class ModerationRepository {
 
     for (const r of rows) {
       const actionType = String(r.action_type ?? "unknown");
-      const status = String(r.status ?? "unknown");
+      const status = String(r.status ?? "unjudged");
       const count = Number(r.c ?? 0);
       byAction[actionType] ??= { executed: 0, failed: 0, pending: 0 };
-      if (status === "executed") {
-        executed += count;
-        byAction[actionType].executed += count;
-      } else if (status === "failed") {
+
+      if (status === "error") {
         failed += count;
         byAction[actionType].failed += count;
-      } else {
+      } else if (status === "unjudged") {
         pending += count;
         byAction[actionType].pending += count;
+      } else {
+        executed += count;
+        byAction[actionType].executed += count;
       }
     }
 
@@ -76,6 +95,32 @@ export class ModerationRepository {
       pending,
       failed_rate: total > 0 ? Number(((failed / total) * 100).toFixed(1)) : 0,
       by_action: byAction,
+    };
+  }
+
+  /**
+   * Queue health from `messages` alone: how much work is outstanding, and how
+   * much of it has been abandoned. `dead` is the only number here that needs a
+   * human — everything else resolves on its own.
+   */
+  async getQueueStats() {
+    const db = getDatabase();
+    const result = await db.execute(sql`
+      SELECT ai_status, COUNT(*)::int AS c
+      FROM messages
+      WHERE ai_status <> 'analyzed'
+         OR deleted_at IS NOT NULL
+      GROUP BY ai_status
+    `);
+    const rows = (result.rows as Record<string, unknown>[]) || [];
+    const byStatus: Record<string, number> = {};
+    for (const r of rows) byStatus[String(r.ai_status)] = Number(r.c ?? 0);
+    return {
+      by_status: byStatus,
+      pending: byStatus.pending ?? 0,
+      claimed: byStatus.claimed ?? 0,
+      retry_wait: byStatus.retry_wait ?? 0,
+      dead: byStatus.dead ?? 0,
     };
   }
 
@@ -347,35 +392,59 @@ export class ModerationRepository {
 
   /**
    * Auto-moderation coverage over the last `days` days.
-   * Run completion rate from ai_analysis_runs — what fraction of analysis runs
-   * completed (vs failed/pending). Public "how much is automated" trust metric.
+   * Attempt success rate from `analysis_attempts` — what fraction of model
+   * calls produced a usable verdict. Public "how much is automated" trust
+   * metric.
+   *
+   * This read `ai_analysis_runs`, which the rewrite dropped: it was written by
+   * the old in-process pipeline and has been permanently empty since, so the
+   * dashboard showed 0% coverage while the worker was in fact running fine.
+   * `analysis_attempts` is append-only and records every attempt — successful
+   * or not — which makes it the honest denominator.
    */
   async getCoverage(days: number) {
     const db = getDatabase();
     const since = Date.now() - days * 24 * 60 * 60 * 1000;
     const result = await db.execute(sql`
-      SELECT status, COUNT(*)::int AS c
-      FROM ai_analysis_runs
+      SELECT outcome, COUNT(*)::int AS c
+      FROM analysis_attempts
       WHERE created_at >= ${since}
-      GROUP BY status
+      GROUP BY outcome
     `);
     const rows = (result.rows as Record<string, unknown>[]) || [];
     const counts: Record<string, number> = {};
     let total = 0;
     for (const r of rows) {
-      const s = String(r.status);
+      const s = String(r.outcome);
       const c = Number(r.c ?? 0);
       counts[s] = c;
       total += c;
     }
-    const completed = counts.completed ?? 0;
-    const failed = counts.failed ?? 0;
-    const pending = (counts.pending ?? 0) + (counts.processing ?? 0);
+    // "Failed" is anything the worker could not turn into a verdict. `duplicate`
+    // is not a failure — the model answered fine, we just discarded a stale
+    // result — so it counts as a success here.
+    const completed = (counts.success ?? 0) + (counts.duplicate ?? 0);
+    const failed =
+      (counts.llm_error ?? 0) +
+      (counts.parse_error ?? 0) +
+      (counts.abandoned ?? 0);
+    // Work still owed: claimed by a worker, or waiting out a retry backoff.
+    const queue = await db.execute(sql`
+      SELECT COUNT(*)::int AS c
+      FROM messages
+      WHERE ai_status IN ('pending', 'claimed', 'retry_wait')
+        AND created_at >= ${since}
+    `);
+    const queueRows = (queue.rows as Record<string, unknown>[]) || [];
+    const pending = Number(queueRows[0]?.c ?? 0);
     return {
       total,
       completed,
       failed,
       pending,
+      // Counts are also exposed per-outcome so the UI can break down
+      // parse failures separately from model timeouts.
+      outcomes: counts,
       coverage_rate:
         total > 0 ? Number(((completed / total) * 100).toFixed(1)) : 0,
       failed_rate: total > 0 ? Number(((failed / total) * 100).toFixed(1)) : 0,

@@ -43,7 +43,7 @@ import {
   useReviewWsSync,
 } from "@/hooks";
 import { useStaggerReveal } from "@/hooks/use-gsap-animation";
-import { aiTone } from "@/lib/ai-status";
+import { aiLabel, aiTone } from "@/lib/ai-status";
 import {
   formatBytes,
   formatDuration,
@@ -58,6 +58,7 @@ import type {
   Guild,
   MessageMetadata,
   MessageRecord,
+  VerdictStatus,
 } from "@/lib/types";
 import { staggerDelay } from "@/lib/utils";
 import { useWebSocket } from "@/lib/ws/context";
@@ -433,32 +434,38 @@ export function MessagesView({
 
 function AiBadge({
   status,
+  verdict,
   durationMs,
 }: {
   status?: AiStatus | null;
+  verdict?: VerdictStatus | null;
   durationMs?: number | null;
 }) {
-  if (!status) return null;
-  const tone = aiTone(status);
+  if (!status && !verdict) return null;
+  // Tone and label both come from the verdict when there is one. Reading only
+  // `status` made every analysed message render neutral grey, because the
+  // worker writes "analyzed" and never "clean"/"warn"/"flagged".
+  const tone = aiTone(verdict, status);
+  const text = aiLabel(verdict, status);
   const icon =
-    status === "clean" ? (
+    verdict === "clean" ? (
       <CheckCircle2 className="size-3" />
-    ) : status === "flagged" ? (
+    ) : verdict === "flagged" ? (
       <ShieldAlert className="size-3" />
-    ) : status === "warn" ? (
+    ) : verdict === "warn" ? (
       <AlertTriangle className="size-3" />
-    ) : status === "processing" || status === "pending" ? (
+    ) : status === "claimed" || status === "pending" ? (
       <Loader2 className="size-3 animate-spin" />
     ) : (
       <AlertTriangle className="size-3" />
     );
   const label =
     durationMs && durationMs > 0
-      ? `${status} · ${formatDuration(durationMs)}`
-      : status;
+      ? `${text} · ${formatDuration(durationMs)}`
+      : text;
 
   return (
-    <Badge tone={tone} dot={status === "processing" || status === "pending"}>
+    <Badge tone={tone} dot={status === "claimed" || status === "pending"}>
       {icon}
       {label}
     </Badge>
@@ -500,8 +507,10 @@ function MessageDetail({
   m: MessageRecord;
   attachments: import("@/lib/types").AttachmentRecord[];
 }) {
-  const flags = safeParseJsonArray(m.ai_moderation_flags);
-  const cats = safeParseJsonArray(m.ai_categories);
+  // Prefer the joined verdict; fall back to the legacy `messages.ai_*` columns
+  // so rows written by the old pipeline still render something.
+  const flags = m.verdict_flags ?? safeParseJsonArray(m.ai_moderation_flags);
+  const cats = m.verdict_categories ?? safeParseJsonArray(m.ai_categories);
   const editHistory =
     (m as { edit_history?: Array<{ old_content: string; edited_at: number }> })
       .edit_history ?? [];
@@ -509,10 +518,11 @@ function MessageDetail({
   const ref = parseMeta(m.metadata)?.reference;
   const mentions = parseMeta(m.metadata)?.mentionedUsers ?? [];
   const mentionRoles = parseMeta(m.metadata)?.mentionedRoles ?? [];
-  const sev = m.ai_severity;
-  const conf = m.ai_confidence;
-  const recAction = m.ai_recommended_action;
-  const score = m.ai_moderation_score;
+  const sev = m.verdict_severity ?? m.ai_severity;
+  const conf = m.verdict_confidence ?? m.ai_confidence;
+  const recAction = m.verdict_recommended_action ?? m.ai_recommended_action;
+  const score = m.verdict_score ?? m.ai_moderation_score;
+  const attempts = m.analysis_attempts ?? [];
 
   return (
     <div className="space-y-3 text-sm">
@@ -539,6 +549,7 @@ function MessageDetail({
         <div className="ml-auto">
           <AiBadge
             status={m.ai_status}
+            verdict={m.verdict_status}
             durationMs={m.ai_analysis_duration_ms}
           />
         </div>
@@ -627,14 +638,78 @@ function MessageDetail({
         </div>
       )}
 
-      {m.ai_analysis && (
+      {(m.verdict_analysis ?? m.ai_analysis) && (
         <div>
           <div className="eyebrow mb-1">AI moderation analysis</div>
           <div className="hud-card p-3 text-xs text-ink-muted leading-relaxed">
-            {m.ai_analysis}
+            {m.verdict_analysis ?? m.ai_analysis}
           </div>
         </div>
       )}
+
+      {/*
+        Attempt history. Rendered whenever there is more than one attempt, or
+        whenever the last one failed — a single successful attempt needs no
+        explanation, but "tried 3 times and still failed" is the single most
+        useful thing to see when judging whether moderation is working.
+      */}
+      {attempts.length > 0 &&
+        (attempts.length > 1 ||
+          attempts[attempts.length - 1]?.outcome !== "success") && (
+          <div>
+            <div className="eyebrow mb-1">
+              Analysis attempts ({attempts.length})
+            </div>
+            <div className="hud-card divide-y divide-ink-faint/30">
+              {attempts.map((a) => (
+                <div
+                  key={`${a.attempt}-${a.created_at}`}
+                  className="flex items-start gap-2 p-2 text-xs"
+                >
+                  <span className="font-mono text-[10px] text-ink-faint w-8 shrink-0">
+                    #{a.attempt}
+                  </span>
+                  <Badge
+                    tone={
+                      a.outcome === "success"
+                        ? "signal"
+                        : a.outcome === "duplicate"
+                          ? "neutral"
+                          : "vermilion"
+                    }
+                    className="font-mono text-[10px] shrink-0"
+                  >
+                    {a.outcome}
+                  </Badge>
+                  <div className="min-w-0 flex-1">
+                    {a.error_message && (
+                      <div className="text-ink-muted break-words">
+                        {a.error_message}
+                      </div>
+                    )}
+                    {a.error_code && (
+                      <div className="font-mono text-[10px] text-ink-faint">
+                        {a.error_code}
+                      </div>
+                    )}
+                    <div className="font-mono text-[10px] text-ink-faint">
+                      {[
+                        a.model,
+                        a.duration_ms !== null
+                          ? formatDuration(a.duration_ms)
+                          : null,
+                        a.worker_id,
+                        formatRelativeTime(a.created_at),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
       {/* Flags / Categories / Mentions */}
       {(flags.length > 0 ||
@@ -932,7 +1007,11 @@ function MessageRow({
           </div>
         )}
       </div>
-      <AiBadge status={m.ai_status} durationMs={m.ai_analysis_duration_ms} />
+      <AiBadge
+        status={m.ai_status}
+        verdict={m.verdict_status}
+        durationMs={m.ai_analysis_duration_ms}
+      />
     </button>
   );
 }

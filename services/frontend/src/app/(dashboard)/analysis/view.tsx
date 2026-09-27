@@ -7,7 +7,7 @@ import { Avatar, Badge, GlassPanel, Input } from "@/components/primitives";
 import { EmptyState, SectionHeader, SkeletonRows } from "@/components/shared";
 import { useChannels, useMessageSearch, useTopReactors } from "@/hooks";
 import { useStaggerReveal } from "@/hooks/use-gsap-animation";
-import { aiTone } from "@/lib/ai-status";
+import { aiLabel, aiTone } from "@/lib/ai-status";
 import {
   formatDuration,
   getMessageChannelLabel,
@@ -211,15 +211,15 @@ export function AnalysisView() {
                       <span className="font-mono text-[10px] text-ink-faint">
                         {getMessageChannelLabel(m)}
                       </span>
-                      {m.ai_status && (
+                      {(m.ai_status || m.verdict_status) && (
                         <Badge
-                          tone={aiTone(m.ai_status)}
+                          tone={aiTone(m.verdict_status, m.ai_status)}
                           className="ml-auto font-mono text-[9px]"
                         >
                           {m.ai_analysis_duration_ms &&
                           m.ai_analysis_duration_ms > 0
-                            ? `${m.ai_status} · ${formatDuration(m.ai_analysis_duration_ms)}`
-                            : m.ai_status}
+                            ? `${aiLabel(m.verdict_status, m.ai_status)} · ${formatDuration(m.ai_analysis_duration_ms)}`
+                            : aiLabel(m.verdict_status, m.ai_status)}
                         </Badge>
                       )}
                     </div>

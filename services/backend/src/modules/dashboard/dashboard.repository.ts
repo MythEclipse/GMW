@@ -15,21 +15,32 @@ export class DashboardRepository {
 
     const oneDayAgo = Date.now() - 86400000;
 
-    // Total messages and breakdown by ai_status
+    // Total messages, with the moderation OUTCOME broken out from the joined
+    // `verdicts` table and the PIPELINE position from messages.ai_status.
+    //
+    // These used to be `ai_status = 'flagged' / 'clean' / 'warn' / 'error' /
+    // 'processing'`. Since the rewrite the worker only ever writes `analyzed`
+    // to that column, so every one of those counters was permanently 0 and the
+    // dashboard reported a clean, quiet guild regardless of what the model
+    // actually decided.
     const msgResult = await db.execute(sql`
       SELECT
         COUNT(*)::int AS total_messages,
-        COUNT(*) FILTER (WHERE ai_status = 'flagged')::int AS total_flagged,
-        COUNT(*) FILTER (WHERE ai_status = 'clean')::int AS total_clean,
-        COUNT(*) FILTER (WHERE ai_status = 'warn')::int AS total_warned,
-        COUNT(*) FILTER (WHERE ai_status = 'error')::int AS total_error,
-        COUNT(*) FILTER (WHERE ai_status = 'pending')::int AS total_pending,
-        COUNT(*) FILTER (WHERE ai_status = 'processing')::int AS total_processing,
-        COUNT(DISTINCT user_id)::int AS total_users,
-        COUNT(*) FILTER (WHERE created_at >= ${oneDayAgo})::int AS today_messages,
-        COUNT(*) FILTER (WHERE ai_status = 'flagged' AND created_at >= ${oneDayAgo})::int AS today_flagged,
-        COUNT(DISTINCT user_id) FILTER (WHERE created_at >= ${oneDayAgo})::int AS active_users_24h
-      FROM ${pgMessagesTable}
+        COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS total_flagged,
+        COUNT(*) FILTER (WHERE v.status = 'clean')::int AS total_clean,
+        COUNT(*) FILTER (WHERE v.status = 'warn')::int AS total_warned,
+        COUNT(*) FILTER (WHERE v.status = 'error')::int AS total_error,
+        -- Pipeline states
+        COUNT(*) FILTER (WHERE m.ai_status = 'pending')::int AS total_pending,
+        COUNT(*) FILTER (WHERE m.ai_status = 'claimed')::int AS total_claimed,
+        COUNT(*) FILTER (WHERE m.ai_status = 'retry_wait')::int AS total_retry_wait,
+        COUNT(*) FILTER (WHERE m.ai_status = 'dead')::int AS total_dead,
+        COUNT(DISTINCT m.user_id)::int AS total_users,
+        COUNT(*) FILTER (WHERE m.created_at >= ${oneDayAgo})::int AS today_messages,
+        COUNT(*) FILTER (WHERE v.status = 'flagged' AND m.created_at >= ${oneDayAgo})::int AS today_flagged,
+        COUNT(DISTINCT m.user_id) FILTER (WHERE m.created_at >= ${oneDayAgo})::int AS active_users_24h
+      FROM ${pgMessagesTable} m
+      LEFT JOIN verdicts v ON v.message_id = m.id
     `);
 
     const msgRow = msgResult.rows[0] as Record<string, unknown> | undefined;
@@ -86,15 +97,16 @@ export class DashboardRepository {
     const sinceMs = Date.now() - days * 86400000;
     const dayAgoMs = Date.now() - 86400000;
 
-    // Daily buckets (last N days)
+    // Daily buckets (last N days). "flagged" is the verdict, joined in.
     const daily = await db.execute(sql`
       SELECT
-        to_char(to_timestamp(created_at / 1000), 'YYYY-MM-DD') AS day,
+        to_char(to_timestamp(m.created_at / 1000), 'YYYY-MM-DD') AS day,
         COUNT(*)::int AS messages,
-        COUNT(*) FILTER (WHERE ai_status = 'flagged')::int AS flagged,
-        COUNT(DISTINCT user_id)::int AS active_users
-      FROM ${pgMessagesTable}
-      WHERE created_at >= ${sinceMs}
+        COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged,
+        COUNT(DISTINCT m.user_id)::int AS active_users
+      FROM ${pgMessagesTable} m
+      LEFT JOIN verdicts v ON v.message_id = m.id
+      WHERE m.created_at >= ${sinceMs}
       GROUP BY day
       ORDER BY day
     `);
@@ -102,11 +114,12 @@ export class DashboardRepository {
     // Hourly distribution (last 24h)
     const hourly = await db.execute(sql`
       SELECT
-        EXTRACT(HOUR FROM to_timestamp(created_at / 1000))::int AS hour,
+        EXTRACT(HOUR FROM to_timestamp(m.created_at / 1000))::int AS hour,
         COUNT(*)::int AS messages,
-        COUNT(*) FILTER (WHERE ai_status = 'flagged')::int AS flagged
-      FROM ${pgMessagesTable}
-      WHERE created_at >= ${dayAgoMs}
+        COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged
+      FROM ${pgMessagesTable} m
+      LEFT JOIN verdicts v ON v.message_id = m.id
+      WHERE m.created_at >= ${dayAgoMs}
       GROUP BY hour
       ORDER BY hour
     `);
@@ -160,16 +173,17 @@ export class DashboardRepository {
         m.last_message_at
       FROM (
         SELECT
-          user_id,
-          username,
-          avatar_url,
+          msg.user_id,
+          msg.username,
+          msg.avatar_url,
           COUNT(*)::int AS total_messages,
-          COUNT(*) FILTER (WHERE ai_status = 'flagged')::int AS flagged_count,
-          COUNT(*) FILTER (WHERE ai_status = 'clean')::int AS clean_count,
-          COUNT(*) FILTER (WHERE ai_status = 'warn')::int AS warn_count,
-          MAX(created_at) AS last_message_at
-        FROM ${pgMessagesTable}
-        GROUP BY user_id, username, avatar_url
+          COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged_count,
+          COUNT(*) FILTER (WHERE v.status = 'clean')::int AS clean_count,
+          COUNT(*) FILTER (WHERE v.status = 'warn')::int AS warn_count,
+          MAX(msg.created_at) AS last_message_at
+        FROM ${pgMessagesTable} msg
+        LEFT JOIN verdicts v ON v.message_id = msg.id
+        GROUP BY msg.user_id, msg.username, msg.avatar_url
       ) m
       LEFT JOIN ${pgUserProfilesTable} p ON p.user_id = m.user_id
       ${whereClause}
@@ -232,14 +246,15 @@ export class DashboardRepository {
         c.last_analyzed_at
       FROM (
         SELECT
-          channel_id,
-          guild_id,
-          COALESCE(NULLIF((metadata::jsonb -> 'channel' ->> 'channelName'), ''), channel_id) AS channel_name,
+          msg.channel_id,
+          msg.guild_id,
+          COALESCE(NULLIF((msg.metadata::jsonb -> 'channel' ->> 'channelName'), ''), msg.channel_id) AS channel_name,
           COUNT(*)::int AS total_messages,
-          COUNT(*) FILTER (WHERE ai_status = 'flagged')::int AS flagged_count,
-          MAX(created_at) AS last_message_at
-        FROM ${pgMessagesTable}
-        GROUP BY channel_id, guild_id, (metadata::jsonb -> 'channel' ->> 'channelName')
+          COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged_count,
+          MAX(msg.created_at) AS last_message_at
+        FROM ${pgMessagesTable} msg
+        LEFT JOIN verdicts v ON v.message_id = msg.id
+        GROUP BY msg.channel_id, msg.guild_id, (msg.metadata::jsonb -> 'channel' ->> 'channelName')
       ) m
       LEFT JOIN ${pgChannelCulturesTable} c ON c.channel_id = m.channel_id
       ${whereClause}
@@ -284,15 +299,16 @@ export class DashboardRepository {
         c.last_analyzed_at
       FROM (
         SELECT
-          channel_id,
-          guild_id,
-          COALESCE(NULLIF((metadata::jsonb -> 'channel' ->> 'channelName'), ''), channel_id) AS channel_name,
+          msg.channel_id,
+          msg.guild_id,
+          COALESCE(NULLIF((msg.metadata::jsonb -> 'channel' ->> 'channelName'), ''), msg.channel_id) AS channel_name,
           COUNT(*)::int AS total_messages,
-          COUNT(*) FILTER (WHERE ai_status = 'flagged')::int AS flagged_count,
-          COUNT(*) FILTER (WHERE ai_status = 'clean')::int AS clean_count
-        FROM ${pgMessagesTable}
-        WHERE channel_id = ${channelId}
-        GROUP BY channel_id, guild_id, (metadata::jsonb -> 'channel' ->> 'channelName')
+          COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged_count,
+          COUNT(*) FILTER (WHERE v.status = 'clean')::int AS clean_count
+        FROM ${pgMessagesTable} msg
+        LEFT JOIN verdicts v ON v.message_id = msg.id
+        WHERE msg.channel_id = ${channelId}
+        GROUP BY msg.channel_id, msg.guild_id, (msg.metadata::jsonb -> 'channel' ->> 'channelName')
       ) m
       LEFT JOIN ${pgChannelCulturesTable} c ON c.channel_id = m.channel_id
     `);
@@ -440,16 +456,17 @@ export class DashboardRepository {
         p.last_analyzed_at
       FROM (
         SELECT
-          user_id,
-          username,
-          avatar_url,
+          msg.user_id,
+          msg.username,
+          msg.avatar_url,
           COUNT(*)::int AS total_messages,
-          COUNT(*) FILTER (WHERE ai_status = 'flagged')::int AS flagged_count,
-          COUNT(*) FILTER (WHERE ai_status = 'clean')::int AS clean_count,
-          COUNT(*) FILTER (WHERE ai_status = 'warn')::int AS warn_count
-        FROM ${pgMessagesTable}
-        WHERE user_id = ${userId}
-        GROUP BY user_id, username, avatar_url
+          COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged_count,
+          COUNT(*) FILTER (WHERE v.status = 'clean')::int AS clean_count,
+          COUNT(*) FILTER (WHERE v.status = 'warn')::int AS warn_count
+        FROM ${pgMessagesTable} msg
+        LEFT JOIN verdicts v ON v.message_id = msg.id
+        WHERE msg.user_id = ${userId}
+        GROUP BY msg.user_id, msg.username, msg.avatar_url
       ) m
       LEFT JOIN ${pgUserProfilesTable} p ON p.user_id = m.user_id
     `);

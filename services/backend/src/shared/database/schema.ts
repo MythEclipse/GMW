@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint as pgBigint,
   boolean as pgBoolean,
@@ -6,6 +7,7 @@ import {
   integer as pgInteger,
   jsonb as pgJsonb,
   real as pgReal,
+  serial as pgSerial,
   pgTable,
   text as pgText,
   timestamp as pgTimestamp,
@@ -45,11 +47,28 @@ export const pgMessagesTable = pgTable(
     reference_channel_id: pgText("reference_channel_id"),
     reference_guild_id: pgText("reference_guild_id"),
     metadata: pgText("metadata"),
+    // Pipeline state ONLY — the moderation OUTCOME lives in the `verdicts`
+    // table. This column answers "where is this message in the queue?", never
+    // "was it flagged?". The two used to be one column; conflating them meant a
+    // single query could not distinguish "not judged yet" from "judged clean",
+    // and filtering by `warn` silently returned nothing once the new worker
+    // started writing only `analyzed`.
     ai_status: pgText("ai_status", {
-      enum: ["pending", "processing", "clean", "warn", "flagged", "error"],
+      enum: ["pending", "claimed", "analyzed", "retry_wait", "dead"],
     })
       .notNull()
       .default("pending"),
+    // Claim lease. A non-null worker_id with a lease in the future means a
+    // worker owns this message right now; the sweeper reclaims it if the lease
+    // lapses.
+    lease_until: pgBigint("lease_until", { mode: "number" }),
+    worker_id: pgText("worker_id"),
+    // Epoch millis; a row is claimable once now() passes this.
+    ready_for_work_at: pgBigint("ready_for_work_at", {
+      mode: "number",
+    }).default(0),
+    // Incremented by claim_messages(); the retry budget is maxAttempts.
+    attempts: pgInteger("attempts").notNull().default(0),
     ai_moderation_flags: pgText("ai_moderation_flags"),
     ai_moderation_score: pgReal("ai_moderation_score"),
     ai_analysis: pgText("ai_analysis"),
@@ -566,3 +585,85 @@ export type DbRetentionPolicyInsert =
 // Chatbot Messages
 export type ChatbotMessage = typeof chatbotMessagesTable.$inferSelect;
 export type ChatbotMessageInsert = typeof chatbotMessagesTable.$inferInsert;
+
+// ── Moderation verdicts ────────────────────────────────────────────────────
+//
+// Created by the gateway's migration 0020, NOT by this service. The gateway
+// remains the single schema authority; these declarations exist so the backend
+// can READ the data, and it never writes here.
+//
+// The important split: `messages.ai_status` is pipeline position
+// (pending/claimed/analyzed/retry_wait/dead) and says nothing about the
+// judgement. The outcome — clean, warn, flagged, error — is `verdicts.status`.
+// Filtering messages by `ai_status = 'flagged'` returns nothing, because
+// nothing writes that value any more.
+export const pgVerdictsTable = pgTable(
+  "verdicts",
+  {
+    message_id: pgText("message_id").primaryKey(),
+    status: pgText("status", {
+      enum: ["clean", "warn", "flagged", "error"],
+    }).notNull(),
+    flags: pgText("flags").array().notNull().default([]),
+    categories: pgText("categories").array().notNull().default([]),
+    severity: pgText("severity", {
+      enum: ["none", "low", "medium", "high", "critical"],
+    })
+      .notNull()
+      .default("none"),
+    confidence: pgReal("confidence").notNull().default(0),
+    score: pgReal("score"),
+    recommended_action: pgText("recommended_action").notNull().default("none"),
+    analysis: pgText("analysis").notNull().default(""),
+    evidence: pgJsonb("evidence").notNull().default([]),
+    policy_version: pgText("policy_version"),
+    model: pgText("model"),
+    duration_ms: pgInteger("duration_ms"),
+    // Epoch millis, not a timestamp — every time column in this schema is.
+    created_at: pgBigint("created_at", { mode: "number" }).notNull(),
+    updated_at: pgBigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => ({
+    statusCreatedIdx: pgIndex("idx_verdicts_status_created").on(
+      table.status,
+      table.created_at,
+    ),
+    actionableIdx: pgIndex("idx_verdicts_actionable")
+      .on(table.recommended_action, table.created_at)
+      .where(
+        sql`${table.recommended_action} IN ('delete', 'escalate', 'review')`,
+      ),
+  }),
+);
+
+// Append-only audit of every analysis attempt, successful or not. This is the
+// table that answers "why is this one message stuck?" — the verdict table
+// cannot, because a message with no verdict has no row.
+export const pgAnalysisAttemptsTable = pgTable(
+  "analysis_attempts",
+  {
+    id: pgSerial("id").primaryKey(),
+    message_id: pgText("message_id").notNull(),
+    worker_id: pgText("worker_id"),
+    attempt: pgInteger("attempt").notNull(),
+    outcome: pgText("outcome", {
+      enum: ["success", "llm_error", "parse_error", "abandoned", "duplicate"],
+    }).notNull(),
+    error_code: pgText("error_code"),
+    error_message: pgText("error_message"),
+    duration_ms: pgInteger("duration_ms"),
+    model: pgText("model"),
+    prompt_tokens: pgInteger("prompt_tokens"),
+    created_at: pgBigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => ({
+    messageIdx: pgIndex("idx_attempts_message").on(table.message_id),
+    outcomeCreatedIdx: pgIndex("idx_attempts_outcome_created").on(
+      table.outcome,
+      table.created_at,
+    ),
+  }),
+);
+
+export type DbVerdict = typeof pgVerdictsTable.$inferSelect;
+export type DbAnalysisAttempt = typeof pgAnalysisAttemptsTable.$inferSelect;

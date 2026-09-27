@@ -1,4 +1,4 @@
-import { and, desc, eq, like, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { createChildLogger } from "@/shared/logger/index";
 import { getDatabase } from "../../shared/database/index.js";
 import {
@@ -7,6 +7,7 @@ import {
   pgMessageReviewsTable,
   pgMessagesTable,
   pgUserProfilesTable,
+  pgVerdictsTable,
   pgVoiceRecordingsTable,
 } from "../../shared/index.js";
 
@@ -204,20 +205,30 @@ async function topFlagged(
       username: pgMessagesTable.username,
       channel_id: pgMessagesTable.channel_id,
       content: pgMessagesTable.content,
+      // Pipeline position — NOT the judgement. Kept so the chatbot can report
+      // "still pending" honestly.
       ai_status: pgMessagesTable.ai_status,
-      ai_severity: pgMessagesTable.ai_severity,
-      ai_moderation_flags: pgMessagesTable.ai_moderation_flags,
-      ai_analysis: pgMessagesTable.ai_analysis,
       created_at: pgMessagesTable.created_at,
+      // The judgement itself. `messages.ai_status = 'flagged'` matches nothing
+      // since the rewrite, which silently made this tool always answer "none".
+      verdict_status: pgVerdictsTable.status,
+      verdict_severity: pgVerdictsTable.severity,
+      verdict_flags: pgVerdictsTable.flags,
+      verdict_analysis: pgVerdictsTable.analysis,
+      verdict_score: pgVerdictsTable.score,
     })
     .from(pgMessagesTable)
+    .leftJoin(
+      pgVerdictsTable,
+      eq(pgVerdictsTable.message_id, pgMessagesTable.id),
+    )
     .where(
       and(
         scopeMessages(guildId, channelId),
-        eq(pgMessagesTable.ai_status, "flagged"),
+        inArray(pgVerdictsTable.status, ["flagged", "warn"]),
       ),
     )
-    .orderBy(desc(pgMessagesTable.created_at))
+    .orderBy(desc(pgVerdictsTable.severity), desc(pgMessagesTable.created_at))
     .limit(limit);
   return JSON.stringify(rows);
 }

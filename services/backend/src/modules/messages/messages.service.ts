@@ -43,15 +43,24 @@ export class MessagesService {
       edit_history: Awaited<
         ReturnType<typeof messagesRepository.getEditHistory>
       >;
+      /**
+       * Every analysis attempt, oldest first. Present so the detail view can
+       * explain a message that never got a verdict — that message has no row
+       * in `verdicts`, so without this the failure is invisible in the UI.
+       */
+      analysis_attempts: Awaited<
+        ReturnType<typeof messagesRepository.getAnalysisAttempts>
+      >;
     }
   > {
     if (!id) {
       throw new ValidationError("message ID is required");
     }
 
-    const [message, editHistory] = await Promise.all([
+    const [message, editHistory, analysisAttempts] = await Promise.all([
       messagesRepository.findById(id),
       messagesRepository.getEditHistory(id),
+      messagesRepository.getAnalysisAttempts(id),
     ]);
 
     if (!message) {
@@ -62,6 +71,7 @@ export class MessagesService {
       ...message,
       edit_count: editHistory.length,
       edit_history: editHistory,
+      analysis_attempts: analysisAttempts,
     };
   }
 

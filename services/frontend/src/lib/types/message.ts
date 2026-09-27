@@ -1,12 +1,22 @@
 // ── AI Moderation Types ──────────────────────────────────────
 
+/**
+ * Where a message sits in the moderation QUEUE — not whether it was flagged.
+ *
+ * `analyzed` means the worker is finished with the message and nothing more.
+ * The judgement is `VerdictStatus`, and it is a separate field, because
+ * "judged clean" and "not judged yet" used to be the same value
+ * (`ai_status === 'clean'`) and no component could tell them apart.
+ */
 export type AiStatus =
   | "pending"
-  | "processing"
-  | "clean"
-  | "warn"
-  | "flagged"
-  | "error";
+  | "claimed"
+  | "analyzed"
+  | "retry_wait"
+  | "dead";
+
+/** The moderation outcome. `null` means the message has not been judged. */
+export type VerdictStatus = "clean" | "warn" | "flagged" | "error";
 
 export type AiSeverity = "none" | "low" | "medium" | "high" | "critical";
 
@@ -17,6 +27,27 @@ export type AiRecommendedAction =
   | "review"
   | "delete"
   | "escalate";
+
+/** How an analysis attempt ended. Append-only, from `analysis_attempts`. */
+export type AttemptOutcome =
+  | "success"
+  | "llm_error"
+  | "parse_error"
+  | "abandoned"
+  | "duplicate";
+
+export interface AnalysisAttempt {
+  attempt: number;
+  outcome: AttemptOutcome;
+  error_code: string | null;
+  error_message: string | null;
+  duration_ms: number | null;
+  model: string | null;
+  worker_id: string | null;
+  prompt_tokens: number | null;
+  /** Epoch millis. */
+  created_at: number;
+}
 
 // ── Embeds & Metadata ────────────────────────────────────────
 
@@ -122,7 +153,38 @@ export interface MessageRecord {
   created_at: number;
   edited_at?: number | null;
   deleted_at?: number | null;
+  // ── Pipeline state (queue position, not a judgement) ──────────────────
   ai_status?: AiStatus | null;
+  /** Retry count. The cap is maxAttempts; `dead` means it ran out. */
+  ai_attempts?: number | null;
+  /** Worker currently holding the claim lease, if any. */
+  ai_worker_id?: string | null;
+  /** Epoch millis when the claim lease expires; the sweeper reclaims after. */
+  ai_lease_until?: number | null;
+  /** Epoch millis before which the worker must not touch this message. */
+  ai_ready_for_work_at?: number | null;
+
+  // ── Verdict (the judgement, joined from the `verdicts` table) ───────────
+  // `null` = not judged yet. `ai_status: 'analyzed'` + this null means the
+  // message is finished but has no verdict row, which is a real state worth
+  // showing rather than treating as clean.
+  verdict_status?: VerdictStatus | null;
+  verdict_severity?: AiSeverity | null;
+  verdict_score?: number | null;
+  verdict_confidence?: number | null;
+  verdict_flags?: string[] | null;
+  verdict_categories?: string[] | null;
+  verdict_recommended_action?: AiRecommendedAction | null;
+  verdict_analysis?: string | null;
+  verdict_evidence?: unknown;
+  verdict_model?: string | null;
+  /** Epoch millis of the last verdict write. */
+  verdict_updated_at?: number | null;
+
+  // ── Legacy `messages.ai_*` columns ────────────────────────────────────
+  // The rewrite moved all of this into `verdicts`, and the worker writes
+  // NOTHING here any more — these stay null for anything judged after the
+  // cutover. Kept for older rows; do not build new UI on them.
   ai_severity?: AiSeverity | null;
   ai_confidence?: number | null;
   ai_moderation_flags?: string | null; // JSON string array
@@ -137,6 +199,14 @@ export interface MessageRecord {
   edit_count?: number;
   /** Detail-only: previous content snapshots, newest first */
   edit_history?: Array<{ old_content: string; edited_at: number }>;
+  /**
+   * Detail-only: every analysis attempt, oldest first.
+   *
+   * Detail-only because it is a separate query, and necessary because a
+   * message that never produced a verdict has no row in `verdicts` — without
+   * this, the most important failure state is invisible in the UI.
+   */
+  analysis_attempts?: AnalysisAttempt[];
 }
 
 // ── Pagination ──────────────────────────────────────────────

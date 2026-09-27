@@ -2,6 +2,7 @@ import {
   and,
   desc,
   eq,
+  getTableColumns,
   inArray,
   isNull,
   like,
@@ -14,7 +15,11 @@ import {
 import { config } from "../../shared/config/index.js";
 import { getDatabase } from "../../shared/database/index.js";
 import type { PageResult } from "../../shared/index.js";
-import { pgAttachmentsTable, pgMessagesTable } from "../../shared/index.js";
+import {
+  pgAttachmentsTable,
+  pgMessagesTable,
+  pgVerdictsTable,
+} from "../../shared/index.js";
 import { createChildLogger } from "../../shared/logger/index.js";
 import { mapMessageRow } from "../../shared/utils/messageMapper.js";
 import type {
@@ -32,6 +37,29 @@ import type {
 const EXCLUDED_THREAD_IDS = config.EXCLUDED_THREAD_IDS;
 
 const logger = createChildLogger("messages.repository");
+
+/**
+ * Message columns plus the joined verdict, aliased so `mapMessageRow` can pick
+ * them up as `verdict_*`.
+ *
+ * The join is LEFT because most messages have no verdict at all — anything
+ * still queued, or analysed by the old pipeline before the rewrite. An INNER
+ * join here would silently hide every unanalysed message from the dashboard.
+ */
+const messageWithVerdict = {
+  ...getTableColumns(pgMessagesTable),
+  verdict_status: pgVerdictsTable.status,
+  verdict_severity: pgVerdictsTable.severity,
+  verdict_score: pgVerdictsTable.score,
+  verdict_confidence: pgVerdictsTable.confidence,
+  verdict_flags: pgVerdictsTable.flags,
+  verdict_categories: pgVerdictsTable.categories,
+  verdict_recommended_action: pgVerdictsTable.recommended_action,
+  verdict_analysis: pgVerdictsTable.analysis,
+  verdict_evidence: pgVerdictsTable.evidence,
+  verdict_model: pgVerdictsTable.model,
+  verdict_updated_at: pgVerdictsTable.updated_at,
+};
 
 export interface AttachmentResult {
   id: string;
@@ -110,7 +138,16 @@ export class MessagesRepository {
       conditions.push(eq(pgMessagesTable.user_id, query.userId));
     }
     if (query.status) {
+      // Pipeline position, e.g. `dead`.
       conditions.push(eq(pgMessagesTable.ai_status, query.status));
+    }
+    if (query.verdict) {
+      // Moderation outcome. Filtering on messages.ai_status here would return
+      // nothing at all, because the worker only ever writes `analyzed` to it.
+      conditions.push(eq(pgVerdictsTable.status, query.verdict));
+    }
+    if (query.needsReview) {
+      conditions.push(inArray(pgVerdictsTable.status, ["warn", "flagged"]));
     }
     if (query.cursor) {
       conditions.push(lt(pgMessagesTable.created_at, Number(query.cursor)));
@@ -122,8 +159,12 @@ export class MessagesRepository {
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
     const rows = await db
-      .select()
+      .select(messageWithVerdict)
       .from(pgMessagesTable)
+      .leftJoin(
+        pgVerdictsTable,
+        eq(pgVerdictsTable.message_id, pgMessagesTable.id),
+      )
       .where(where)
       .orderBy(desc(pgMessagesTable.created_at))
       .limit(cursorLimit(limit));
@@ -138,16 +179,65 @@ export class MessagesRepository {
     return { data, nextCursor };
   }
 
+  /**
+   * One message with its joined verdict.
+   *
+   * Left-joined like the list query: most messages have no verdict, and an
+   * inner join here would make the detail view 404 on anything unjudged.
+   */
   async findById(id: string) {
     const db = getDatabase();
     const [row] = await db
-      .select()
+      .select(messageWithVerdict)
       .from(pgMessagesTable)
+      .leftJoin(pgVerdictsTable, eq(pgVerdictsTable.message_id, pgMessagesTable.id))
       .where(eq(pgMessagesTable.id, id))
       .limit(1);
 
     if (!row) return null;
     return mapMessageRow(row as Record<string, unknown>);
+  }
+
+  /**
+   * Every analysis attempt for a message, oldest first.
+   *
+   * This is the only way to answer "why is this one message stuck?" — the
+   * verdict table cannot, because a message that never got a verdict has no row
+   * there at all. Append-only, so it is a complete history of what the worker
+   * tried and what came back.
+   */
+  async getAnalysisAttempts(messageId: string): Promise<
+    Array<{
+      attempt: number;
+      outcome: string;
+      error_code: string | null;
+      error_message: string | null;
+      duration_ms: number | null;
+      model: string | null;
+      worker_id: string | null;
+      prompt_tokens: number | null;
+      created_at: number;
+    }>
+  > {
+    const db = getDatabase();
+    const result = await db.execute(sql`
+      SELECT attempt, outcome, error_code, error_message,
+             duration_ms, model, worker_id, prompt_tokens, created_at
+      FROM analysis_attempts
+      WHERE message_id = ${messageId}
+      ORDER BY created_at ASC, id ASC
+    `);
+    return (result.rows as Record<string, unknown>[]).map((r) => ({
+      attempt: Number(r.attempt),
+      outcome: String(r.outcome),
+      error_code: (r.error_code as string | null) ?? null,
+      error_message: (r.error_message as string | null) ?? null,
+      duration_ms: r.duration_ms === null ? null : Number(r.duration_ms),
+      model: (r.model as string | null) ?? null,
+      worker_id: (r.worker_id as string | null) ?? null,
+      prompt_tokens: r.prompt_tokens === null ? null : Number(r.prompt_tokens),
+      created_at: Number(r.created_at),
+    }));
   }
 
   /**
@@ -334,17 +424,25 @@ export class MessagesRepository {
   }
 
   /**
-   * Retrieve messages flagged for review (ai_status IN ('warn', 'flagged')).
-   * Optionally filtered by channelId, with configurable limit.
+   * Messages a human should look at: verdict in (warn, flagged), plus any that
+   * ran out of attempts (`dead`).
+   *
+   * This used to be `messages.ai_status IN ('warn','flagged')`, which returned
+   * an empty list forever once the new worker started writing only `analyzed`
+   * to that column. The judgement lives in `verdicts.status` now.
    */
   async getReviewMessages(
     channelId?: string,
     limit: number = 20,
   ): Promise<Record<string, unknown>[]> {
     const db = getDatabase();
-    const conditions: SQL[] = [
-      inArray(pgMessagesTable.ai_status, ["warn", "flagged"]),
-    ];
+    const needsReview = or(
+      inArray(pgVerdictsTable.status, ["warn", "flagged"]),
+      eq(pgMessagesTable.ai_status, "dead"),
+    );
+    // or() returns undefined only if every branch is undefined, which cannot
+    // happen with literal arguments — but the type says it can.
+    const conditions: SQL[] = [needsReview as SQL];
 
     if (channelId) {
       conditions.push(eq(pgMessagesTable.channel_id, channelId));
@@ -361,7 +459,9 @@ export class MessagesRepository {
         content: pgMessagesTable.content,
         type: pgMessagesTable.type,
         created_at: pgMessagesTable.created_at,
-        ai_status: pgMessagesTable.ai_status,
+        // Legacy `messages.ai_*` — the new worker never writes these, so they
+        // are null for anything judged after the rewrite. The live judgement is
+        // the verdict_* columns below, joined from `verdicts`.
         ai_severity: pgMessagesTable.ai_severity,
         ai_confidence: pgMessagesTable.ai_confidence,
         ai_analysis: pgMessagesTable.ai_analysis,
@@ -371,10 +471,39 @@ export class MessagesRepository {
         reference_message_id: pgMessagesTable.reference_message_id,
         reference_channel_id: pgMessagesTable.reference_channel_id,
         reference_guild_id: pgMessagesTable.reference_guild_id,
+        // Retry state, so the review queue can distinguish "flagged, fine" from
+        // "never finished, needs a human".
+        ai_status: pgMessagesTable.ai_status,
+        attempts: pgMessagesTable.attempts,
+        worker_id: pgMessagesTable.worker_id,
+        verdict_status: pgVerdictsTable.status,
+        verdict_severity: pgVerdictsTable.severity,
+        verdict_score: pgVerdictsTable.score,
+        verdict_confidence: pgVerdictsTable.confidence,
+        verdict_flags: pgVerdictsTable.flags,
+        verdict_categories: pgVerdictsTable.categories,
+        verdict_recommended_action: pgVerdictsTable.recommended_action,
+        verdict_analysis: pgVerdictsTable.analysis,
+        verdict_evidence: pgVerdictsTable.evidence,
+        verdict_model: pgVerdictsTable.model,
+        verdict_updated_at: pgVerdictsTable.updated_at,
       })
       .from(pgMessagesTable)
+      .leftJoin(
+        pgVerdictsTable,
+        eq(pgVerdictsTable.message_id, pgMessagesTable.id),
+      )
       .where(and(...conditions))
-      .orderBy(desc(pgMessagesTable.created_at))
+      // Actionable first, then most severe, then newest.
+      .orderBy(
+        desc(sql`CASE ${pgVerdictsTable.recommended_action}
+                   WHEN 'delete' THEN 3
+                   WHEN 'escalate' THEN 2
+                   WHEN 'review' THEN 1
+                   ELSE 0 END`),
+        desc(pgVerdictsTable.severity),
+        desc(pgMessagesTable.created_at),
+      )
       .limit(limit);
 
     return rows as unknown as Record<string, unknown>[];
