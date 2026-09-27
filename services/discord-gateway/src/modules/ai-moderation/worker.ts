@@ -348,20 +348,19 @@ export class ModerationWorker {
   }
 
   /** Build the prompt, call the model, parse. Throws only on transport failure. */
-/**
- * Describe each attached image/sticker/video with the vision model.
- *
- * The moderation LLM needs a text description of what the media
- * contains before it can decide whether the message violates
- * server policy. Without this, image-only messages have no evidence
- * to judge and default to clean. This runs the vision model once
- * per message with attachments and returns the description text
- * that the moderation prompt inserts before the message body.
- *
- * Failures here are non-fatal: the message still gets analyzed on
- * its text, and the missing description is noted in the trace.
- */
-
+  /**
+   * Describe each attached image/sticker/video with the vision model.
+   *
+   * The moderation LLM needs a text description of what the media
+   * contains before it can decide whether the message violates
+   * server policy. Without this, image-only messages have no evidence
+   * to judge and default to clean. This runs the vision model once
+   * per message with attachments and returns the description text
+   * that the moderation prompt inserts before the message body.
+   *
+   * Failures here are non-fatal: the message still gets analyzed on
+   * its text, and the missing description is noted in the trace.
+   */
 
   private async analyze(messages: ClaimedMessage[]): Promise<ParseBatchResult> {
     const requestedIds = messages.map((m) => m.id);
