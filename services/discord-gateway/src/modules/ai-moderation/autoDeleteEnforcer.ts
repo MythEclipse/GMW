@@ -139,6 +139,14 @@ async function releaseStaleClaims(): Promise<number> {
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
+/**
+ * Retry counts for rows whose target could not be resolved, so a permanently
+ * bad channel id cannot be re-fetched from Discord on every tick forever.
+ * Bounded, and cleared when a row settles.
+ */
+const attempts = new Map<string, number>();
+const MAX_ATTEMPTS = 5;
+
 async function tick(client: Client): Promise<void> {
   if (running) return;
   running = true;
@@ -198,18 +206,38 @@ async function tick(client: Client): Promise<void> {
         continue;
       }
 
-      // `skipped` with a non-permanent reason means the message is not
-      // eligible right now (clean, or filtered). Recording it as decided stops
-      // us re-reading it every 5 seconds forever; `pending` is only for
-      // conditions that may change on their own, like a missing channel.
+      // A skipped result is normally terminal: the message is not eligible and
+      // will not become eligible, so recording it as done stops us re-reading
+      // it every 5 seconds forever.
+      //
+      // Three reasons may fix themselves — a channel missing from the cache is
+      // fetched now, so a miss there means the id is wrong or the channel is
+      // gone, and a guild the client has not seen yet may appear. Those go back
+      // to `pending`, but with a hard cap: a row that never resolves would
+      // otherwise be re-queried and re-fetched from Discord every tick,
+      // forever, on a single bad id. After MAX_ATTEMPTS it is marked failed
+      // and the reason is already in moderation_actions.
       const retryable =
         result.reason === "guild_not_found" ||
         result.reason === "channel_not_found" ||
         result.reason === "unsupported_channel";
-      await markState(
-        row.message_id,
-        result.deleted || !retryable ? "done" : "pending",
-      );
+      if (result.deleted || !retryable) {
+        attempts.delete(row.message_id);
+        await markState(row.message_id, "done");
+      } else {
+        attempts.set(row.message_id, (attempts.get(row.message_id) ?? 0) + 1);
+        const tries = attempts.get(row.message_id) ?? 0;
+        if (tries >= MAX_ATTEMPTS) {
+          logger.warn(
+            { messageId: row.message_id, reason: result.reason, tries },
+            "Auto-delete gave up after repeated attempts — marking failed",
+          );
+          attempts.delete(row.message_id);
+          await markState(row.message_id, "failed");
+        } else {
+          await markState(row.message_id, "pending");
+        }
+      }
 
       logger.info(
         {

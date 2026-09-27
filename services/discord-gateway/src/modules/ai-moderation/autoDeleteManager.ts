@@ -412,6 +412,14 @@ export async function attemptAutoDeleteFlaggedMessage(
 
   // ── Deletion flow ────────────────────────────────────────────────
   try {
+    // Resolve the guild and channel, fetching from Discord only if they are
+    // not already cached.
+    //
+    // The gateway has no startup priming of `client.guilds.cache` — it only
+    // caches what it happens to see — so a plain `cache.get()` returns nothing
+    // for a channel the account never interacts with, and the first version
+    // retried that message every 5s forever. A fetch is the correct answer
+    // here: the user account is a member, so it can read the channel list.
     const guild = client.guilds.cache.get(message.guild_id);
     if (!guild) {
       logger.warn(
@@ -422,7 +430,28 @@ export async function attemptAutoDeleteFlaggedMessage(
     }
 
     const channelId = message.thread_id ?? message.channel_id;
-    const channel = guild.channels.cache.get(channelId);
+    let channel = guild.channels.cache.get(channelId);
+    if (!channel) {
+      try {
+        await guild.channels.fetch(channelId);
+        channel = guild.channels.cache.get(channelId);
+      } catch (fetchErr) {
+        logger.warn(
+          {
+            messageId: message.id,
+            channelId,
+            error:
+              fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
+          },
+          "Auto-delete skipped: channel could not be resolved",
+        );
+        return {
+          deleted: false,
+          skipped: true,
+          reason: "channel_not_found",
+        };
+      }
+    }
     if (!channel) {
       logger.warn(
         { messageId: message.id, channelId },
