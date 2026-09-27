@@ -190,7 +190,10 @@ export class MessagesRepository {
     const [row] = await db
       .select(messageWithVerdict)
       .from(pgMessagesTable)
-      .leftJoin(pgVerdictsTable, eq(pgVerdictsTable.message_id, pgMessagesTable.id))
+      .leftJoin(
+        pgVerdictsTable,
+        eq(pgVerdictsTable.message_id, pgMessagesTable.id),
+      )
       .where(eq(pgMessagesTable.id, id))
       .limit(1);
 

@@ -10,7 +10,6 @@ import { messagesService } from "../modules/messages/messages.service";
 import { moderationService } from "../modules/moderation/moderation.service";
 import { uiStateService } from "../modules/ui-state/ui-state.service";
 import { config } from "../shared/config/index";
-import { publishCommandNoReply } from "../shared/redis/index";
 
 // ── Dashboard ────────────────────────────────────────────────────
 const dashboardRouter = {

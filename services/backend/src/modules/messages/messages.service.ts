@@ -1,6 +1,6 @@
 import { NotFoundError, ValidationError } from "@/shared/errors/index";
 import { createChildLogger } from "@/shared/logger/index";
-import { type MessageRow, messagesRepository } from "./messages.repository.js";
+import { messagesRepository } from "./messages.repository.js";
 import type { MessageQuery } from "./messages.schema.js";
 
 const logger = createChildLogger("messages.service");
