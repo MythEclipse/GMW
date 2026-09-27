@@ -28,7 +28,10 @@ if [[ "${1:-}" == "--wide" ]]; then
 fi
 
 journal() {
-  sudo -n journalctl -u "$UNIT" -u "$GATEWAY_UNIT" --since "$SINCE" --no-pager 2>/dev/null
+  # -o cat is REQUIRED: without it journalctl prefixes every line with
+  # "Sep 27 17:38:41 host systemd[1]:" so the JSON no longer starts with "{"
+  # and the formatter silently drops every line.
+  sudo -n journalctl -u "$UNIT" -u "$GATEWAY_UNIT" --since "$SINCE" --no-pager -o cat 2>/dev/null
 }
 
 if [[ -z "${1:-}" ]]; then
