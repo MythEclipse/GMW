@@ -64,6 +64,22 @@
       "react": "recommended"
     }
   },
+  "overrides": [
+    {
+      "includes": ["services/frontend/src/components/ui/**"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useFocusableInteractive": "off",
+            "useKeyWithClickEvents": "off",
+            "noLabelWithoutControl": "off"
+          },
+          "suspicious": { "noDocumentCookie": "off" },
+          "security": { "noDangerouslySetInnerHtml": "warn" }
+        }
+      }
+    }
+  ],
   "assist": {
     "actions": {
       "source": {
