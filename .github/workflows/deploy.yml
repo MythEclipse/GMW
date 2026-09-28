@@ -58,6 +58,20 @@ jobs:
           cd services/backend && ./node_modules/.bin/biome check src/ tests/
           cd ../discord-gateway && ./node_modules/.bin/biome check src/
 
+      - name: Install deps + typecheck (frontend)
+        working-directory: services/frontend
+        run: |
+          bun install --frozen-lockfile
+          ./node_modules/.bin/tsc --noEmit
+
+      - name: Biome + design lint (frontend)
+        working-directory: services/frontend
+        run: |
+          ./node_modules/.bin/biome check .
+          # @shadcn/lint via oxlint: keeps the Tailwind classes on the
+          # shadcn theme instead of raw colors and arbitrary values.
+          ./node_modules/.bin/oxlint
+
   build-and-deploy:
     needs: test
     runs-on: ubuntu-latest
