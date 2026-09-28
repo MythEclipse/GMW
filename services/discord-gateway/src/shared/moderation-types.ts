@@ -90,6 +90,25 @@ export interface MessageRecord {
   ai_recommended_action?: AIRecommendedAction | null;
   ai_analyzed_at?: number | null;
   ai_error?: string | null;
+  // ── The JUDGEMENT (from `verdicts`, joined by the backend) ───────────────
+  //
+  // `ai_status` is the QUEUE position and only ever says whether the worker
+  // is finished; it never carries the outcome. Without these fields a
+  // consumer of this record cannot tell "judged clean" from "not judged yet",
+  // and the dashboard badge falls back to rendering "unjudged".
+  verdict_status?: VerdictStatus | null;
+  verdict_severity?: AISeverity | null;
+  verdict_score?: number | null;
+  verdict_confidence?: number | null;
+  verdict_flags?: string[] | null;
+  verdict_categories?: string[] | null;
+  verdict_recommended_action?: AIRecommendedAction | null;
+  verdict_analysis?: string | null;
+  verdict_model?: string | null;
+  verdict_policy_version?: string | null;
+  /** Wall-clock LLM time for the judgement, in ms. Written on the verdict
+   *  row, not on `messages`. */
+  ai_analysis_duration_ms?: number | null;
 }
 
 export interface AttachmentRecord {

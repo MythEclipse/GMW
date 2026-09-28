@@ -1,5 +1,6 @@
 import type { Client } from "discord.js-selfbot-v13";
 import type { Logger } from "@/shared/logger/index.js";
+import { startVerdictNotifier } from "../modules/ai-moderation/verdictNotifier.js";
 import { registerChannelTopicCapture } from "../modules/channel-topic/index.js";
 import type { CommandHandler } from "../modules/command-handler/commandHandler.js";
 import type { EventBroadcaster } from "../modules/event-broadcaster/index.js";
@@ -58,6 +59,13 @@ export function startGatewayLifecycle({
   // which is what makes it safe to restart at any moment.
   commandHandler.start(client);
   logger.info("Command handler started");
+
+  // The worker is database-only, so it announces no verdicts. This polls
+  // `verdicts` and republishes each new judgement as `message_analyzed`,
+  // which is what makes the dashboard's badges update live instead of
+  // freezing at the server-rendered values and showing "unjudged" for every
+  // message captured after the page loaded.
+  startVerdictNotifier(eventBroadcaster);
 
   startRetentionCleanup();
   // Weekly moderation digest (public, automated)

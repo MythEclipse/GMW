@@ -324,6 +324,20 @@ export const configSchema = z
       .default(false),
     AUTO_DELETE_LOG_CHANNEL_ID: z.string().default(""),
 
+    // Publish newly-written verdicts to the dashboard over Redis.
+    //
+    // The moderation worker is database-only by design, so it announces
+    // nothing. This is the gateway's poll of the `verdicts` table that turns
+    // each new judgement into a `message_analyzed` event. Without it the
+    // dashboard's live feed is frozen at whatever the server render fetched
+    // and a freshly-captured message shows as "unjudged" until a manual
+    // reload.
+    VERDICT_NOTIFY_ENABLED: z
+      .string()
+      .optional()
+      .transform((v) => v === "true")
+      .default(true),
+
     // ── Nickname Reset (offensive_username enforcement) ────────────────
     // When the only violation is the member's server nickname, reset the
     // nickname to the default username instead of deleting the message.

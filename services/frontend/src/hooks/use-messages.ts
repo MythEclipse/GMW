@@ -299,8 +299,16 @@ export function useMessagesWsSync(ws: WsHook, guildId: string) {
       );
     });
     const unsub4 = ws.on("message_analyzed", (data) => {
-      const msg = data as MessageRecord;
-      // message_analyzed carries the FULL record — replace is fine.
+      const incoming = data as Partial<MessageRecord> & { id: string };
+
+      // MERGE, do not replace.
+      //
+      // The verdict arrives as a partial payload: the judgement fields plus
+      // whatever the publisher had. A wholesale replace meant that any field
+      // the payload happened to omit — content, username, metadata, the
+      // channel label — was wiped the instant a verdict landed, so the card
+      // degraded to an unjudged-looking stub. Merging can only ever add the
+      // verdict, never remove what the server already rendered.
       patchLists(
         (_k, m) => matchesFilter(_k as unknown[], m),
         (old) =>
@@ -308,13 +316,20 @@ export function useMessagesWsSync(ws: WsHook, guildId: string) {
             ? {
                 ...old,
                 data: sortMessages(
-                  old.data.map((m) => (m.id === msg.id ? msg : m)),
+                  old.data.map((m) =>
+                    m.id === incoming.id ? { ...m, ...incoming } : m,
+                  ),
                 ),
               }
             : old,
-        msg,
+        incoming as { channel_id?: string },
       );
-      void mutate(msgKeys.detail(msg.id), msg, { revalidate: false });
+      void mutate(
+        msgKeys.detail(incoming.id),
+        (old: MessageRecord | undefined) =>
+          old ? { ...old, ...incoming } : (incoming as MessageRecord),
+        { revalidate: false },
+      );
     });
     return () => {
       unsub1();
