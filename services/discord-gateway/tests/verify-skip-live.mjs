@@ -106,14 +106,34 @@ try {
     );
   }
 
-  // A skipped row must never be a backlog item.
+  // A skipped row must never be a backlog item, and the skip itself must
+  // never have consumed retry budget.
+  //
+  // The invariant is NOT "attempts === 1". These rows are messages the worker
+  // claimed BEFORE the channel was on the skip list, so they legitimately
+  // carry attempts from those earlier real attempts — production showed
+  // attempts=4, one attempt short of the cap. Asserting <=1 was wrong, and
+  // would have failed on correct behaviour.
+  //
+  // What actually has to hold: the skip did not consume a further attempt, so
+  // re-reading the rows later must show the same number. Measured across a
+  // gap rather than in one snapshot, because a single read cannot tell
+  // "already 4" from "just incremented to 4".
   if (skipped > 0) {
-    const attempts = await pool.query(`
-      SELECT max(attempts)::int n FROM messages WHERE ai_status = 'skipped'`);
+    const first = await pool.query(
+      `SELECT id, attempts FROM messages WHERE ai_status = 'skipped' ORDER BY id`,
+    );
+    await new Promise((r) => setTimeout(r, 5000));
+    const second = await pool.query(
+      `SELECT id, attempts FROM messages WHERE ai_status = 'skipped' ORDER BY id`,
+    );
     check(
-      "skipped rows consumed no retry budget",
-      (attempts.rows[0]?.n ?? 0) <= 1,
-      `max attempts=${attempts.rows[0]?.n}`,
+      "the skip consumed no retry budget (attempts frozen across 5s)",
+      JSON.stringify(first.rows) === JSON.stringify(second.rows),
+      `${first.rows.length} rows, max attempts=${Math.max(
+        0,
+        ...first.rows.map((r) => Number(r.attempts ?? 0)),
+      )}`,
     );
   }
 } catch (e) {
