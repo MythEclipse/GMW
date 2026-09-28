@@ -724,7 +724,27 @@
     opacity: var(--meter-opacity, 1);
   }
   .heat-cell {
-    background-color: var(--heat-color, var(--color-surface-2));
+    /* Intensity arrives as a 0..1 number and is mapped onto the token ramp in
+     * CSS, so the cell never hardcodes a colour and follows a theme change.
+     * Zero keeps the muted surface so an empty hour still reads as a cell. */
+    background-color: color-mix(
+      in oklch,
+      var(--color-signal) calc(var(--heat-intensity, 0) * 85%),
+      var(--color-surface-2)
+    );
+  }
+  /* Avatar fallback box. Sized from a per-instance custom property rather than
+   * an inline width/height, which the design gate forbids. */
+  .avatar-fallback {
+    width: var(--avatar-size, 1.5rem);
+    height: var(--avatar-size, 1.5rem);
+  }
+  /* A table row whose data is being revalidated. Driven by `data-loading` so
+   * the dimming lives here rather than as a className on the primitive, which
+   * the design gate would reject. */
+  [data-slot="table-row"][data-loading] {
+    opacity: 0.6;
+    transition: opacity 0.15s ease;
   }
   .mote {
     left: var(--mote-left, 50%);
