@@ -10,8 +10,7 @@
     "build": "next build",
     "dev": "next dev",
     "format": "biome format --write",
-    "lint": "biome check .",
-    "lint:design": "oxlint",
+    "lint": "biome check . && oxlint",
     "start": "next start",
     "typecheck": "tsc --noEmit"
   },
