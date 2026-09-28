@@ -17,6 +17,38 @@ const ACTION_TYPES = [
 ] as const;
 const STATUSES = ["pending", "executed", "failed"] as const;
 
+/**
+ * Normalize `moderation_actions.categories` to a `text[]`, cast-free.
+ *
+ * The column is `text` and has been written in at least two different shapes:
+ *
+ *   1. `["gambling","scam"]`  — a JSON array (the current writer)
+ *   2. `harassment`            — a bare category, or a comma list like
+ *      `inappropriate_content, spam` (the older writer)
+ *
+ * 172 of 1403 live rows are shape 2. Every `::jsonb` cast on this column
+ * therefore aborts the whole query, not just the offending row, which is why
+ * `moderation/trends` and `moderation/byCategory` returned 500 rather than
+ * skipping the bad row.
+ *
+ * This expression is deliberately built from `regexp_matches` and
+ * `regexp_split_to_array` — pure text functions. There is no cast anywhere, so
+ * no input, however malformed, can raise "invalid input syntax for type json".
+ * Verified against every distinct live value, plus adversarial junk
+ * (`{"not":"an array"}`, `[unclosed`, `null`, `a, b, , c`): all resolve to a
+ * plain array instead of throwing.
+ *
+ *   - Quoted tokens are preferred, so a JSON-array row yields its members
+ *     rather than the whole `["a","b"]` string.
+ *   - Otherwise the raw value is split on commas.
+ *   - An empty/blank cell yields NULL (no categories), never `['']`.
+ */
+const CATEGORIES_TXT_ARRAY = `COALESCE(
+  (SELECT array_agg(DISTINCT t[1])
+     FROM regexp_matches(COALESCE(a.categories,''), '"([^"]*)"', 'g') AS t),
+  NULLIF(regexp_split_to_array(btrim(a.categories), '\\s*,\\s*'), ARRAY[''])
+)`;
+
 /** Parse a JSON-stringified array column (e.g. flags/categories/evidence).
  *  Returns null on empty/malformed input so the FE can treat it as "no data". */
 function parseJsonArray(value: unknown): string[] | null {
@@ -224,9 +256,14 @@ export class ModerationRepository {
     const since = Date.now() - days * 24 * 60 * 60 * 1000;
 
     const cats = await db.execute(sql`
-      SELECT jsonb_array_elements_text(a.categories::jsonb) AS cat, COUNT(*)::int AS c
-      FROM moderation_actions a
-      WHERE a.created_at >= ${since} AND a.categories IS NOT NULL AND a.categories != '[]' AND a.categories != ''
+      SELECT cat, COUNT(*)::int AS c
+      FROM (
+        SELECT unnest(${sql.raw(CATEGORIES_TXT_ARRAY)}) AS cat
+        FROM moderation_actions a
+        WHERE a.created_at >= ${since}
+          AND a.categories IS NOT NULL AND btrim(a.categories) <> ''
+      ) s
+      WHERE cat IS NOT NULL AND cat <> ''
       GROUP BY cat
       ORDER BY c DESC
       LIMIT 15
@@ -268,8 +305,14 @@ export class ModerationRepository {
 
   /**
    * Top flagged domains over the last `days` days.
-   * Extracts the host from any URL in `content`/`reason`/`evidence` and ranks
-   * by how often it appears in moderation actions. Powers the Scam Domain panel.
+   * Extracts the host from any URL in the message content / reason / evidence
+   * and ranks by how often it appears in moderation actions.
+   *
+   * `moderation_actions` has no `content` column — the message body only lives
+   * on `messages`, so the text is read through the same
+   * `LEFT JOIN messages` that `listActions` and `getByCategory` use. Querying
+   * `a.content` directly raised "column a.content does not exist", i.e. a 500
+   * on every call.
    */
   async getTopFlaggedDomains(days: number) {
     const db = getDatabase();
@@ -278,10 +321,11 @@ export class ModerationRepository {
       SELECT host, COUNT(*)::int AS c
       FROM (
         SELECT DISTINCT a.id,
-          (regexp_matches(COALESCE(a.content,'') || ' ' || COALESCE(a.reason,'') || ' ' || COALESCE(a.evidence,''), 'https?://([^/\s?#]+)', 'g'))[1] AS host
+          (regexp_matches(COALESCE(m.content,'') || ' ' || COALESCE(a.reason,'') || ' ' || COALESCE(a.evidence,''), 'https?://([^/\\s?#]+)', 'g'))[1] AS host
         FROM moderation_actions a
+        LEFT JOIN messages m ON m.id = a.message_id
         WHERE a.created_at >= ${since}
-          AND (a.content IS NOT NULL OR a.reason IS NOT NULL OR a.evidence IS NOT NULL)
+          AND (m.content IS NOT NULL OR a.reason IS NOT NULL OR a.evidence IS NOT NULL)
       ) sub
       WHERE host IS NOT NULL
       GROUP BY host
@@ -352,24 +396,31 @@ export class ModerationRepository {
   /**
    * Moderation actions filtered to a single category (drill-down).
    * Powers the Flag Category Drill-down panel.
+   *
+   * Uses the cast-free `CATEGORIES_TXT_ARRAY` normalizer, so a category that
+   * was written as a bare string (`harassment`) is matched just like one
+   * written as a JSON array (`["harassment"]`). Previously the
+   * `categories::jsonb` containment test made this procedure 500 for the whole
+   * table as soon as ANY row used the bare shape.
    */
   async getByCategory(days: number, category: string, limit = 50) {
     const db = getDatabase();
     const since = Date.now() - days * 24 * 60 * 60 * 1000;
     const result = await db.execute(
-      sql.raw(`
-      SELECT
-        a.id, a.message_id, a.user_id, a.guild_id, a.action_type,
-        a.reason, a.status, a.created_at, a.severity, a.confidence, a.score,
-        a.username, LEFT(m.content, 300) AS content
-      FROM moderation_actions a
-      LEFT JOIN messages m ON m.id = a.message_id
-      WHERE a.created_at >= ${since}
-        AND a.categories IS NOT NULL
-        AND a.categories::jsonb @> ${JSON.stringify([category])}::jsonb
-      ORDER BY a.created_at DESC
-      LIMIT ${limit}
-    `),
+      sql`
+        SELECT
+          a.id, a.message_id, a.user_id, a.guild_id, a.action_type,
+          a.reason, a.status, a.created_at, a.severity, a.confidence, a.score,
+          a.username, LEFT(m.content, 300) AS content
+        FROM moderation_actions a
+        LEFT JOIN messages m ON m.id = a.message_id
+        WHERE a.created_at >= ${since}
+          AND a.categories IS NOT NULL
+          AND btrim(a.categories) <> ''
+          AND ${sql.raw(CATEGORIES_TXT_ARRAY)} @> ARRAY[${category}]::text[]
+        ORDER BY a.created_at DESC
+        LIMIT ${limit}
+      `,
     );
     const rows = (result.rows as Record<string, unknown>[]) || [];
     return rows.map((r) => ({
