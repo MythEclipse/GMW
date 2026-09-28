@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/primitives";
+import { Button } from "@/components/ui/button";
 import { useChatbotUserId } from "@/hooks/use-chatbot-user";
 import { chatbotApi } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/format";
@@ -122,7 +122,7 @@ export function Chatbot() {
           type="button"
           aria-label="Open neural HUD assistant"
           onClick={() => setOpen(true)}
-          className="fixed right-4 z-50 flex size-11 items-center justify-center rounded-full border border-signal/40 bg-surface text-signal shadow-[0_0_20px_var(--color-signal-glow)] transition-all duration-200 hover:scale-105 hover:border-signal hover:bg-signal hover:text-white bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:bottom-5"
+          className="fixed right-4 z-50 flex size-11 items-center justify-center rounded-full border border-signal/40 bg-surface text-signal shadow-glow-md transition-all duration-200 hover:scale-105 hover:border-signal hover:bg-signal hover:text-white bottom-safe-launcher md:bottom-5"
         >
           <Sparkles className="size-5 animate-breathe" />
         </button>
@@ -141,14 +141,14 @@ export function Chatbot() {
           {/* Header */}
           <div className="flex items-center justify-between border-b border-hairline px-3.5 py-2.5">
             <div className="flex items-center gap-2">
-              <span className="flex size-6 items-center justify-center rounded-[4px] bg-signal/15 text-signal">
+              <span className="flex size-6 items-center justify-center rounded-sm bg-signal/15 text-signal">
                 <Bot className="size-3.5" />
               </span>
               <div>
                 <span className="font-mono text-xs font-bold text-ink">
                   Neural Core Assistant
                 </span>
-                <span className="ml-2 font-mono text-[10px] text-success">
+                <span className="ml-2 font-mono text-micro text-success">
                   ● ACTIVE
                 </span>
               </div>
@@ -185,7 +185,7 @@ export function Chatbot() {
               <div className="flex h-full flex-col items-center justify-center text-center font-mono text-xs text-ink-muted">
                 <Sparkles className="mb-2 size-6 text-signal opacity-60" />
                 <span>Neural Assistant ready.</span>
-                <span className="text-[10px] text-ink-faint">
+                <span className="text-micro text-ink-faint">
                   Ask about telemetry, moderation policies, or channel activity.
                 </span>
               </div>
@@ -200,7 +200,7 @@ export function Chatbot() {
                     }`}
                   >
                     <div
-                      className={`max-w-[85%] rounded-[8px] p-2.5 text-xs leading-relaxed ${
+                      className={`max-w-[85%] rounded-lg p-2.5 text-xs leading-relaxed ${
                         isUser
                           ? "bg-signal text-white"
                           : "hud-card text-ink-soft"
@@ -208,7 +208,7 @@ export function Chatbot() {
                     >
                       {m.text}
                     </div>
-                    <span className="mt-1 font-mono text-[9px] text-ink-faint">
+                    <span className="mt-1 font-mono text-2xs text-ink-faint">
                       {formatRelativeTime(m.timestamp)}
                     </span>
                   </div>
@@ -234,14 +234,13 @@ export function Chatbot() {
               placeholder="Transmit instruction to core..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              className="min-h-[38px] flex-1 rounded-[6px] border border-hairline bg-surface-2 px-3 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-signal focus:outline-none"
+              className="min-h-[38px] flex-1 rounded-md border border-hairline bg-surface-2 px-3 py-1.5 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-signal focus:outline-none"
             />
             <Button
-              variant="primary"
+              variant="default"
               size="sm"
               type="submit"
               disabled={!input.trim() || sending}
-              className="px-2.5"
             >
               <Send className="size-3.5" />
             </Button>

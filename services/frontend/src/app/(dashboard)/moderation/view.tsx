@@ -1,19 +1,10 @@
 "use client";
 
-import {
-  AlertTriangle,
-  BarChart3,
-  CheckCircle2,
-  Globe,
-  Hash,
-  Shield,
-  TrendingUp,
-} from "lucide-react";
+import { AlertTriangle, BarChart3, CheckCircle2, Shield } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAmbient } from "@/components/ambient/ambient-context";
 import { LiveModerationFeed } from "@/components/LiveModerationFeed";
 import { ModerationHeatmap } from "@/components/ModerationHeatmap";
-import { GlassPanel } from "@/components/primitives";
 import { ScamDomains } from "@/components/ScamDomains";
 import {
   ErrorState,
@@ -24,6 +15,7 @@ import {
   SkeletonPanel,
 } from "@/components/shared";
 import { TopChannels } from "@/components/TopChannels";
+import { Card } from "@/components/ui/card";
 import {
   useHourlyModeration,
   useModerationActions,
@@ -109,15 +101,15 @@ export function ModerationView({
             <span
               className={`h-2 w-2 rounded-full ${
                 failedRatio > 0.1
-                  ? "bg-vermilion shadow-[0_0_8px_var(--color-vermilion-glow)]"
-                  : "bg-signal shadow-[0_0_8px_var(--color-signal-glow)]"
+                  ? "bg-vermilion shadow-glow-danger"
+                  : "bg-signal shadow-glow-sm"
               }`}
             />
             <h1 className="font-mono text-xs font-semibold tracking-wide text-ink uppercase">
               Moderation Intelligence Console
             </h1>
           </div>
-          <div className="flex items-center gap-2 font-mono text-[11px] text-ink-muted">
+          <div className="flex items-center gap-2 font-mono text-micro-lg text-ink-muted">
             <span>EXECUTION:</span>
             <span className="rounded bg-signal/15 px-2 py-0.5 font-medium text-signal border border-signal/30">
               {Math.round((executed / total) * 100)}% RATE
@@ -137,13 +129,13 @@ export function ModerationView({
               </>
             )}
           </div>
-          <div className="flex items-center gap-1.5 rounded-[6px] border border-hairline bg-surface-2 p-0.5">
+          <div className="flex items-center gap-1.5 rounded-md border border-hairline bg-surface-2 p-0.5">
             {(["all", "flagged", "clean"] as const).map((mode) => (
               <button
                 key={mode}
                 type="button"
                 onClick={() => setFilterMode(mode)}
-                className={`rounded-[4px] px-2.5 py-1 font-mono text-[10px] font-medium transition-all ${
+                className={`rounded-sm px-2.5 py-1 font-mono text-micro font-medium transition-all ${
                   filterMode === mode
                     ? "bg-surface text-ink border border-hairline-focus shadow-xs"
                     : "text-ink-muted hover:text-ink"
@@ -190,7 +182,7 @@ export function ModerationView({
 
         {/* Live Moderation Stream */}
         <div className="mod-tile">
-          <GlassPanel>
+          <Card>
             <SectionHeader
               eyebrow="Realtime Feed"
               title="Live Stream Audit Log"
@@ -206,13 +198,13 @@ export function ModerationView({
                 }
               />
             </div>
-          </GlassPanel>
+          </Card>
         </div>
 
         {/* Heatmap Section */}
         {hourly && hourly.length > 0 && (
           <div className="mod-tile">
-            <GlassPanel>
+            <Card>
               <SectionHeader
                 eyebrow="Distribution"
                 title="Hourly Incident Heatmap"
@@ -220,7 +212,7 @@ export function ModerationView({
               <div className="mt-3">
                 <ModerationHeatmap hours={hourly} />
               </div>
-            </GlassPanel>
+            </Card>
           </div>
         )}
 
@@ -243,7 +235,7 @@ export function ModerationView({
           {/* Moderation Trends */}
           {trends && (
             <div className="mod-tile">
-              <GlassPanel>
+              <Card>
                 <SectionHeader eyebrow="trends" title="Category Breakdown" />
                 <div className="mt-3 space-y-3">
                   {/* Categories */}
@@ -254,7 +246,7 @@ export function ModerationView({
                         {trends.categories.slice(0, 8).map((cat) => (
                           <span
                             key={cat.name}
-                            className="inline-flex items-center gap-1 rounded-md border border-hairline bg-surface-2 px-2 py-1 text-[10px] font-medium text-ink-soft"
+                            className="inline-flex items-center gap-1 rounded-md border border-hairline bg-surface-2 px-2 py-1 text-micro font-medium text-ink-soft"
                           >
                             {cat.name}
                             <span className="font-mono text-ink-muted">
@@ -287,15 +279,19 @@ export function ModerationView({
                           return (
                             <div
                               key={sev.level}
-                              className="flex items-center gap-2 text-[10px]"
+                              className="flex items-center gap-2 text-micro"
                             >
                               <span className="w-16 shrink-0 font-mono text-ink-muted">
                                 {sev.level}
                               </span>
                               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
                                 <div
-                                  className={`h-full rounded-full ${tone}`}
-                                  style={{ width: `${pct}%` }}
+                                  className={`meter-fill h-full rounded-full ${tone}`}
+                                  style={
+                                    {
+                                      "--meter-width": `${pct}%`,
+                                    } as React.CSSProperties
+                                  }
                                 />
                               </div>
                               <span className="w-8 text-right font-mono text-ink-faint">
@@ -316,7 +312,7 @@ export function ModerationView({
                         {trends.actions.map((act) => (
                           <span
                             key={act.type}
-                            className="inline-flex items-center gap-1 rounded-md border border-vermilion/20 bg-vermilion/5 px-2 py-1 text-[10px] font-medium text-vermilion/80"
+                            className="inline-flex items-center gap-1 rounded-md border border-vermilion/20 bg-vermilion/5 px-2 py-1 text-micro font-medium text-vermilion/80"
                           >
                             {act.type.replace(/_/g, " ")}
                             <span className="font-mono text-ink-muted">
@@ -328,7 +324,7 @@ export function ModerationView({
                     </div>
                   )}
                 </div>
-              </GlassPanel>
+              </Card>
             </div>
           )}
         </div>
@@ -336,12 +332,12 @@ export function ModerationView({
         {/* Coverage Progress Bar */}
         {coverage && (
           <div className="mod-tile">
-            <GlassPanel>
+            <Card>
               <SectionHeader
                 eyebrow="pipeline"
                 title="Analysis Coverage"
                 action={
-                  <span className="font-mono text-[11px] text-ink-muted">
+                  <span className="font-mono text-micro-lg text-ink-muted">
                     {formatNumber(coverage.completed)}/
                     {formatNumber(coverage.total)} (
                     {Math.round(coverage.coverage_rate)}%)
@@ -351,19 +347,21 @@ export function ModerationView({
               <div className="mt-3">
                 <div className="h-2.5 w-full overflow-hidden rounded-full bg-surface-2">
                   <div
-                    className={`h-full rounded-full transition-all ${
+                    className={`meter-fill h-full rounded-full transition-all ${
                       coverage.coverage_rate >= 90
                         ? "bg-signal"
                         : coverage.coverage_rate >= 70
                           ? "bg-amber"
                           : "bg-vermilion"
                     }`}
-                    style={{
-                      width: `${Math.min(100, coverage.coverage_rate)}%`,
-                    }}
+                    style={
+                      {
+                        "--meter-width": `${Math.min(100, coverage.coverage_rate)}%`,
+                      } as React.CSSProperties
+                    }
                   />
                 </div>
-                <div className="mt-2 flex justify-between font-mono text-[10px] text-ink-muted">
+                <div className="mt-2 flex justify-between font-mono text-micro text-ink-muted">
                   <span>{formatNumber(coverage.completed)} analyzed</span>
                   <span>
                     {formatNumber(coverage.pending)} pending ·{" "}
@@ -371,7 +369,7 @@ export function ModerationView({
                   </span>
                 </div>
               </div>
-            </GlassPanel>
+            </Card>
           </div>
         )}
       </div>

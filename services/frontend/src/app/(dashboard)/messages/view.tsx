@@ -12,17 +12,12 @@ import {
   Search,
   ShieldAlert,
 } from "lucide-react";
+import Image from "next/image";
+import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityHeatmap } from "@/components/ActivityHeatmap";
 import { useAmbient } from "@/components/ambient/ambient-context";
 import { EditHistory } from "@/components/EditHistory";
-import {
-  Avatar,
-  Badge,
-  GlassPanel,
-  Input,
-  Skeleton,
-} from "@/components/primitives";
 import {
   EmptyState,
   ErrorState,
@@ -30,6 +25,15 @@ import {
   SkeletonRows,
 } from "@/components/shared";
 import { GuildChannelPicker } from "@/components/shared/guild-picker";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   useLoadMore,
   useMessageActivity,
@@ -49,6 +53,7 @@ import {
   formatDuration,
   formatRelativeTime,
   getMessageChannelLabel,
+  initials,
   renderMessageContent,
   safeParseJsonArray,
 } from "@/lib/format";
@@ -60,7 +65,7 @@ import type {
   MessageRecord,
   VerdictStatus,
 } from "@/lib/types";
-import { staggerDelay } from "@/lib/utils";
+import { staggerMs } from "@/lib/utils";
 import { useWebSocket } from "@/lib/ws/context";
 
 export function MessagesView({
@@ -230,13 +235,13 @@ export function MessagesView({
             Chat Log Stream · Ingestion Stream
           </h1>
           {streaming && (
-            <span className="flex items-center gap-1 font-mono text-[10px] text-signal animate-pulse">
+            <span className="flex items-center gap-1 font-mono text-micro text-signal animate-pulse">
               <Loader2 className="size-3 animate-spin" />
               STREAMING
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 font-mono text-[11px] text-ink-muted">
+        <div className="flex items-center gap-2 font-mono text-micro-lg text-ink-muted">
           <span>MODE:</span>
           <span
             className="glitch-text rounded bg-signal/15 px-2 py-0.5 font-medium text-signal border border-signal/30"
@@ -248,7 +253,7 @@ export function MessagesView({
       </div>
 
       {/* Filter and Mode Bar */}
-      <GlassPanel className="flex flex-wrap items-center gap-3 p-3">
+      <Card size="sm" className="flex flex-wrap items-center">
         <GuildChannelPicker
           guildsInitial={initialGuilds}
           guildId={guildId}
@@ -261,20 +266,24 @@ export function MessagesView({
             firstLoadRef.current = true;
           }}
         />
-        <div className="relative ml-auto w-full sm:w-64">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-faint" />
-          <Input
-            className="pl-9 text-xs"
-            placeholder="Search captured logs..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+        <div className="ml-auto w-full sm:w-64">
+          <InputGroup>
+            <InputGroupAddon align="inline-start">
+              <Search className="size-4 text-ink-faint" />
+            </InputGroupAddon>
+            <InputGroupInput
+              size="sm"
+              placeholder="Search captured logs..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </InputGroup>
         </div>
-        <div className="flex items-center gap-1.5 rounded-[6px] border border-hairline bg-surface-2 p-0.5">
+        <div className="flex items-center gap-1.5 rounded-md border border-hairline bg-surface-2 p-0.5">
           <button
             type="button"
             onClick={() => setViewMode("feed")}
-            className={`rounded-[4px] px-2.5 py-1 font-mono text-[10px] font-medium transition-all ${
+            className={`rounded-sm px-2.5 py-1 font-mono text-micro font-medium transition-all ${
               viewMode === "feed"
                 ? "bg-surface text-ink border border-hairline-focus shadow-xs"
                 : "text-ink-muted hover:text-ink"
@@ -285,7 +294,7 @@ export function MessagesView({
           <button
             type="button"
             onClick={() => setViewMode("timeline")}
-            className={`rounded-[4px] px-2.5 py-1 font-mono text-[10px] font-medium transition-all ${
+            className={`rounded-sm px-2.5 py-1 font-mono text-micro font-medium transition-all ${
               viewMode === "timeline"
                 ? "bg-surface text-ink border border-hairline-focus shadow-xs"
                 : "text-ink-muted hover:text-ink"
@@ -294,16 +303,16 @@ export function MessagesView({
             TIMELINE
           </button>
         </div>
-      </GlassPanel>
+      </Card>
 
       <div className="grid gap-3 lg:grid-cols-5">
         {/* Message Stream Deck */}
-        <GlassPanel className="lg:col-span-3">
+        <Card className="lg:col-span-3">
           <SectionHeader
             eyebrow={searching ? "query results" : "realtime log"}
             title={searching ? `Matches for “${query}”` : "Message Stream"}
             action={
-              <span className="mono text-xs text-[#8a8f98]">
+              <span className="mono text-xs text-ink-muted">
                 {list.length} messages
               </span>
             }
@@ -336,12 +345,12 @@ export function MessagesView({
                     <button
                       type="button"
                       onClick={loadOlder}
-                      className="rounded-md border border-hairline bg-surface-2 px-3 py-1 font-mono text-[10px] text-ink-muted transition-colors hover:bg-surface hover:text-ink"
+                      className="rounded-md border border-hairline bg-surface-2 px-3 py-1 font-mono text-micro text-ink-muted transition-colors hover:bg-surface hover:text-ink"
                     >
                       ↑ LOAD PREVIOUS BATCH
                     </button>
                   ) : (
-                    <span className="font-mono text-[10px] text-ink-faint">
+                    <span className="font-mono text-micro text-ink-faint">
                       {loadedPages >= MAX_OLDER_PAGES
                         ? `CAPPED AT ${MAX_OLDER_PAGES} PAGES`
                         : "STREAM ROOT REACHED"}
@@ -369,9 +378,9 @@ export function MessagesView({
                         node.type === "date" ? (
                           <div
                             key={`date-${node.iso}`}
-                            className="flex items-center gap-2 py-1 font-mono text-[10px] text-ink-muted"
+                            className="flex items-center gap-2 py-1 font-mono text-micro text-ink-muted"
                           >
-                            <Calendar className="size-3 text-signal" />
+                            <Calendar className="size-3" />
                             {node.label}
                           </div>
                         ) : (
@@ -397,10 +406,10 @@ export function MessagesView({
               </div>
             </div>
           )}
-        </GlassPanel>
+        </Card>
 
         {/* Message Inspector Detail Panel */}
-        <GlassPanel className="lg:col-span-2">
+        <Card className="lg:col-span-2">
           <SectionHeader eyebrow="telemetry analysis" title="Inspector Deck" />
           {!selected ? (
             <EmptyState
@@ -420,7 +429,7 @@ export function MessagesView({
           ) : (
             <EmptyState title="Packet not found" />
           )}
-        </GlassPanel>
+        </Card>
       </div>
 
       {activity.data && activity.data.length > 0 && (
@@ -465,7 +474,7 @@ function AiBadge({
       : text;
 
   return (
-    <Badge tone={tone} dot={status === "claimed" || status === "pending"}>
+    <Badge variant={tone} dot={status === "claimed" || status === "pending"}>
       {icon}
       {label}
     </Badge>
@@ -527,20 +536,24 @@ function MessageDetail({
   return (
     <div className="space-y-3 text-sm">
       <div className="flex items-center gap-3">
-        <Avatar
-          src={m.avatar_url}
-          name={m.server_nick ?? m.username}
-          size={40}
-        />
+        <Avatar className="size-10">
+          <AvatarImage
+            src={m.avatar_url ?? undefined}
+            alt={m.server_nick ?? m.username}
+          />
+          <AvatarFallback>
+            {initials(m.server_nick ?? m.username)}
+          </AvatarFallback>
+        </Avatar>
         <div>
           <div className="font-semibold text-ink">
             {m.server_nick ?? m.username}
           </div>
           {m.server_nick && m.server_nick !== m.username && (
-            <div className="text-[11px] text-ink-muted">@{m.username}</div>
+            <div className="text-micro-lg text-ink-muted">@{m.username}</div>
           )}
           <div
-            className="mono text-[0.65rem] text-ink-faint"
+            className="mono text-micro text-ink-faint"
             suppressHydrationWarning
           >
             {getMessageChannelLabel(m)} · {formatRelativeTime(m.created_at)}
@@ -557,7 +570,7 @@ function MessageDetail({
 
       {/* Reply context chain */}
       {ref && (ref.content || ref.repliedUsername) && (
-        <div className="rounded-[6px] border-l-2 border-signal/40 bg-signal/5 px-3 py-2 text-[11px]">
+        <div className="rounded-md border-l-2 border-signal/40 bg-signal/5 px-3 py-2 text-micro-lg">
           <span className="font-semibold text-ink-muted">
             Replying to {ref.repliedUsername ?? "message"}
           </span>
@@ -583,20 +596,21 @@ function MessageDetail({
               <div className="flex items-center gap-2">
                 <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
                   <div
-                    className={`h-full rounded-full transition-all ${
+                    className={`meter-fill h-full rounded-full transition-all ${
                       severityTone(sev) === "vermilion"
                         ? "bg-vermilion"
                         : severityTone(sev) === "amber"
                           ? "bg-amber"
                           : "bg-signal"
                     }`}
-                    style={{ width: `${severityWidth(sev)}%` }}
+                    style={
+                      {
+                        "--meter-width": `${severityWidth(sev)}%`,
+                      } as React.CSSProperties
+                    }
                   />
                 </div>
-                <Badge
-                  tone={severityTone(sev)}
-                  className="font-mono text-[9px]"
-                >
+                <Badge type="mono" variant={severityTone(sev)}>
                   {sev.toUpperCase()}
                 </Badge>
               </div>
@@ -622,14 +636,14 @@ function MessageDetail({
             <div className="hud-card px-2.5 py-2">
               <div className="eyebrow mb-1">Recommended Action</div>
               <Badge
-                tone={
+                type="mono"
+                variant={
                   recAction === "delete" || recAction === "escalate"
                     ? "vermilion"
                     : recAction === "warn" || recAction === "review"
                       ? "amber"
                       : "neutral"
                 }
-                className="font-mono text-[9px]"
               >
                 {RECOMMEND_LABELS[recAction] ?? recAction}
               </Badge>
@@ -666,18 +680,18 @@ function MessageDetail({
                   key={`${a.attempt}-${a.created_at}`}
                   className="flex items-start gap-2 p-2 text-xs"
                 >
-                  <span className="font-mono text-[10px] text-ink-faint w-8 shrink-0">
+                  <span className="font-mono text-micro text-ink-faint w-8 shrink-0">
                     #{a.attempt}
                   </span>
                   <Badge
-                    tone={
+                    type="monoMicro"
+                    variant={
                       a.outcome === "success"
                         ? "signal"
                         : a.outcome === "duplicate"
                           ? "neutral"
                           : "vermilion"
                     }
-                    className="font-mono text-[10px] shrink-0"
                   >
                     {a.outcome}
                   </Badge>
@@ -688,11 +702,11 @@ function MessageDetail({
                       </div>
                     )}
                     {a.error_code && (
-                      <div className="font-mono text-[10px] text-ink-faint">
+                      <div className="font-mono text-micro text-ink-faint">
                         {a.error_code}
                       </div>
                     )}
-                    <div className="font-mono text-[10px] text-ink-faint">
+                    <div className="font-mono text-micro text-ink-faint">
                       {[
                         a.model,
                         a.duration_ms !== null
@@ -720,12 +734,12 @@ function MessageDetail({
           {(flags.length > 0 || cats.length > 0) && (
             <div className="flex flex-wrap gap-1.5">
               {flags.map((f) => (
-                <Badge key={f} tone="vermilion">
+                <Badge key={f} variant="vermilion">
                   {f}
                 </Badge>
               ))}
               {cats.map((c) => (
-                <Badge key={c} tone="amber">
+                <Badge key={c} variant="amber">
                   {c}
                 </Badge>
               ))}
@@ -733,11 +747,11 @@ function MessageDetail({
           )}
           {mentions.length > 0 && (
             <div className="flex flex-wrap gap-1">
-              <span className="text-[10px] text-ink-muted">Mentions:</span>
+              <span className="text-micro text-ink-muted">Mentions:</span>
               {mentions.map((u) => (
                 <span
                   key={u.id}
-                  className="rounded bg-signal/10 px-1.5 py-0.5 text-[10px] text-signal"
+                  className="rounded bg-signal/10 px-1.5 py-0.5 text-micro text-signal"
                 >
                   @{u.username}
                 </span>
@@ -746,11 +760,11 @@ function MessageDetail({
           )}
           {mentionRoles.length > 0 && (
             <div className="flex flex-wrap gap-1">
-              <span className="text-[10px] text-ink-muted">Roles:</span>
+              <span className="text-micro text-ink-muted">Roles:</span>
               {mentionRoles.map((r) => (
                 <span
                   key={r.id}
-                  className="rounded bg-amber/10 px-1.5 py-0.5 text-[10px] text-amber"
+                  className="rounded bg-amber/10 px-1.5 py-0.5 text-micro text-amber"
                 >
                   @{r.name}
                 </span>
@@ -770,10 +784,10 @@ function MessageDetail({
             {editHistory.map((e, i) => (
               <div
                 key={`${m.id}-edit-${i}`}
-                className="grid grid-cols-2 gap-1.5 rounded-[6px] border border-hairline bg-surface-2/50 text-[10px] leading-relaxed"
+                className="grid grid-cols-2 gap-1.5 rounded-md border border-hairline bg-surface-2/50 text-micro leading-relaxed"
               >
-                <div className="overflow-hidden rounded-l-[5px] border-r border-hairline">
-                  <div className="border-b border-hairline bg-vermilion/5 px-2 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-wider text-vermilion">
+                <div className="overflow-hidden rounded-l-md border-r border-hairline">
+                  <div className="border-b border-hairline bg-vermilion/5 px-2 py-0.5 font-mono text-2xs font-semibold uppercase tracking-wider text-vermilion">
                     Before
                   </div>
                   <div className="max-h-20 overflow-y-auto p-1.5">
@@ -782,8 +796,8 @@ function MessageDetail({
                     </pre>
                   </div>
                 </div>
-                <div className="overflow-hidden rounded-r-[5px]">
-                  <div className="border-b border-hairline bg-success/5 px-2 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-wider text-success">
+                <div className="overflow-hidden rounded-r-md">
+                  <div className="border-b border-hairline bg-success/5 px-2 py-0.5 font-mono text-2xs font-semibold uppercase tracking-wider text-success">
                     After
                   </div>
                   <div className="max-h-20 overflow-y-auto p-1.5">
@@ -814,7 +828,7 @@ function MessageDetail({
               >
                 <ImageIcon className="size-3.5 text-signal" />
                 <span className="flex-1 truncate">{a.filename}</span>
-                <span className="mono text-[10px] text-ink-muted">
+                <span className="mono text-micro text-ink-muted">
                   {formatBytes(a.size)}
                 </span>
               </a>
@@ -877,29 +891,35 @@ function MessageRow({
       key={m.id}
       type="button"
       onClick={() => onSelect(m.id)}
-      className={`msg-feed-card animate-stagger flex w-full items-start gap-3 rounded-[8px] border p-2.5 text-left transition-all ${
+      className={`msg-feed-card stagger-item animate-stagger flex w-full items-start gap-3 rounded-lg border p-2.5 text-left transition-all ${
         selected === m.id
           ? "border-signal/50 bg-signal/10 shadow-xs"
           : "border-hairline bg-surface-2 hover:border-hairline-focus hover:bg-surface"
       }`}
-      style={staggerDelay(index)}
+      style={{ "--stagger-delay": staggerMs(index) } as React.CSSProperties}
     >
-      <Avatar src={m.avatar_url} name={m.server_nick ?? m.username} size={32} />
+      <Avatar>
+        <AvatarImage
+          src={m.avatar_url ?? undefined}
+          alt={m.server_nick ?? m.username}
+        />
+        <AvatarFallback>{initials(m.server_nick ?? m.username)}</AvatarFallback>
+      </Avatar>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-xs font-semibold text-ink">
             {m.server_nick ?? m.username}
           </span>
           {m.server_nick && m.server_nick !== m.username && (
-            <span className="truncate font-mono text-[10px] text-ink-muted">
+            <span className="truncate font-mono text-micro text-ink-muted">
               @{m.username}
             </span>
           )}
-          <span className="font-mono text-[10px] text-ink-muted">
+          <span className="font-mono text-micro text-ink-muted">
             {getMessageChannelLabel(m)}
           </span>
           <span
-            className="ml-auto font-mono text-[10px] text-ink-muted"
+            className="ml-auto font-mono text-micro text-ink-muted"
             suppressHydrationWarning
           >
             {formatRelativeTime(m.created_at)}
@@ -923,12 +943,13 @@ function MessageRow({
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="block overflow-hidden rounded-[6px] border border-hairline"
+                className="block overflow-hidden rounded-md border border-hairline"
               >
-                <img
+                <Image
                   src={a.url}
                   alt={a.name}
-                  loading="lazy"
+                  width={200}
+                  height={128}
                   className="max-h-32 w-auto max-w-[200px] object-cover"
                 />
               </a>
@@ -944,12 +965,13 @@ function MessageRow({
               target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="block overflow-hidden rounded-[6px] border border-hairline"
+              className="block overflow-hidden rounded-md border border-hairline"
             >
-              <img
+              <Image
                 src={stickerUrl}
                 alt={stickers[0]?.name ?? "sticker"}
-                loading="lazy"
+                width={160}
+                height={112}
                 className="max-h-28 w-auto max-w-[160px] object-contain"
               />
             </a>
@@ -964,17 +986,18 @@ function MessageRow({
               target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="block overflow-hidden rounded-[6px] border border-hairline"
+              className="block overflow-hidden rounded-md border border-hairline"
             >
-              <img
+              <Image
                 src={embedImage}
                 alt="embed"
-                loading="lazy"
+                width={240}
+                height={128}
                 className="max-h-32 w-auto max-w-[240px] object-cover"
               />
             </a>
             {embeds[0]?.title && (
-              <div className="mt-0.5 truncate text-[10px] font-medium text-ink-muted">
+              <div className="mt-0.5 truncate text-micro font-medium text-ink-muted">
                 {embeds[0].title}
               </div>
             )}
@@ -991,7 +1014,7 @@ function MessageRow({
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 rounded-[4px] border border-hairline bg-surface px-2 py-0.5 font-mono text-[10px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                className="inline-flex items-center gap-1 rounded-sm border border-hairline bg-surface px-2 py-0.5 font-mono text-micro text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink"
               >
                 <Paperclip className="size-2.5" />
                 {a.name}

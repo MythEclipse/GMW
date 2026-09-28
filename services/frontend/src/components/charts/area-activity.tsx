@@ -1,3 +1,4 @@
+import type React from "react";
 import type { DailyActivityPoint } from "@/lib/types";
 
 /**
@@ -36,8 +37,8 @@ export function AreaActivity({
     <svg
       viewBox={`0 0 ${w} ${height}`}
       preserveAspectRatio="none"
-      className="w-full"
-      style={{ height }}
+      className="chart-frame w-full"
+      style={{ "--chart-height": `${height}px` } as React.CSSProperties}
       role="img"
       aria-label="Daily message vs flagged activity"
     >

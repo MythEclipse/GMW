@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import { useEffect, useRef } from "react";
 import type { SignalTone } from "./ambient-context";
 
@@ -121,7 +122,7 @@ export function AmbientCanvas({
       }
     >
       {/* Base radial wash */}
-      <div className="absolute inset-0 bg-[radial-gradient(120%_90%_at_50%_0%,oklch(0.2_0.04_70/0.5),oklch(0.1_0.015_70)_60%)]" />
+      <div className="absolute inset-0 ambient-wash" />
 
       {/* Drifting blurred blobs — the "fog" effect */}
       <div className="ambient-blob ambient-blob-1" />
@@ -133,18 +134,20 @@ export function AmbientCanvas({
         {Array.from({ length: 30 }, (_, i) => (
           <span
             key={i}
-            className="ambient-mote"
-            style={{
-              left: `${(i * 3.33) % 100}%`,
-              animationDelay: `${(i * 0.7) % 8}s`,
-              animationDuration: `${6 + (i % 5) * 2}s`,
-            }}
+            className="mote"
+            style={
+              {
+                "--mote-left": `${(i * 3.33) % 100}%`,
+                "--mote-delay": `${(i * 0.7) % 8}s`,
+                "--mote-duration": `${6 + (i % 5) * 2}s`,
+              } as React.CSSProperties
+            }
           />
         ))}
       </div>
 
       {/* Vignette */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_20%,oklch(0.08_0.01_70/0.7)_100%)]" />
+      <div className="absolute inset-0 ambient-vignette" />
     </div>
   );
 }

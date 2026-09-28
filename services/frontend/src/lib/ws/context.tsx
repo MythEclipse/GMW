@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "@/components/primitives";
+import { toast } from "@/components/ui/toast";
 import { WsConnection } from "./connection";
 import type { WsEventHandler, WsEventType, WsStatus } from "./types";
 
@@ -71,21 +71,21 @@ export function WsProvider({
         // Only toast if we were previously connected (i.e. a disconnect,
         // not the initial connect on page load).
         if (wasConnected.current) {
-          toast({
+          toast.add({
             title: "Reconnecting…",
             description: "WebSocket connection lost. Attempting to reconnect.",
-            tone: "neutral",
+            type: "info",
           });
         }
         wasConnected.current = false;
       } else if (s === "connected") {
         wasConnected.current = true;
       } else if (s === "error" && !wasConnected.current) {
-        toast({
+        toast.add({
           title: "Connection error",
           description:
             "WebSocket failed to connect. Retrying in the background.",
-          tone: "vermilion",
+          type: "error",
         });
       }
     });

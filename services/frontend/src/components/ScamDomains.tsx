@@ -1,8 +1,8 @@
 "use client";
 
 import { Download } from "lucide-react";
-import { GlassPanel } from "@/components/primitives";
 import { SectionHeader } from "@/components/shared";
+import { Card } from "@/components/ui/card";
 import { downloadCsv } from "@/lib/csv";
 import { formatNumber } from "@/lib/format";
 import type { FlaggedDomain } from "@/lib/types";
@@ -10,7 +10,7 @@ import type { FlaggedDomain } from "@/lib/types";
 export function ScamDomains({ domains }: { domains: FlaggedDomain[] }) {
   const max = domains.reduce((m, d) => Math.max(m, d.count), 0);
   return (
-    <GlassPanel className="lg:col-span-2">
+    <Card className="lg:col-span-2">
       <SectionHeader
         eyebrow="risk"
         title="Flagged Link Domains"
@@ -50,8 +50,10 @@ export function ScamDomains({ domains }: { domains: FlaggedDomain[] }) {
                 </span>
                 <div className="h-2 flex-1 overflow-hidden rounded-full bg-hairline">
                   <div
-                    className="h-full rounded-full bg-signal"
-                    style={{ width: `${pct}%` }}
+                    className="meter-fill h-full rounded-full bg-signal"
+                    style={
+                      { "--meter-width": `${pct}%` } as React.CSSProperties
+                    }
                   />
                 </div>
                 <span className="mono w-10 shrink-0 text-right text-ink">
@@ -62,6 +64,6 @@ export function ScamDomains({ domains }: { domains: FlaggedDomain[] }) {
           })}
         </div>
       )}
-    </GlassPanel>
+    </Card>
   );
 }

@@ -1,3 +1,4 @@
+import type React from "react";
 import { cn } from "@/lib/utils";
 
 /** Circular progress gauge. value 0..1. */
@@ -25,8 +26,8 @@ export function RadialGauge({
   const c = 2 * Math.PI * r;
   return (
     <div
-      className="relative inline-flex items-center justify-center"
-      style={{ width: size, height: size }}
+      className="gauge-box relative inline-flex items-center justify-center"
+      style={{ "--gauge-size": `${size}px` } as React.CSSProperties}
     >
       <svg
         width={size}
@@ -47,16 +48,14 @@ export function RadialGauge({
           cx={size / 2}
           cy={size / 2}
           r={r}
+          className="gauge-arc"
           fill="none"
           stroke={stroke}
           strokeWidth={8}
           strokeLinecap="round"
           strokeDasharray={c}
           strokeDashoffset={c * (1 - v)}
-          style={{
-            transition: "stroke-dashoffset 0.6s ease",
-            filter: `drop-shadow(0 0 6px ${stroke})`,
-          }}
+          style={{ "--gauge-stroke": stroke } as React.CSSProperties}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -71,7 +70,7 @@ export function RadialGauge({
           {label}
         </span>
         {sublabel && (
-          <span className="mono text-[0.6rem] text-ink-faint">{sublabel}</span>
+          <span className="mono text-2xs text-ink-faint">{sublabel}</span>
         )}
       </div>
     </div>

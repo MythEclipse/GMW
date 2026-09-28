@@ -1,7 +1,7 @@
 "use client";
 
-import { GlassPanel } from "@/components/primitives";
 import { SectionHeader } from "@/components/shared";
+import { Card } from "@/components/ui/card";
 import type { HourlyModeration } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -17,7 +17,7 @@ export function ModerationHeatmap({ hours }: { hours: HourlyModeration[] }) {
   };
 
   return (
-    <GlassPanel className="lg:col-span-2">
+    <Card className="lg:col-span-2">
       <SectionHeader eyebrow="timing" title="Flagged by Hour (24h)" />
       <p className="mb-3 text-xs text-ink-faint">
         Distribution of moderation actions across the day.
@@ -48,6 +48,6 @@ export function ModerationHeatmap({ hours }: { hours: HourlyModeration[] }) {
           </div>
         ))}
       </div>
-    </GlassPanel>
+    </Card>
   );
 }

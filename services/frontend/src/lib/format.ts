@@ -1,6 +1,20 @@
 import type { MessageMetadata } from "@/lib/types/message";
 
 /**
+ * 1-2 uppercase initials for a display name, used as an avatar fallback
+ * ("Ada Lovelace" -> "AL", "mira" -> "MI").
+ */
+export function initials(name?: string | null): string {
+  if (!name) return "?";
+  const parts = name
+    .replace(/[^\p{L}\p{N} _]/gu, "")
+    .trim()
+    .split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
  * Format a number with locale separators.
  */
 export function formatNumber(n: number): string {

@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Select, type SelectOption } from "@/components/primitives";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useGuilds, useTextChannels } from "@/hooks";
 import type { Guild } from "@/lib/types";
 
@@ -26,11 +32,11 @@ export function GuildChannelPicker({
   useEffect(() => setG(guildId), [guildId]);
   useEffect(() => setC(channelId), [channelId]);
 
-  const guildOpts: SelectOption[] = (guilds ?? []).map((x) => ({
+  const guildOpts = (guilds ?? []).map((x) => ({
     value: x.id,
     label: x.name,
   }));
-  const channelOpts: SelectOption[] = (channels ?? []).map((x) => ({
+  const channelOpts = (channels ?? []).map((x) => ({
     value: x.id,
     label: x.name,
     hint: x.type,
@@ -40,27 +46,49 @@ export function GuildChannelPicker({
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
       <Select
         value={g}
-        onChange={(v) => {
+        onValueChange={(v) => {
+          if (v == null) return;
           setG(v);
           setC(null);
           onChange(v, null);
         }}
-        options={guildOpts}
-        placeholder="Guild"
-        size="sm"
-        className="w-full sm:w-44"
-      />
+      >
+        <SelectTrigger size="sm" className="w-full sm:w-44">
+          <SelectValue placeholder="Guild" />
+        </SelectTrigger>
+        <SelectContent>
+          {guildOpts.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <Select
         value={c}
-        onChange={(v) => {
+        onValueChange={(v) => {
           setC(v);
           if (g) onChange(g, v);
         }}
-        options={channelOpts}
-        placeholder="Text channel"
-        size="sm"
-        className="w-full sm:w-52"
-      />
+      >
+        <SelectTrigger size="sm" className="w-full sm:w-52">
+          <SelectValue placeholder="Text channel" />
+        </SelectTrigger>
+        <SelectContent>
+          {channelOpts.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              <span className="flex flex-1 items-baseline justify-between gap-3">
+                <span>{o.label}</span>
+                {o.hint && (
+                  <span className="mono text-micro text-ink-faint">
+                    {o.hint}
+                  </span>
+                )}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

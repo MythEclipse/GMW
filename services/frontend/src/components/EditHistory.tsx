@@ -1,8 +1,8 @@
 "use client";
 
 import { Download, History } from "lucide-react";
-import { GlassPanel } from "@/components/primitives";
 import { SectionHeader } from "@/components/shared";
+import { Card } from "@/components/ui/card";
 import { downloadCsv } from "@/lib/csv";
 import { formatRelativeTime } from "@/lib/format";
 import type { EditHistoryRow } from "@/lib/types";
@@ -13,11 +13,11 @@ function DiffBlock({ oldText, newText }: { oldText: string; newText: string }) {
   const _maxLen = Math.max(oldLines.length, newLines.length);
 
   return (
-    <div className="grid grid-cols-2 gap-2 rounded-[6px] border border-hairline bg-surface-2/50 text-[11px] leading-relaxed">
+    <div className="grid grid-cols-2 gap-2 rounded-md border border-hairline bg-surface-2/50 text-micro-lg leading-relaxed">
       {/* Before */}
-      <div className="min-w-0 overflow-hidden rounded-l-[5px] border-r border-hairline">
+      <div className="min-w-0 overflow-hidden rounded-l-md border-r border-hairline">
         <div className="flex items-center gap-1.5 border-b border-hairline bg-vermilion/5 px-2.5 py-1">
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-vermilion">
+          <span className="font-mono text-2xs font-semibold uppercase tracking-wider text-vermilion">
             Before
           </span>
         </div>
@@ -38,9 +38,9 @@ function DiffBlock({ oldText, newText }: { oldText: string; newText: string }) {
       </div>
 
       {/* After */}
-      <div className="min-w-0 overflow-hidden rounded-r-[5px]">
+      <div className="min-w-0 overflow-hidden rounded-r-md">
         <div className="flex items-center gap-1.5 border-b border-hairline bg-success/5 px-2.5 py-1">
-          <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-success">
+          <span className="font-mono text-2xs font-semibold uppercase tracking-wider text-success">
             After
           </span>
         </div>
@@ -65,7 +65,7 @@ function DiffBlock({ oldText, newText }: { oldText: string; newText: string }) {
 
 export function EditHistory({ edits }: { edits: EditHistoryRow[] }) {
   return (
-    <GlassPanel className="lg:col-span-4">
+    <Card className="lg:col-span-4">
       <SectionHeader
         eyebrow="evasion"
         title="Message Edits"
@@ -107,13 +107,13 @@ export function EditHistory({ edits }: { edits: EditHistoryRow[] }) {
                   {e.username ?? "unknown"}
                 </span>
                 <span
-                  className="flex items-center gap-1 text-[10px] text-ink-muted"
+                  className="flex items-center gap-1 text-micro text-ink-muted"
                   suppressHydrationWarning
                 >
                   <History className="size-3 text-ink-faint/50" />
                   edited {formatRelativeTime(e.edited_at)}
                 </span>
-                <span className="ml-auto font-mono text-[10px] text-ink-faint">
+                <span className="ml-auto font-mono text-micro text-ink-faint">
                   {e.channel_name ?? e.channel_id ?? ""}
                 </span>
               </div>
@@ -124,6 +124,6 @@ export function EditHistory({ edits }: { edits: EditHistoryRow[] }) {
           ))}
         </div>
       )}
-    </GlassPanel>
+    </Card>
   );
 }

@@ -3,14 +3,22 @@
 import { Hash, Search, Sparkles, TrendingUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useAmbient } from "@/components/ambient/ambient-context";
-import { Avatar, Badge, GlassPanel, Input } from "@/components/primitives";
 import { EmptyState, SectionHeader, SkeletonRows } from "@/components/shared";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { useChannels, useMessageSearch, useTopReactors } from "@/hooks";
 import { useStaggerReveal } from "@/hooks/use-gsap-animation";
 import { aiLabel, aiTone } from "@/lib/ai-status";
 import {
   formatDuration,
   getMessageChannelLabel,
+  initials,
   renderMessageContent,
 } from "@/lib/format";
 
@@ -127,7 +135,7 @@ export function AnalysisView() {
             Deep Scan · Semantic Search & Telemetry Analysis
           </h1>
         </div>
-        <div className="flex items-center gap-2 font-mono text-[11px] text-ink-muted">
+        <div className="flex items-center gap-2 font-mono text-micro-lg text-ink-muted">
           <span>ENGINE:</span>
           <span
             className="glitch-text rounded bg-signal/15 px-2 py-0.5 font-medium text-signal border border-signal/30"
@@ -139,40 +147,44 @@ export function AnalysisView() {
       </div>
 
       {/* Hero Query Stage */}
-      <GlassPanel className="p-5">
+      <Card size="lg">
         <div className="flex items-center gap-3">
-          <span className="flex size-8 items-center justify-center rounded-[6px] border border-signal/30 bg-signal/10 text-signal">
+          <span className="flex size-8 items-center justify-center rounded-md border border-signal/30 bg-signal/10 text-signal">
             <Sparkles className="size-4" />
           </span>
           <div>
             <h2 className="text-base font-semibold text-ink">
               Cross-Guild Archive Intelligence
             </h2>
-            <p className="font-mono text-[11px] text-ink-muted">
+            <p className="font-mono text-micro-lg text-ink-muted">
               Query vectorized messages, heuristic flags, and user behavior
             </p>
           </div>
         </div>
-        <div className="relative mt-4">
-          <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-ink-faint" />
-          <Input
-            className="h-10 pl-10 text-xs text-ink"
-            placeholder="Search keywords, behavioral patterns, infraction terms..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoFocus
-          />
+        <div className="mt-4">
+          <InputGroup>
+            <InputGroupAddon align="inline-start">
+              <Search className="size-4 text-ink-faint" />
+            </InputGroupAddon>
+            <InputGroupInput
+              size="sm"
+              placeholder="Search keywords, behavioral patterns, infraction terms..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              autoFocus
+            />
+          </InputGroup>
         </div>
-      </GlassPanel>
+      </Card>
 
       <div className="grid gap-3 lg:grid-cols-5">
         {/* Search Results Column */}
-        <GlassPanel className="lg:col-span-3">
+        <Card className="lg:col-span-3">
           <SectionHeader
             eyebrow="search output"
             title="Matched Log Packets"
             action={
-              <span className="mono text-xs text-[#8a8f98]">
+              <span className="mono text-xs text-ink-muted">
                 {(search.data ?? []).length} results
               </span>
             }
@@ -193,28 +205,33 @@ export function AnalysisView() {
                   key={m.id}
                   className="search-result-card hud-card flex items-start gap-3 p-3 transition-all"
                 >
-                  <Avatar
-                    src={m.avatar_url}
-                    name={m.server_nick ?? m.username}
-                    size={32}
-                  />
+                  <Avatar>
+                    <AvatarImage
+                      src={m.avatar_url ?? undefined}
+                      alt={m.server_nick ?? m.username}
+                    />
+                    <AvatarFallback>
+                      {initials(m.server_nick ?? m.username)}
+                    </AvatarFallback>
+                  </Avatar>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-semibold text-ink">
                         {m.server_nick ?? m.username}
                       </span>
                       {m.server_nick && m.server_nick !== m.username && (
-                        <span className="font-mono text-[10px] text-ink-muted">
+                        <span className="font-mono text-micro text-ink-muted">
                           @{m.username}
                         </span>
                       )}
-                      <span className="font-mono text-[10px] text-ink-faint">
+                      <span className="font-mono text-micro text-ink-faint">
                         {getMessageChannelLabel(m)}
                       </span>
                       {(m.ai_status || m.verdict_status) && (
                         <Badge
-                          tone={aiTone(m.verdict_status, m.ai_status)}
-                          className="ml-auto font-mono text-[9px]"
+                          type="mono"
+                          variant={aiTone(m.verdict_status, m.ai_status)}
+                          className="ml-auto"
                         >
                           {m.ai_analysis_duration_ms &&
                           m.ai_analysis_duration_ms > 0
@@ -231,11 +248,11 @@ export function AnalysisView() {
               ))}
             </div>
           )}
-        </GlassPanel>
+        </Card>
 
         {/* Culture & Leaderboard Side Column */}
         <div className="space-y-3 lg:col-span-2">
-          <GlassPanel>
+          <Card>
             <SectionHeader
               eyebrow="engagement"
               title={
@@ -256,7 +273,7 @@ export function AnalysisView() {
                     key={r.user_id}
                     className="flex items-center gap-3 text-xs"
                   >
-                    <span className="font-mono w-4 text-[10px] text-ink-faint">
+                    <span className="font-mono w-4 text-micro text-ink-faint">
                       0{i + 1}
                     </span>
                     <span className="w-24 shrink-0 truncate font-mono text-xs text-ink sm:w-32">
@@ -264,18 +281,20 @@ export function AnalysisView() {
                     </span>
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
                       <div
-                        className="reactor-bar-fill h-full rounded-full bg-signal"
-                        style={{ width: `${pct}%` }}
+                        className="meter-fill reactor-bar-fill h-full rounded-full bg-signal"
+                        style={
+                          { "--meter-width": `${pct}%` } as React.CSSProperties
+                        }
                       />
                     </div>
                     <div className="flex shrink-0 flex-col items-end">
                       <span
-                        className="reactor-count font-mono text-[11px] font-semibold text-signal"
+                        className="reactor-count font-mono text-micro-lg font-semibold text-signal"
                         data-target={r.net_count}
                       >
                         +0
                       </span>
-                      <span className="font-mono text-[9px] text-ink-faint">
+                      <span className="font-mono text-2xs text-ink-faint">
                         {r.messages_reacted} msgs · {r.emojis_used} emoji
                       </span>
                     </div>
@@ -288,9 +307,9 @@ export function AnalysisView() {
                 </div>
               )}
             </div>
-          </GlassPanel>
+          </Card>
 
-          <GlassPanel>
+          <Card>
             <SectionHeader
               eyebrow="volume"
               title={
@@ -309,7 +328,7 @@ export function AnalysisView() {
                     <Hash className="size-3 text-signal" />
                     {c.channel_name ?? c.channel_id.slice(0, 10)}
                   </span>
-                  <span className="font-mono text-[10px] text-ink-muted">
+                  <span className="font-mono text-micro text-ink-muted">
                     {c.total_messages.toLocaleString()} msgs
                   </span>
                 </div>
@@ -320,7 +339,7 @@ export function AnalysisView() {
                 </div>
               )}
             </div>
-          </GlassPanel>
+          </Card>
         </div>
       </div>
     </div>

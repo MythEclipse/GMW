@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { isActivePath, navItems } from "@/lib/navigation";
@@ -49,7 +50,7 @@ function NavItem({
       onFocus={showTooltip}
       onBlur={hideTooltip}
       className={cn(
-        "nav-dock-item group relative flex size-9 items-center justify-center rounded-[8px] transition-all duration-150",
+        "nav-dock-item group relative flex size-9 items-center justify-center rounded-lg transition-all duration-150",
         active
           ? "is-active bg-signal/15 text-signal font-semibold shadow-xs border border-signal/30"
           : "text-ink-muted hover:bg-surface-2 hover:text-ink",
@@ -57,7 +58,7 @@ function NavItem({
     >
       <Icon className="relative z-10 size-4" strokeWidth={active ? 2.2 : 1.8} />
       {active && (
-        <span className="absolute -left-[5px] h-3.5 w-[2px] rounded-full bg-signal shadow-[0_0_8px_var(--color-signal-glow)]" />
+        <span className="absolute -left-[5px] h-3.5 w-[2px] rounded-full bg-signal shadow-glow-sm" />
       )}
 
       {/* Tooltip — portalled to body so it never hides behind content */}
@@ -67,12 +68,13 @@ function NavItem({
         createPortal(
           <span
             role="tooltip"
-            className="pointer-events-none fixed z-[9999] translate-y-[-50%] whitespace-nowrap rounded-md border border-hairline bg-surface px-2.5 py-1 font-sans text-[11px] font-medium tracking-tight text-ink shadow-xl backdrop-blur-md"
-            style={{
-              top: tipPos.top,
-              left: tipPos.left,
-              animation: "fade-up 0.12s ease",
-            }}
+            className="pop-in pointer-events-none fixed z-[9999] translate-y-[-50%] whitespace-nowrap rounded-md border border-hairline bg-surface px-2.5 py-1 font-sans text-micro-lg font-medium tracking-tight text-ink shadow-xl backdrop-blur-md"
+            style={
+              {
+                "--surface-top": tipPos.top,
+                "--surface-left": tipPos.left,
+              } as React.CSSProperties
+            }
           >
             {label}
           </span>,
@@ -117,7 +119,7 @@ export function NavRail() {
   return (
     <nav
       ref={railRef}
-      className="glass mb-[calc(0.75rem+env(safe-area-inset-bottom))] ml-[calc(0.75rem+env(safe-area-inset-left))] mt-[calc(0.75rem+env(safe-area-inset-top))] hidden w-[54px] flex-col items-center gap-1 py-3 md:flex"
+      className="glass mb-safe-nav-rail ml-safe mt-safe hidden w-[54px] flex-col items-center gap-1 py-3 md:flex"
     >
       <div className="flex flex-1 flex-col gap-1">
         {navItems.map((item) => (

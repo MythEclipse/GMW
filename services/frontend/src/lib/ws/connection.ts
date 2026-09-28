@@ -64,7 +64,7 @@ export class WsConnection {
 
     try {
       this.ws = new WebSocket(this.url);
-    } catch (_err) {
+    } catch {
       this.setStatus("error");
       this.scheduleReconnect();
       return;

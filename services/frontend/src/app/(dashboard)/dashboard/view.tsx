@@ -13,10 +13,10 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
+import type React from "react";
 import { useEffect, useState } from "react";
 import { useAmbient } from "@/components/ambient/ambient-context";
 import { AreaActivity, RadialGauge } from "@/components/charts";
-import { GlassPanel } from "@/components/primitives";
 import {
   ErrorState,
   MetricTile,
@@ -26,11 +26,12 @@ import {
   SkeletonMetricRow,
   SkeletonPanel,
 } from "@/components/shared";
+import { Card } from "@/components/ui/card";
 import { useActivity, useStats, useTopReactions } from "@/hooks";
 import { useStaggerReveal } from "@/hooks/use-gsap-animation";
 import { formatNumber, formatRelativeTime } from "@/lib/format";
 import type { DashboardStats } from "@/lib/types";
-import { staggerDelay } from "@/lib/utils";
+import { staggerMs } from "@/lib/utils";
 
 function deriveSignal(stats?: DashboardStats) {
   if (!stats)
@@ -122,7 +123,7 @@ export function DashboardView({
               Telemetry Overview · Node 01
             </h1>
           </div>
-          <div className="flex items-center gap-2 font-mono text-[11px] text-ink-muted">
+          <div className="flex items-center gap-2 font-mono text-micro-lg text-ink-muted">
             <span>SIGNAL:</span>
             <span className="rounded bg-signal/15 px-2 py-0.5 font-medium text-signal border border-signal/30">
               {deriveSignal(stats).label}
@@ -189,7 +190,7 @@ export function DashboardView({
 
         {/* Moderation Queue Status Bar */}
         {hasModQueue && (
-          <div className="linear-tile flex flex-wrap items-center gap-4 rounded-[8px] border border-amber/20 bg-amber/5 px-4 py-2.5 font-mono text-[10px] text-ink-soft">
+          <div className="linear-tile flex flex-wrap items-center gap-4 rounded-lg border border-amber/20 bg-amber/5 px-4 py-2.5 font-mono text-micro text-ink-soft">
             <span className="text-amber font-semibold uppercase">
               Pipeline Status
             </span>
@@ -228,7 +229,7 @@ export function DashboardView({
 
         {/* Dynamic Activity Area & Telemetry Gauges */}
         <div className="grid gap-3 lg:grid-cols-3">
-          <GlassPanel className="linear-tile lg:col-span-2">
+          <Card className="linear-tile lg:col-span-2">
             <SectionHeader
               eyebrow="Activity Stream"
               title="Message Volume & Signal Density"
@@ -236,9 +237,9 @@ export function DashboardView({
             <div className="mt-4">
               <AreaActivity daily={activity?.daily ?? []} />
             </div>
-          </GlassPanel>
+          </Card>
 
-          <GlassPanel className="linear-tile flex flex-col justify-between">
+          <Card className="linear-tile flex flex-col justify-between">
             <div>
               <SectionHeader
                 eyebrow="Security State"
@@ -273,23 +274,23 @@ export function DashboardView({
                 </div>
               </div>
             </div>
-          </GlassPanel>
+          </Card>
         </div>
 
         {/* Hourly Flow — last-24h message volume by hour */}
         {activity?.hourly && activity.hourly.length > 0 && (
-          <GlassPanel className="linear-tile">
+          <Card className="linear-tile">
             <SectionHeader
               eyebrow="Cadence"
               title="Hourly Flow · Last 24h"
               action={
-                <span className="mono text-xs text-[#8a8f98]">
+                <span className="mono text-xs text-ink-muted">
                   {activity.hourly.reduce((a, h) => a + h.messages, 0)} MSGS ·{" "}
                   {activity.hourly.reduce((a, h) => a + h.flagged, 0)} FLAGGED
                 </span>
               }
             />
-            <div className="mt-4 flex h-20 items-end gap-[3px]">
+            <div className="mt-4 flex h-20 items-end gap-0.75">
               {activity.hourly.map((h) => {
                 const max = Math.max(
                   ...activity.hourly.map((x) => x.messages),
@@ -304,31 +305,33 @@ export function DashboardView({
                     suppressHydrationWarning
                   >
                     <div
-                      className="w-full rounded-t-[3px] bg-signal/80 transition-all group-hover:bg-signal"
-                      style={{ height: `${pct}%` }}
+                      className="column-fill w-full rounded-t-sm bg-signal/80 transition-all group-hover:bg-signal"
+                      style={
+                        { "--column-height": `${pct}%` } as React.CSSProperties
+                      }
                     />
-                    <div className="mt-1 truncate text-center font-mono text-[7px] text-ink-faint">
+                    <div className="mt-1 truncate text-center font-mono text-2xs text-ink-faint">
                       {String(h.hour).padStart(2, "0")}
                     </div>
                   </div>
                 );
               })}
             </div>
-            <div className="mt-1 flex justify-between font-mono text-[9px] text-ink-faint">
+            <div className="mt-1 flex justify-between font-mono text-2xs text-ink-faint">
               <span>00:00</span>
               <span>06:00</span>
               <span>12:00</span>
               <span>18:00</span>
               <span>23:00</span>
             </div>
-          </GlassPanel>
+          </Card>
         )}
 
         {/* Top Channels + Engagement Row */}
         <div className="grid gap-3 lg:grid-cols-2">
           {/* Top Channels Ranking */}
           {s.top_channels && s.top_channels.length > 0 && (
-            <GlassPanel className="linear-tile">
+            <Card className="linear-tile">
               <SectionHeader
                 eyebrow="volume"
                 title="Top Active Channels"
@@ -352,10 +355,14 @@ export function DashboardView({
                   return (
                     <div
                       key={ch.channel_id}
-                      className="animate-stagger flex items-center gap-3 text-xs"
-                      style={staggerDelay(i)}
+                      className="stagger-item animate-stagger flex items-center gap-3 text-xs"
+                      style={
+                        {
+                          "--stagger-delay": staggerMs(i),
+                        } as React.CSSProperties
+                      }
                     >
-                      <span className="font-mono w-4 text-[10px] text-ink-faint">
+                      <span className="font-mono w-4 text-micro text-ink-faint">
                         {String(i + 1).padStart(2, "0")}
                       </span>
                       <span className="w-28 shrink-0 truncate font-mono text-xs text-ink sm:w-36">
@@ -364,23 +371,27 @@ export function DashboardView({
                       </span>
                       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
                         <div
-                          className="h-full rounded-full bg-signal"
-                          style={{ width: `${pct}%` }}
+                          className="meter-fill h-full rounded-full bg-signal"
+                          style={
+                            {
+                              "--meter-width": `${pct}%`,
+                            } as React.CSSProperties
+                          }
                         />
                       </div>
-                      <span className="font-mono w-16 text-right text-[11px] font-semibold text-signal">
+                      <span className="font-mono w-16 text-right text-micro-lg font-semibold text-signal">
                         {formatNumber(ch.message_count)}
                       </span>
                     </div>
                   );
                 })}
               </div>
-            </GlassPanel>
+            </Card>
           )}
 
           {/* Top Reacted Messages */}
           {reactions && reactions.length > 0 && (
-            <GlassPanel className="linear-tile">
+            <Card className="linear-tile">
               <SectionHeader
                 eyebrow="Engagement"
                 title="Top Reacted Messages"
@@ -388,7 +399,7 @@ export function DashboardView({
                   <button
                     type="button"
                     onClick={() => setShowAllReactions((v) => !v)}
-                    className="font-mono text-[10px] text-ink-muted transition-colors hover:text-ink"
+                    className="font-mono text-micro text-ink-muted transition-colors hover:text-ink"
                   >
                     {showAllReactions
                       ? "SHOW TOP 4"
@@ -407,7 +418,7 @@ export function DashboardView({
                         <span className="line-clamp-1 block text-xs text-ink-soft">
                           {r.content || "[Media/Attachment]"}
                         </span>
-                        <span className="mt-0.5 block font-mono text-[10px] text-ink-muted">
+                        <span className="mt-0.5 block font-mono text-micro text-ink-muted">
                           @{r.username || "unknown"}
                           {r.channel_name && ` in #${r.channel_name}`}
                           {r.created_at != null && (
@@ -430,7 +441,7 @@ export function DashboardView({
                             {r.top_emojis.slice(0, 2).map((e) => (
                               <span
                                 key={e.emoji}
-                                className="text-[10px]"
+                                className="text-micro"
                                 title={`${e.emoji} ×${e.count}`}
                               >
                                 {e.emoji}
@@ -443,7 +454,7 @@ export function DashboardView({
                   ),
                 )}
               </div>
-            </GlassPanel>
+            </Card>
           )}
         </div>
 

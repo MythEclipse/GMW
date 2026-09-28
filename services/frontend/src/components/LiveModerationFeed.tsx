@@ -1,11 +1,12 @@
 "use client";
 
 import { CheckCircle2, ShieldAlert, UserX, VolumeX } from "lucide-react";
+import type React from "react";
 import { useEffect, useRef } from "react";
-import { Badge } from "@/components/primitives";
+import { Badge } from "@/components/ui/badge";
 import { formatRelativeTime } from "@/lib/format";
 import type { ModerationAction } from "@/lib/types";
-import { staggerDelay } from "@/lib/utils";
+import { staggerMs } from "@/lib/utils";
 
 const ACTION_LABEL: Record<string, string> = {
   delete_message: "Deleted",
@@ -105,7 +106,7 @@ export function LiveModerationFeed({
             Live Stream Audit Log
           </span>
         </div>
-        <span className="font-mono text-[11px] text-ink-faint">
+        <span className="font-mono text-micro-lg text-ink-faint">
           {actions.length} RECENT ACTIONS
         </span>
       </div>
@@ -121,11 +122,13 @@ export function LiveModerationFeed({
             return (
               <div
                 key={a.id}
-                className="mod-feed-item hud-card animate-stagger flex items-start gap-3 p-3 transition-all"
-                style={staggerDelay(i)}
+                className="stagger-item mod-feed-item hud-card animate-stagger flex items-start gap-3 p-3 transition-all"
+                style={
+                  { "--stagger-delay": staggerMs(i) } as React.CSSProperties
+                }
               >
                 <span
-                  className={`relative flex size-7 shrink-0 items-center justify-center rounded-[6px] border ${
+                  className={`relative flex size-7 shrink-0 items-center justify-center rounded-md border ${
                     a.status === "failed"
                       ? "border-vermilion/40 bg-vermilion/10"
                       : a.status === "pending"
@@ -153,20 +156,17 @@ export function LiveModerationFeed({
                       {ACTION_LABEL[a.action_type] ?? a.action_type}
                     </span>
                     {a.severity && (
-                      <Badge
-                        tone={tone ?? "signal"}
-                        className="font-mono text-[9px] uppercase"
-                      >
+                      <Badge type="monoUpper" variant={tone ?? "signal"}>
                         {a.severity}
                       </Badge>
                     )}
                     {a.categories?.length ? (
-                      <span className="truncate font-mono text-[10px] text-ink-faint">
+                      <span className="truncate font-mono text-micro text-ink-faint">
                         [{a.categories.slice(0, 2).join(", ")}]
                       </span>
                     ) : null}
                     <span
-                      className="ml-auto font-mono text-[10px] text-ink-faint"
+                      className="ml-auto font-mono text-micro text-ink-faint"
                       suppressHydrationWarning
                     >
                       {formatRelativeTime(a.created_at)}
@@ -186,18 +186,20 @@ export function LiveModerationFeed({
                           className="flex items-center gap-1.5"
                           title={`Model confidence ${Math.round(a.confidence * 100)}%`}
                         >
-                          <span className="font-mono text-[9px] tracking-wider text-ink-faint uppercase">
+                          <span className="font-mono text-2xs tracking-wider text-ink-faint uppercase">
                             conf
                           </span>
                           <span className="inline-flex h-1 w-14 overflow-hidden rounded-full bg-surface-2">
                             <span
-                              className={`h-full rounded-full ${confidenceTone(a.confidence) ?? "bg-ink-faint"}`}
-                              style={{
-                                width: `${Math.min(100, Math.round(a.confidence * 100))}%`,
-                              }}
+                              className={`meter-fill h-full rounded-full ${confidenceTone(a.confidence) ?? "bg-ink-faint"}`}
+                              style={
+                                {
+                                  "--meter-width": `${Math.min(100, Math.round(a.confidence * 100))}%`,
+                                } as React.CSSProperties
+                              }
                             />
                           </span>
-                          <span className="font-mono text-[9px] text-ink-faint">
+                          <span className="font-mono text-2xs text-ink-faint">
                             {Math.round(a.confidence * 100)}%
                           </span>
                         </span>
@@ -206,30 +208,29 @@ export function LiveModerationFeed({
                         <span className="flex flex-wrap items-center gap-1">
                           {a.flags.slice(0, 2).map((flag) => (
                             <Badge
+                              type="upper"
                               key={flag}
-                              tone={tone ?? "neutral"}
-                              size="sm"
-                              className="uppercase"
+                              variant={tone ?? "neutral"}
                             >
                               {flag}
                             </Badge>
                           ))}
                           {a.flags.length > 2 && (
-                            <span className="font-mono text-[9px] text-ink-faint">
+                            <span className="font-mono text-2xs text-ink-faint">
                               +{a.flags.length - 2}
                             </span>
                           )}
                         </span>
                       )}
                       {a.error && (
-                        <span className="font-mono text-[9px] text-vermilion/80">
+                        <span className="font-mono text-2xs text-vermilion/80">
                           {a.error}
                         </span>
                       )}
                     </div>
                   )}
 
-                  <div className="mt-1.5 flex items-center gap-2 font-mono text-[10px] text-ink-faint">
+                  <div className="mt-1.5 flex items-center gap-2 font-mono text-micro text-ink-faint">
                     <span>TARGET:</span>
                     <span className="text-ink-soft">
                       {a.server_nick ??

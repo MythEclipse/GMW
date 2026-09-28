@@ -2,8 +2,9 @@
 
 import { Activity, Download, Hash } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Badge, GlassPanel } from "@/components/primitives";
 import { SectionHeader } from "@/components/shared";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { useStaggerReveal } from "@/hooks/use-gsap-animation";
 import { downloadCsv } from "@/lib/csv";
 import { formatRelativeTime } from "@/lib/format";
@@ -55,7 +56,7 @@ export function ChannelCultureGlossary({
   return (
     <div className="space-y-4">
       {/* Search and Quick Filters */}
-      <GlassPanel className="flex flex-wrap items-center justify-between gap-3 p-3">
+      <Card size="sm" className="flex flex-wrap items-center justify-between">
         <div className="relative flex-1 min-w-[220px]">
           <Hash className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-faint" />
           <input
@@ -63,7 +64,7 @@ export function ChannelCultureGlossary({
             placeholder="Filter channels or culture topics..."
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="w-full rounded-[6px] border border-hairline bg-surface-2 py-1.5 pl-9 pr-3 text-xs text-ink placeholder:text-ink-faint focus:border-signal focus:outline-none"
+            className="w-full rounded-md border border-hairline bg-surface-2 py-1.5 pl-9 pr-3 text-xs text-ink placeholder:text-ink-faint focus:border-signal focus:outline-none"
           />
         </div>
         <div className="flex items-center gap-2">
@@ -80,17 +81,17 @@ export function ChannelCultureGlossary({
                   })),
                 )
               }
-              className="inline-flex items-center gap-1.5 rounded-[6px] border border-hairline bg-surface-2 px-3 py-1.5 font-mono text-[11px] text-ink-soft transition-colors hover:bg-surface hover:text-ink"
+              className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-surface-2 px-3 py-1.5 font-mono text-micro-lg text-ink-soft transition-colors hover:bg-surface hover:text-ink"
             >
               <Download className="size-3.5 text-signal" />
               EXPORT_CSV
             </button>
           )}
         </div>
-      </GlassPanel>
+      </Card>
 
       {/* Channel Nodes Grid */}
-      <GlassPanel>
+      <Card>
         <SectionHeader
           eyebrow="Roster Telemetry"
           title="Channel Culture & Activity Spectrum"
@@ -130,8 +131,8 @@ export function ChannelCultureGlossary({
                         </span>
                       </div>
                       <Badge
-                        tone={isHighSignal ? "signal" : "neutral"}
-                        className="font-mono text-[10px]"
+                        type="monoMicro"
+                        variant={isHighSignal ? "signal" : "neutral"}
                       >
                         {pct}% SIGNAL
                       </Badge>
@@ -144,7 +145,7 @@ export function ChannelCultureGlossary({
                           {c.culture_summary}
                         </p>
                       ) : (
-                        <p className="font-mono text-[11px] text-ink-faint italic">
+                        <p className="font-mono text-micro-lg text-ink-faint italic">
                           Awaiting AI culture profile synthesis...
                         </p>
                       )}
@@ -153,7 +154,7 @@ export function ChannelCultureGlossary({
 
                   {/* Signal Strength Bar & Timestamp */}
                   <div className="mt-4 pt-3 border-t border-hairline">
-                    <div className="flex items-center justify-between font-mono text-[10px] text-ink-faint mb-1.5">
+                    <div className="flex items-center justify-between font-mono text-micro text-ink-faint mb-1.5">
                       <span className="flex items-center gap-1">
                         <Activity className="size-3 text-signal" />
                         INTEL RATIO
@@ -166,8 +167,10 @@ export function ChannelCultureGlossary({
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
                       <div
-                        className="h-full rounded-full bg-signal transition-all duration-500"
-                        style={{ width: `${pct}%` }}
+                        className="meter-fill h-full rounded-full bg-signal transition-all duration-500"
+                        style={
+                          { "--meter-width": `${pct}%` } as React.CSSProperties
+                        }
                       />
                     </div>
                   </div>
@@ -176,7 +179,7 @@ export function ChannelCultureGlossary({
             })}
           </div>
         )}
-      </GlassPanel>
+      </Card>
     </div>
   );
 }

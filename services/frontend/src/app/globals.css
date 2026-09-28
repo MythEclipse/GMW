@@ -1,6 +1,30 @@
 @import "tailwindcss";
+/* shadcn's animation utilities (animate-in, fade-in-*, zoom-*, slide-in-*,
+ * accordion keyframes) that the components under src/components/ui/ rely on. */
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+
+/* base-ui exposes transition state as data attributes; Tailwind needs to be
+ * told they exist before `data-starting-style:` / `data-ending-style:` resolve.
+ * `xs` is the extra breakpoint the navigation menu uses for its popup. */
+@custom-variant starting-style (&[data-starting-style]);
+@custom-variant ending-style (&[data-ending-style]);
+@custom-variant open (&[data-open], &:popover-open, &:open);
+@custom-variant closed (&[data-closed], &:not(:popover-open):not(:open));
+@custom-variant activation-direction-left (&[data-activation-direction="left"]);
+@custom-variant activation-direction-right (&[data-activation-direction="right"]);
+
+/* Compound form used by navigation-menu.tsx: a transition-state variant
+ * qualified by which edge the menu activated from. */
+@custom-variant ending-activation-left (&[data-ending-style][data-activation-direction="left"]);
+@custom-variant ending-activation-right (&[data-ending-style][data-activation-direction="right"]);
+@custom-variant starting-activation-left (&[data-starting-style][data-activation-direction="left"]);
+@custom-variant starting-activation-right (&[data-starting-style][data-activation-direction="right"]);
+
+@theme {
+  --breakpoint-xs: 30rem;
+}
 
 /*
  * GMW — Command Center Tactical HUD Design System
@@ -28,8 +52,8 @@
   --accent-signal-border: rgba(99, 102, 241, 0.25);
   --accent-signal-glow: rgba(99, 102, 241, 0.25);
 
-  --color-success: #059669;
-  --color-success-bg: rgba(5, 150, 105, 0.1);
+  --success-base: #059669;
+  --success-wash: rgba(5, 150, 105, 0.1);
   --color-warning: #d97706;
   --color-warning-bg: rgba(217, 119, 6, 0.1);
   --color-danger: #e11d48;
@@ -59,8 +83,8 @@
   --accent-signal-border: rgba(113, 112, 255, 0.3);
   --accent-signal-glow: rgba(113, 112, 255, 0.35);
 
-  --color-success: #10b981;
-  --color-success-bg: rgba(16, 185, 129, 0.12);
+  --success-base: #10b981;
+  --success-wash: rgba(16, 185, 129, 0.12);
   --color-warning: #f59e0b;
   --color-warning-bg: rgba(245, 158, 11, 0.12);
   --color-danger: #f43f5e;
@@ -78,6 +102,14 @@
   --color-hairline: var(--panel-border);
   --color-hairline-focus: var(--panel-border-hover);
 
+  /* Dense-HUD micro type. The dashboard runs at 8-11px for metrics, tickers
+   * and axis labels -- below Tailwind's smallest step (text-xs, 12px). These
+   * are discrete names rather than arbitrary values so the type scale stays
+   * inspectable and lint-checkable. */
+  --text-2xs: 0.5rem;
+  --text-micro: 0.625rem;
+  --text-micro-lg: 0.6875rem;
+
   --color-ink: var(--text-primary);
   --color-ink-soft: var(--text-secondary);
   --color-ink-muted: var(--text-muted);
@@ -92,6 +124,13 @@
   --color-amber: var(--color-warning);
   --color-vermilion: var(--color-danger);
 
+  /* The raw --color-success lives in :root/.dark under the same name a theme
+   * token would take, so it cannot be aliased to itself (that is a cycle, and
+   * bg-success generates nothing). Route it through a distinct raw name in
+   * :root/.dark, matching how --color-warning feeds --color-amber. */
+  --color-success: var(--success-base);
+  --color-success-bg: var(--success-wash);
+
   --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-display: var(--font-display), var(--font-inter), sans-serif;
@@ -100,6 +139,114 @@
   --radius-r-panel: 10px;
   --radius-r-control: 6px;
   --radius-r-pill: 9999px;
+}
+
+/* ═══ shadcn/ui compatibility bridge ═══
+ * Maps the default shadcn token names onto the GMW tactical palette so the
+ * components in src/components/ui/** render correctly without being rewritten.
+ *
+ * MUST be `@theme inline`, not `@theme`: every value is a var() resolved against
+ * :root / .dark at runtime. A plain @theme would inline the light value into
+ * each utility and silently break dark mode.
+ *
+ * The HUD palette is two-tone and has no native muted/secondary/sidebar steps,
+ * so those are synthesized with color-mix rather than aliased to a raw var --
+ * --canvas-subtle is near-black in dark mode and would render a secondary
+ * button invisible.
+ */
+@theme inline {
+  /* Surfaces */
+  --color-background: var(--canvas-base);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--panel-bg);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: color-mix(in oklab, var(--panel-bg) 70%, var(--canvas-base));
+  --color-popover-foreground: var(--text-primary);
+
+  /* Low-emphasis fills. muted is the weakest (67 uses, mostly hover states),
+   * secondary sits one step above it. */
+  --color-muted: color-mix(in oklab, var(--text-primary) 5%, var(--canvas-base));
+  --color-muted-foreground: var(--text-muted);
+  --color-secondary: color-mix(in oklab, var(--text-primary) 8%, var(--canvas-base));
+  --color-secondary-foreground: var(--text-secondary);
+
+  /* Note the name collision: in shadcn `accent` means "hover fill", but in this
+   * codebase --accent-* means brand indigo. The existing --accent-signal-bg is
+   * already a 10%/12% indigo wash, i.e. exactly a shadcn hover fill. */
+  --color-accent: var(--accent-signal-bg);
+  --color-accent-foreground: var(--accent-brand);
+
+  /* Brand. primary-foreground is hardcoded, not aliased: --text-primary is
+   * #0f172a in light mode, which is ~1.9:1 against the #4f46e5 brand. */
+  --color-primary: var(--accent-brand);
+  --color-primary-foreground: #f8fafc;
+
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: #f8fafc;
+
+  /* Lines and focus */
+  --color-border: var(--panel-border);
+  --color-input: var(--panel-border);
+  --color-ring: var(--accent-signal);
+
+  /* Sidebar chrome. The app has its own nav, so these map onto the same
+   * surface/line roles as the rest of the chrome. sidebar-width and
+   * sidebar-width-icon are set inline by sidebar.tsx and need no CSS. */
+  --color-sidebar: var(--canvas-subtle);
+  --color-sidebar-foreground: var(--text-secondary);
+  --color-sidebar-primary: var(--accent-brand);
+  --color-sidebar-primary-foreground: #f8fafc;
+  --color-sidebar-accent: var(--accent-signal-bg);
+  --color-sidebar-accent-foreground: var(--accent-brand);
+  --color-sidebar-border: var(--panel-border);
+  --color-sidebar-ring: var(--accent-signal);
+
+  /* Radii use literal px: --radius-r and --radius-r-control above are silently
+   * dropped by Tailwind's namespace tree (--radius-r-panel makes `r` a branch,
+   * not a leaf). A bare --radius is also required -- input-group.tsx reads
+   * var(--radius) directly. */
+  --radius: 0.5rem;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  /* Tab shape for the mobile nav — a 20px cap, distinct from the panel radii. */
+  --radius-tab: 20px;
+
+  --shadow-sm: var(--shadow-hud);
+  --shadow-md: var(--shadow-hud);
+
+  /* The HUD's signature bloom. Named so the glow is a token rather than a
+   * hand-written arbitrary shadow repeated across status dots, nav rails and
+   * the chatbot launcher. */
+  --shadow-glow-sm: 0 0 8px var(--color-signal-glow);
+  --shadow-glow-md: 0 0 20px var(--color-signal-glow);
+  --shadow-glow-lg: 0 0 24px var(--color-signal-glow);
+  --shadow-glow-halo: 0 0 30px -12px var(--color-signal-glow);
+  --shadow-glow-danger: 0 0 8px var(--color-danger);
+  --shadow-ring-signal: 0 0 0 1px color-mix(in oklab, var(--color-signal) 20%, transparent);
+}
+
+/* Unprefixed copies. A handful of components read these variables directly
+ * inside color-mix() / oklch(from ...) / calc() rather than through a background
+ * or text utility, so the raw names must exist and not just the --color-* aliases:
+ * button.tsx, bubble.tsx, drawer.tsx, sidebar.tsx. */
+@theme inline {
+  --background: var(--canvas-base);
+  --foreground: var(--text-primary);
+  --card: var(--panel-bg);
+  --popover: color-mix(in oklab, var(--panel-bg) 70%, var(--canvas-base));
+  --primary: var(--accent-brand);
+  --secondary: color-mix(in oklab, var(--text-primary) 8%, var(--canvas-base));
+  --muted: color-mix(in oklab, var(--text-primary) 5%, var(--canvas-base));
+  --accent: var(--accent-signal-bg);
+  --destructive: var(--color-danger);
+  --border: var(--panel-border);
+  --input: var(--panel-border);
+  --ring: var(--accent-signal);
+  --sidebar: var(--canvas-subtle);
+  --sidebar-accent: var(--accent-signal-bg);
+  --sidebar-border: var(--panel-border);
 }
 
 @layer base {
@@ -544,6 +691,107 @@
   .glow-signal {
     text-shadow: 0 0 16px var(--accent-signal-glow);
   }
+
+  /* iOS safe-area padding for fixed bottom chrome (mobile nav, chat launcher,
+   * toasts) and the sticky topbar. Named utilities rather than arbitrary
+   * calc() classes so the offsets stay in one place. */
+  .pb-safe-nav { padding-bottom: calc(0.4rem + env(safe-area-inset-bottom)); }
+  .pb-safe-lg { padding-bottom: calc(2rem + env(safe-area-inset-bottom)); }
+  .pt-safe { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
+  .ml-safe { margin-left: calc(0.75rem + env(safe-area-inset-left)); }
+  .mt-safe { margin-top: calc(0.75rem + env(safe-area-inset-top)); }
+
+  /* Safe-area offsets for absolutely/flexibly positioned chrome, where the
+   * inset has to survive being combined with a fixed offset. */  .bottom-safe-launcher { bottom: calc(4.75rem + env(safe-area-inset-bottom)); }
+  .mb-safe-nav-rail { margin-bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
+
+  /* Command palette: parks the dialog ~12vh from the top instead of centring. */
+  .pt-palette { padding-top: 12vh; }
+
+  /* Ambient canvas vignettes. The oklch stops are art direction, not tokens. */
+  .ambient-wash {
+    background-image: radial-gradient(120% 90% at 50% 0%, oklch(0.2 0.04 70 / 0.5), oklch(0.1 0.015 70) 60%);
+  }
+  .ambient-vignette {
+    background-image: radial-gradient(ellipse at center, transparent 20%, oklch(0.08 0.01 70 / 0.7) 100%);
+  }
+
+  /* Per-item values that must stay dynamic (meter fills, heat cells, motes)
+   * are passed in as custom properties and read here, so the components carry
+   * no inline width/opacity/left declarations. */
+  .meter-fill {
+    width: var(--meter-width, 0%);
+    opacity: var(--meter-opacity, 1);
+  }
+  .heat-cell {
+    background-color: var(--heat-color, var(--color-surface-2));
+  }
+  .mote {
+    left: var(--mote-left, 50%);
+    animation-delay: var(--mote-delay, 0s);
+    animation-duration: var(--mote-duration, 8s);
+  }
+
+  /* Pop-in used by every floating surface: tooltips, select menus, the command
+   * palette. Replaces a repeated inline `animation: "fade-up … ease"`. */
+  .pop-in { animation: fade-up 0.12s ease; }
+  .pop-in-md { animation: fade-up 0.14s ease; }
+
+  /* SVG charts: measured size and the coloured ring/glow. */
+  .gauge-box {
+    width: var(--gauge-size, auto);
+    height: var(--gauge-size, auto);
+  }
+  .gauge-arc {
+    transition: stroke-dashoffset 0.6s ease;
+    filter: drop-shadow(0 0 6px var(--gauge-stroke, var(--color-signal)));
+  }
+  .chart-frame { height: var(--chart-height, auto); }
+
+  /* Vertical column chart bar, and the collapsible grid-rows disclosure. */
+  .column-fill { height: var(--column-height, 0%); }
+  .collapse-rows { grid-template-rows: var(--rows, 0fr); }
+
+  /* Staggered list reveal. The delay arrives per-item from staggerMs(). */
+  .stagger-item { animation-delay: var(--stagger-delay, 0ms); }
+
+  /* HUD layout hooks. These are semantic names the views attach to regions so
+   * the tactical treatment lives in one place; the utility classes alongside
+   * them handle the actual box. They were previously referenced in markup but
+   * never declared, so they generated nothing. */
+  .linear-tile,
+  .mod-tile,
+  .user-tile,
+  .channel-roster-card,
+  .channel-row,
+  .channel-node-card,
+  .search-result-card,
+  .glossary-entry,
+  .msg-feed-card,
+  .mod-feed-item,
+  .nav-dock-item {
+    min-width: 0;
+  }
+
+  .reactor-bar-fill { min-width: 2px; }
+  .reactor-count { font-variant-numeric: tabular-nums; }
+
+  /* Backdrop for the ambient canvas. */
+  .ambient-bg { background-color: var(--canvas-base); }
+
+  /* Scroll edge fades and a hidden scrollbar, used by the message feed,
+   * attachment strip and the shadcn menus. */
+  .scroll-fade-b {
+    mask-image: linear-gradient(to bottom, transparent, black 12px);
+  }
+  .scroll-fade-x {
+    mask-image: linear-gradient(to right, transparent, black 12px);
+  }
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+
+  /* Input-OTP container hook from components/ui/input-otp.tsx. */
+  .cn-input-otp { gap: 0.375rem; }
 }
 
 /* ═══ Keyframes & Animations ═══ */

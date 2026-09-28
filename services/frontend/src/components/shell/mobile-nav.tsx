@@ -39,7 +39,7 @@ export function MobileNav() {
     <nav className="glass fixed inset-x-0 bottom-0 z-40 md:hidden">
       <div
         ref={stripRef}
-        className="flex w-full items-stretch overflow-x-auto overscroll-x-contain px-2 pb-[calc(0.4rem+env(safe-area-inset-bottom))] pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:justify-around"
+        className="flex w-full items-stretch overflow-x-auto overscroll-x-contain px-2 pb-safe-nav pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:justify-around"
       >
         {mobileNavItems.map((item) => {
           const active = isActivePath(path, item.matchPrefix);
@@ -50,7 +50,7 @@ export function MobileNav() {
               aria-label={item.label}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "game-nav-item relative flex min-h-[44px] w-[72px] shrink-0 snap-center flex-col items-center justify-center rounded-t-[20px] px-1 pt-2 pb-[calc(0.4rem+env(safe-area-inset-bottom))] sm:flex-none",
+                "game-nav-item relative flex min-h-[44px] w-[72px] shrink-0 snap-center flex-col items-center justify-center rounded-t-tab px-1 pt-2 pb-safe-nav sm:flex-none",
                 active
                   ? "is-active text-signal"
                   : "text-ink-faint hover:text-ink-soft",
@@ -59,7 +59,7 @@ export function MobileNav() {
               {active && (
                 <span
                   aria-hidden="true"
-                  className="absolute inset-x-4 top-0 h-[2px] bg-signal shadow-[0_0_8px_var(--color-signal-glow)]"
+                  className="absolute inset-x-4 top-0 h-[2px] bg-signal shadow-glow-sm"
                 />
               )}
               <span className="game-sweep" aria-hidden="true">
@@ -69,7 +69,7 @@ export function MobileNav() {
                 className="relative z-10 size-[20px]"
                 strokeWidth={active ? 2.4 : 2}
               />
-              <span className="relative z-10 mt-0.5 max-w-full truncate text-[10px] leading-tight sm:text-xs">
+              <span className="relative z-10 mt-0.5 max-w-full truncate text-micro leading-tight sm:text-xs">
                 {item.label}
               </span>
             </a>

@@ -32,10 +32,10 @@ export function TopBar() {
         : "text-signal";
 
   return (
-    <header className="sticky top-0 z-40 flex items-center gap-3 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:gap-4 sm:px-5 sm:py-3.5">
+    <header className="sticky top-0 z-40 flex items-center gap-3 px-4 py-3 pt-safe sm:gap-4 sm:px-5 sm:py-3.5">
       <div className="flex min-w-0 items-baseline gap-2 sm:gap-3">
         <span className="eyebrow hidden sm:inline">GMW</span>
-        <h1 className="display truncate text-[1.25rem] text-ink sm:text-[1.5rem]">
+        <h1 className="display truncate text-xl text-ink sm:text-2xl">
           {label}
         </h1>
       </div>
@@ -54,15 +54,15 @@ export function TopBar() {
           onClick={() =>
             window.dispatchEvent(new Event("command-palette:open"))
           }
-          className="hidden items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:text-ink hover:border-hairline-focus sm:flex"
+          className="hidden items-center gap-1.5 rounded-lg border border-hairline bg-surface-2 px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:text-ink hover:border-hairline-focus sm:flex"
         >
-          <span className="mono text-[0.65rem]">⌘K</span>
+          <span className="mono text-micro">⌘K</span>
         </button>
         <button
           type="button"
           aria-label="Toggle theme"
           onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-          className="flex size-8.5 items-center justify-center rounded-[8px] border border-hairline bg-surface-2 text-ink-soft transition-colors hover:text-ink hover:border-hairline-focus"
+          className="flex size-8.5 items-center justify-center rounded-lg border border-hairline bg-surface-2 text-ink-soft transition-colors hover:text-ink hover:border-hairline-focus"
         >
           {mounted && theme === "light" ? (
             <Moon className="size-4" />

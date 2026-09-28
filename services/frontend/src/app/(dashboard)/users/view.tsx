@@ -1,26 +1,8 @@
 "use client";
 
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Hash,
-  Search,
-  Shield,
-  ShieldAlert,
-  Sparkles,
-  Trophy,
-  Users as UsersIcon,
-} from "lucide-react";
+import { Hash, Search, Sparkles, Users as UsersIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAmbient } from "@/components/ambient/ambient-context";
-import {
-  Avatar,
-  Badge,
-  GlassPanel,
-  Input,
-  Skeleton,
-} from "@/components/primitives";
 import {
   EmptyState,
   ErrorState,
@@ -28,15 +10,23 @@ import {
   SectionHeader,
   SkeletonRows,
 } from "@/components/shared";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useUserDetail, useUsers } from "@/hooks";
 import { useStaggerReveal } from "@/hooks/use-gsap-animation";
-import { formatNumber, formatRelativeTime } from "@/lib/format";
+import { formatNumber, formatRelativeTime, initials } from "@/lib/format";
 import type {
   DashboardUser,
   DashboardUserDetail,
   PaginatedUsers,
 } from "@/lib/types";
-import { useWebSocket } from "@/lib/ws/context";
 
 function trustTone(flagPct: number) {
   if (flagPct >= 20) return "vermilion";
@@ -95,7 +85,7 @@ export function UsersView({ initialUsers }: { initialUsers?: PaginatedUsers }) {
               Member Intelligence · Persona Registry
             </h1>
           </div>
-          <div className="flex items-center gap-2 font-mono text-[11px] text-ink-muted">
+          <div className="flex items-center gap-2 font-mono text-micro-lg text-ink-muted">
             <span>NODES:</span>
             <span className="rounded bg-signal/15 px-2 py-0.5 font-medium text-signal border border-signal/30">
               {filtered.length} REGISTERED
@@ -104,24 +94,28 @@ export function UsersView({ initialUsers }: { initialUsers?: PaginatedUsers }) {
         </div>
 
         {/* Search Bar */}
-        <div className="user-tile relative">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-faint" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search members by name or ID..."
-            className="pl-9 text-xs"
-          />
+        <div className="user-tile">
+          <InputGroup>
+            <InputGroupAddon align="inline-start">
+              <Search className="size-4 text-ink-faint" />
+            </InputGroupAddon>
+            <InputGroupInput
+              size="sm"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search members by name or ID..."
+            />
+          </InputGroup>
         </div>
 
         <div className="grid gap-3 lg:grid-cols-5">
           {/* Member List */}
-          <GlassPanel className="user-tile lg:col-span-3">
+          <Card className="user-tile lg:col-span-3">
             <SectionHeader
               eyebrow="registry"
               title="Member Roster"
               action={
-                <span className="mono text-xs text-[#8a8f98]">
+                <span className="mono text-xs text-ink-muted">
                   {filtered.length} members
                 </span>
               }
@@ -148,10 +142,10 @@ export function UsersView({ initialUsers }: { initialUsers?: PaginatedUsers }) {
                 ))}
               </div>
             )}
-          </GlassPanel>
+          </Card>
 
           {/* Detail Panel */}
-          <GlassPanel className="user-tile lg:col-span-2">
+          <Card className="user-tile lg:col-span-2">
             <SectionHeader eyebrow="persona" title="Member Inspector" />
             {!selectedId ? (
               <EmptyState
@@ -169,7 +163,7 @@ export function UsersView({ initialUsers }: { initialUsers?: PaginatedUsers }) {
             ) : (
               <EmptyState title="Member not found" />
             )}
-          </GlassPanel>
+          </Card>
         </div>
       </div>
     </PageTransition>
@@ -194,23 +188,29 @@ function UserRow({
     <button
       type="button"
       onClick={onSelect}
-      className={`flex w-full items-center gap-3 rounded-[8px] border p-2.5 text-left transition-all ${
+      className={`flex w-full items-center gap-3 rounded-lg border p-2.5 text-left transition-all ${
         selected
           ? "border-signal/50 bg-signal/10 shadow-xs"
           : "border-hairline bg-surface-2 hover:border-hairline-focus hover:bg-surface"
       }`}
     >
-      <Avatar src={user.avatar_url} name={user.username ?? "?"} size={36} />
+      <Avatar className="size-9">
+        <AvatarImage
+          src={user.avatar_url ?? undefined}
+          alt={user.username ?? "user"}
+        />
+        <AvatarFallback>{initials(user.username)}</AvatarFallback>
+      </Avatar>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-xs font-semibold text-ink">
             {user.username ?? "unknown"}
           </span>
-          <Badge tone={tone} className="font-mono text-[9px]">
+          <Badge type="mono" variant={tone}>
             {riskLabel(flagPct)}
           </Badge>
         </div>
-        <div className="mt-0.5 flex items-center gap-2 font-mono text-[9px] text-ink-faint">
+        <div className="mt-0.5 flex items-center gap-2 font-mono text-2xs text-ink-faint">
           <span className="truncate">#{user.user_id.slice(0, 10)}</span>
           <span>·</span>
           <span className="text-ink-muted">
@@ -229,7 +229,7 @@ function UserRow({
         </div>
       </div>
       {flagPct > 5 && (
-        <span className="shrink-0 rounded bg-vermilion/10 px-1.5 py-0.5 font-mono text-[9px] text-vermilion">
+        <span className="shrink-0 rounded bg-vermilion/10 px-1.5 py-0.5 font-mono text-2xs text-vermilion">
           {flagPct.toFixed(0)}%
         </span>
       )}
@@ -251,16 +251,22 @@ function MemberDetail({ user }: { user: DashboardUserDetail }) {
     <div className="space-y-3 text-sm">
       {/* Identity */}
       <div className="flex items-center gap-3">
-        <Avatar src={user.avatar_url} name={user.username ?? "?"} size={44} />
+        <Avatar className="size-11">
+          <AvatarImage
+            src={user.avatar_url ?? undefined}
+            alt={user.username ?? "user"}
+          />
+          <AvatarFallback>{initials(user.username)}</AvatarFallback>
+        </Avatar>
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold text-ink">
             {user.username ?? "unknown"}
           </div>
-          <div className="truncate font-mono text-[10px] text-ink-faint">
+          <div className="truncate font-mono text-micro text-ink-faint">
             #{user.user_id}
           </div>
         </div>
-        <Badge tone={trustTone(flagPct)} className="font-mono text-[9px]">
+        <Badge type="mono" variant={trustTone(flagPct)}>
           {riskLabel(flagPct)}
         </Badge>
       </div>
@@ -313,14 +319,18 @@ function MemberDetail({ user }: { user: DashboardUserDetail }) {
               ]
             : []),
         ].map((row) => (
-          <div key={row.label} className="flex items-center gap-2 text-[10px]">
+          <div key={row.label} className="flex items-center gap-2 text-micro">
             <span className="w-14 shrink-0 font-mono text-ink-muted">
               {row.label}
             </span>
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
               <div
-                className={`h-full rounded-full ${row.tone}`}
-                style={{ width: `${Math.min(100, row.pct)}%` }}
+                className={`meter-fill h-full rounded-full ${row.tone}`}
+                style={
+                  {
+                    "--meter-width": `${Math.min(100, row.pct)}%`,
+                  } as React.CSSProperties
+                }
               />
             </div>
             <span className="w-8 text-right font-mono text-ink-faint">
@@ -328,7 +338,7 @@ function MemberDetail({ user }: { user: DashboardUserDetail }) {
             </span>
           </div>
         ))}
-        <div className="flex items-center justify-between pt-1 font-mono text-[9px] text-ink-faint">
+        <div className="flex items-center justify-between pt-1 font-mono text-2xs text-ink-faint">
           <span>Total: {formatNumber(user.total_messages)} messages</span>
           {user.last_message_at && (
             <span suppressHydrationWarning>
@@ -344,7 +354,7 @@ function MemberDetail({ user }: { user: DashboardUserDetail }) {
           <div className="eyebrow mb-1 flex items-center gap-1">
             <Sparkles className="size-3 text-signal" /> AI profile
           </div>
-          <div className="hud-card line-clamp-4 p-2.5 text-[11px] text-ink-muted leading-relaxed">
+          <div className="hud-card line-clamp-4 p-2.5 text-micro-lg text-ink-muted leading-relaxed">
             {user.profile_summary}
           </div>
         </div>
@@ -358,9 +368,9 @@ function MemberDetail({ user }: { user: DashboardUserDetail }) {
             {user.recent_messages.slice(0, 8).map((m) => (
               <div
                 key={m.id}
-                className="rounded-[6px] border border-hairline bg-surface-2/60 p-2 text-[11px]"
+                className="rounded-md border border-hairline bg-surface-2/60 p-2 text-micro-lg"
               >
-                <div className="flex items-center gap-2 font-mono text-[9px] text-ink-faint">
+                <div className="flex items-center gap-2 font-mono text-2xs text-ink-faint">
                   <Hash className="size-2.5 text-signal" />
                   <span className="truncate">#{m.channel_id.slice(0, 12)}</span>
                   <span className="ml-auto" suppressHydrationWarning>

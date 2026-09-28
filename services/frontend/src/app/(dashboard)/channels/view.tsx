@@ -4,7 +4,6 @@ import { Hash } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAmbient } from "@/components/ambient/ambient-context";
 import { ChannelCultureGlossary } from "@/components/ChannelCultureGlossary";
-import { GlassPanel } from "@/components/primitives";
 import {
   EmptyState,
   ErrorState,
@@ -12,6 +11,7 @@ import {
   SectionHeader,
   SkeletonPanel,
 } from "@/components/shared";
+import { Card } from "@/components/ui/card";
 import { useChannelCultures, useChannels } from "@/hooks";
 import { useStaggerReveal } from "@/hooks/use-gsap-animation";
 import { formatNumber } from "@/lib/format";
@@ -58,11 +58,11 @@ export function ChannelsView({
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 rounded-[6px] border border-hairline bg-surface-2 p-0.5">
+            <div className="flex items-center gap-1.5 rounded-md border border-hairline bg-surface-2 p-0.5">
               <button
                 type="button"
                 onClick={() => setViewMode("roster")}
-                className={`rounded-[4px] px-2.5 py-1 font-mono text-[10px] font-medium transition-all ${
+                className={`rounded-sm px-2.5 py-1 font-mono text-micro font-medium transition-all ${
                   viewMode === "roster"
                     ? "bg-surface text-ink border border-hairline-focus shadow-xs"
                     : "text-ink-muted hover:text-ink"
@@ -73,7 +73,7 @@ export function ChannelsView({
               <button
                 type="button"
                 onClick={() => setViewMode("culture")}
-                className={`rounded-[4px] px-2.5 py-1 font-mono text-[10px] font-medium transition-all ${
+                className={`rounded-sm px-2.5 py-1 font-mono text-micro font-medium transition-all ${
                   viewMode === "culture"
                     ? "bg-surface text-ink border border-hairline-focus shadow-xs"
                     : "text-ink-muted hover:text-ink"
@@ -82,7 +82,7 @@ export function ChannelsView({
                 CULTURE
               </button>
             </div>
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-surface px-2 py-0.5 font-mono text-[11px] text-ink-soft">
+            <div className="inline-flex items-center gap-1.5 rounded-md bg-surface px-2 py-0.5 font-mono text-micro-lg text-ink-soft">
               <span className="text-ink-faint">NODES:</span>
               <span className="font-bold text-signal">
                 {channels?.length ?? 0}
@@ -93,49 +93,45 @@ export function ChannelsView({
 
         {viewMode === "culture" ? (
           <ChannelsCultureView initialCultures={initialCultures} />
+        ) : isLoading && !channels ? (
+          <SkeletonPanel rows={8} />
+        ) : !channels || channels.length === 0 ? (
+          <EmptyState
+            icon={<Hash className="size-7" />}
+            title="No channels discovered"
+            description="Channels appear here once the Discord gateway captures messages."
+          />
         ) : (
-          <>
-            {isLoading && !channels ? (
-              <SkeletonPanel rows={8} />
-            ) : !channels || channels.length === 0 ? (
-              <EmptyState
-                icon={<Hash className="size-7" />}
-                title="No channels discovered"
-                description="Channels appear here once the Discord gateway captures messages."
-              />
-            ) : (
-              <GlassPanel className="channel-roster-card">
-                <SectionHeader
-                  eyebrow="registry"
-                  title="Channel Roster"
-                  action={
-                    <span className="mono text-xs text-[#8a8f98]">
-                      {channels.length} channels
-                    </span>
-                  }
-                />
-                <div className="mt-3 overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-hairline font-mono text-[10px] text-ink-muted uppercase">
-                        <th className="px-3 py-2">Channel</th>
-                        <th className="px-3 py-2 text-right">Messages</th>
-                        <th className="px-3 py-2 text-right">Clean</th>
-                        <th className="px-3 py-2 text-right">Flagged</th>
-                        <th className="px-3 py-2">Risk</th>
-                        <th className="px-3 py-2 text-right">Last Activity</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {channels.map((ch) => (
-                        <ChannelRow key={ch.channel_id} channel={ch} />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </GlassPanel>
-            )}
-          </>
+          <Card className="channel-roster-card">
+            <SectionHeader
+              eyebrow="registry"
+              title="Channel Roster"
+              action={
+                <span className="mono text-xs text-ink-muted">
+                  {channels.length} channels
+                </span>
+              }
+            />
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-hairline font-mono text-micro text-ink-muted uppercase">
+                    <th className="px-3 py-2">Channel</th>
+                    <th className="px-3 py-2 text-right">Messages</th>
+                    <th className="px-3 py-2 text-right">Clean</th>
+                    <th className="px-3 py-2 text-right">Flagged</th>
+                    <th className="px-3 py-2">Risk</th>
+                    <th className="px-3 py-2 text-right">Last Activity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {channels.map((ch) => (
+                    <ChannelRow key={ch.channel_id} channel={ch} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         )}
       </div>
     </PageTransition>
@@ -160,24 +156,24 @@ function ChannelRow({ channel }: { channel: DashboardChannel }) {
               {channel.channel_name ?? channel.channel_id.slice(0, 20)}
             </div>
             {channel.guild_id && (
-              <div className="font-mono text-[9px] text-ink-faint">
+              <div className="font-mono text-2xs text-ink-faint">
                 guild: {channel.guild_id.slice(0, 12)}…
               </div>
             )}
           </div>
         </div>
       </td>
-      <td className="px-3 py-2.5 text-right font-mono text-[11px] font-semibold text-ink">
+      <td className="px-3 py-2.5 text-right font-mono text-micro-lg font-semibold text-ink">
         {formatNumber(channel.total_messages)}
       </td>
       <td className="px-3 py-2.5 text-right">
-        <span className="font-mono text-[11px] text-success">
+        <span className="font-mono text-micro-lg text-success">
           {formatNumber(channel.total_messages - channel.flagged_count)}
         </span>
       </td>
       <td className="px-3 py-2.5 text-right">
         <span
-          className={`font-mono text-[11px] ${
+          className={`font-mono text-micro-lg ${
             channel.flagged_count > 0 ? "text-vermilion" : "text-ink-muted"
           }`}
         >
@@ -188,17 +184,21 @@ function ChannelRow({ channel }: { channel: DashboardChannel }) {
         <div className="flex items-center gap-2">
           <div className="h-1 w-16 overflow-hidden rounded-full bg-surface-2">
             <div
-              className={`h-full rounded-full ${
+              className={`meter-fill h-full rounded-full ${
                 riskTone === "vermilion"
                   ? "bg-vermilion"
                   : riskTone === "amber"
                     ? "bg-amber"
                     : "bg-signal"
               }`}
-              style={{ width: `${Math.min(100, flaggedPct * 3)}%` }}
+              style={
+                {
+                  "--meter-width": `${Math.min(100, flaggedPct * 3)}%`,
+                } as React.CSSProperties
+              }
             />
           </div>
-          <span className="font-mono text-[9px] text-ink-faint">
+          <span className="font-mono text-2xs text-ink-faint">
             {flaggedPct.toFixed(1)}%
           </span>
         </div>
@@ -206,7 +206,7 @@ function ChannelRow({ channel }: { channel: DashboardChannel }) {
       <td className="px-3 py-2.5 text-right">
         {channel.last_message_at ? (
           <span
-            className="font-mono text-[10px] text-ink-muted"
+            className="font-mono text-micro text-ink-muted"
             suppressHydrationWarning
           >
             {new Date(channel.last_message_at).toLocaleDateString()}

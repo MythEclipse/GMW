@@ -1,6 +1,10 @@
 "use client";
 
-import { Tooltip } from "@/components/primitives/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useWebSocket } from "@/lib/ws/context";
 
@@ -15,8 +19,10 @@ export function ConnectionStatus({ compact = false }: { compact?: boolean }) {
   const { status } = useWebSocket();
   const s = MAP[status];
   return (
-    <Tooltip label={s.label}>
-      <span className="inline-flex items-center gap-2">
+    <Tooltip>
+      <TooltipTrigger
+        render={<span className="inline-flex items-center gap-2" />}
+      >
         <span className="relative flex size-2.5">
           <span
             className={cn(
@@ -32,11 +38,12 @@ export function ConnectionStatus({ compact = false }: { compact?: boolean }) {
           />
         </span>
         {!compact && (
-          <span className="mono text-[0.7rem] uppercase tracking-wider text-ink-soft">
+          <span className="mono text-micro uppercase tracking-wider text-ink-soft">
             {s.label}
           </span>
         )}
-      </span>
+      </TooltipTrigger>
+      <TooltipContent>{s.label}</TooltipContent>
     </Tooltip>
   );
 }

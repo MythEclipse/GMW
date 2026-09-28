@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Inter, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
-import { Toaster } from "@/components/primitives/toast";
 import { SwrProvider } from "@/components/providers";
+import { Toaster } from "@/components/ui/toast";
 import "./globals.css";
 
 const inter = Inter({
@@ -35,6 +35,21 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+// Applied before first paint to avoid a light-mode flash; see ThemeInitScript.
+const THEME_BOOTSTRAP =
+  "(function(){try{var t=localStorage.getItem('theme');document.documentElement.className+=' '+(t||'dark')}catch(e){}})()";
+
+/**
+ * Applies the saved theme (or the "dark" default) before first paint, so a
+ * client-side navigation or hydration never flashes light mode. It has to be an
+ * inline script to run synchronously while the HTML parses -- a fetched script
+ * runs after paint, which is too late. next-themes takes over once mounted.
+ */
+function ThemeInitScript() {
+  // biome-ignore lint/security/noDangerouslySetInnerHtml: static literal with no interpolation, so it cannot carry user input; Next.js' "Preventing flash before hydration" guide prescribes this inline-script shape.
+  return <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />;
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -47,16 +62,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        {/*
-          Blocking script: apply saved theme (or default "dark") before first
-          paint so the page never flashes light mode during client-side
-          navigation or hydration. next-themes will take over after mount.
-        */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme');document.documentElement.className+=' '+(t||'dark')}catch(e){}})()`,
-          }}
-        />
+        <ThemeInitScript />
       </head>
       <body className="noise-overlay min-h-full flex flex-col">
         <SwrProvider>
@@ -68,7 +74,7 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             {children}
-            <Toaster position="bottom-right" />
+            <Toaster />
           </ThemeProvider>
         </SwrProvider>
       </body>

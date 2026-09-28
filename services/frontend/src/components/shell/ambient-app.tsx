@@ -17,7 +17,7 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
       <NavRail />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
-        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-safe-lg pt-4 sm:px-5 sm:pb-safe-lg">
           {children}
         </main>
       </div>

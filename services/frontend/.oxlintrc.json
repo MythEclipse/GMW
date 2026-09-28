@@ -1,7 +1,81 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "jsPlugins": ["@shadcn/lint"],
-  "categories": { "correctness": "off", "suspicious": "off", "style": "off" },
-  "ignorePatterns": [".next/**", "out/**", "build/**"],
-  "settings": { "shadcn": { "ui": "@/components/primitives" } }
+  "jsPlugins": [
+    "@shadcn/lint"
+  ],
+  "ignorePatterns": [
+    ".next/**",
+    "out/**",
+    "build/**"
+  ],
+  "settings": {
+    "shadcn": {
+      "ui": "@/components/ui"
+    }
+  },
+  "rules": {
+    "shadcn/no-raw-colors": "error",
+    "shadcn/no-inline-styles": "error",
+    "shadcn/no-restyle": [
+      "error",
+      {
+        "allow": [
+          "layout"
+        ],
+        "contracts": [
+          {
+            "pattern": "^Card$",
+            "allow": [
+              "layout",
+              "channel-node-card",
+              "channel-roster-card",
+              "glass",
+              "glossary-entry",
+              "hud-card",
+              "linear-tile",
+              "mod-feed-item",
+              "mod-tile",
+              "msg-feed-card",
+              "pop-in-md",
+              "search-result-card",
+              "stagger-item",
+              "user-tile"
+            ]
+          }
+        ]
+      }
+    ],
+    "shadcn/no-arbitrary-values": [
+      "error",
+      {
+        "allow": [
+          "layout",
+          "transition-[width]",
+          "transition-[grid-template-rows]"
+        ]
+      }
+    ],
+    "shadcn/require-static-classes": "error",
+    "shadcn/no-unknown-classes": "warn"
+  },
+  "overrides": [
+    {
+      "files": [
+        "src/components/ui/**"
+      ],
+      "rules": {
+        "shadcn/no-restyle": "off",
+        "shadcn/no-arbitrary-values": "off",
+        "shadcn/require-static-classes": "off"
+      }
+    },
+    {
+      "files": [
+        "src/components/ui/chart.tsx"
+      ],
+      "rules": {
+        "shadcn/no-inline-styles": "off"
+      }
+    }
+  ]
 }

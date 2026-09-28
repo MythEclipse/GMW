@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useMemo, useState } from "react";
-import { GlassPanel } from "@/components/primitives";
+import { Card } from "@/components/ui/card";
 import { navItems } from "@/lib/navigation";
 
 interface Command {
@@ -104,13 +104,13 @@ export function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-start justify-center bg-black/50 px-4 pt-[12vh] backdrop-blur-sm"
+      className="fixed inset-0 z-[90] flex items-start justify-center bg-black/50 px-4 pt-palette backdrop-blur-sm"
       onMouseDown={() => setOpen(false)}
       role="presentation"
     >
-      <GlassPanel
-        className="w-full max-w-[560px] overflow-hidden p-0"
-        style={{ animation: "fade-up 0.14s ease" }}
+      <Card
+        size="flush"
+        className="pop-in-md w-full max-w-[560px] overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-hairline px-4 py-3">
@@ -139,7 +139,7 @@ export function CommandPalette() {
             placeholder="Type a command or search…"
             className="flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
           />
-          <kbd className="mono rounded bg-surface-2 px-1.5 py-0.5 text-[0.6rem] text-ink-faint">
+          <kbd className="mono rounded bg-surface-2 px-1.5 py-0.5 text-2xs text-ink-faint">
             ESC
           </kbd>
         </div>
@@ -154,17 +154,17 @@ export function CommandPalette() {
               const row = (
                 <span
                   key={c.id}
-                  className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-sm transition-colors ${
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${
                     i === active
                       ? "bg-signal/15 text-ink"
                       : "text-ink-soft hover:bg-surface"
                   }`}
                 >
-                  <span className="flex size-7 items-center justify-center rounded-[8px] bg-surface-2">
+                  <span className="flex size-7 items-center justify-center rounded-lg bg-surface-2">
                     {c.icon}
                   </span>
                   <span className="flex-1">{c.label}</span>
-                  <span className="mono text-[0.65rem] text-ink-faint">
+                  <span className="mono text-micro text-ink-faint">
                     {c.hint}
                   </span>
                   {i === active && (
@@ -197,7 +197,7 @@ export function CommandPalette() {
           )}
         </div>
 
-        <div className="flex items-center gap-4 border-t border-hairline px-4 py-2 text-[0.65rem] text-ink-faint">
+        <div className="flex items-center gap-4 border-t border-hairline px-4 py-2 text-micro text-ink-faint">
           <span className="flex items-center gap-1">
             <ArrowUp className="size-3" />
             <ArrowDown className="size-3" /> navigate
@@ -207,7 +207,7 @@ export function CommandPalette() {
           </span>
           <span className="ml-auto mono">⌘K</span>
         </div>
-      </GlassPanel>
+      </Card>
     </div>
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
+import type React from "react";
 import { useMemo } from "react";
-import { GlassPanel } from "@/components/primitives";
 import { SectionHeader } from "@/components/shared";
+import { Card } from "@/components/ui/card";
 import type { MessageActivityBucket } from "@/lib/types";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -56,22 +57,22 @@ export function ActivityHeatmap({
 
   if (rows.length === 0) {
     return (
-      <GlassPanel>
+      <Card>
         <SectionHeader eyebrow="insight" title="Activity Heatmap" />
         <p className="py-6 text-center text-xs text-ink-faint">
           No message activity recorded yet.
         </p>
-      </GlassPanel>
+      </Card>
     );
   }
 
   return (
-    <GlassPanel>
+    <Card>
       <SectionHeader
         eyebrow="insight"
         title="Activity Heatmap"
         action={
-          <span className="mono text-[10px] text-ink-faint">
+          <span className="mono text-micro text-ink-faint">
             {rows.length} channels · {globalMax} peak msgs/hr
           </span>
         }
@@ -85,7 +86,7 @@ export function ActivityHeatmap({
               {HOUR_MARKS.map((h) => (
                 <span
                   key={h}
-                  className="mono text-[9px] text-ink-faint tabular-nums"
+                  className="mono text-2xs text-ink-faint tabular-nums"
                 >
                   {String(h).padStart(2, "0")}
                 </span>
@@ -98,7 +99,7 @@ export function ActivityHeatmap({
             {rows.map((row) => (
               <div key={row.id} className="flex items-center gap-2">
                 <span
-                  className="w-28 shrink-0 truncate text-[10px] text-ink-muted"
+                  className="w-28 shrink-0 truncate text-micro text-ink-muted"
                   title={row.name}
                 >
                   {row.name}
@@ -112,14 +113,18 @@ export function ActivityHeatmap({
                       <div
                         key={h}
                         title={`${row.name} · ${String(h).padStart(2, "0")}:00 — ${count} msgs`}
-                        className="h-5 flex-1 rounded-[2px] transition-colors hover:ring-1 hover:ring-signal/40"
-                        style={{ background: heatColor(t) }}
+                        className="heat-cell h-5 flex-1 rounded-sm transition-colors hover:ring-1 hover:ring-signal/40"
+                        style={
+                          {
+                            "--heat-color": heatColor(t),
+                          } as React.CSSProperties
+                        }
                       />
                     );
                   })}
                 </div>
                 {/* Row total */}
-                <span className="w-10 shrink-0 text-right font-mono text-[9px] text-ink-faint tabular-nums">
+                <span className="w-10 shrink-0 text-right font-mono text-2xs text-ink-faint tabular-nums">
                   {row.cells.reduce((s, v) => s + v, 0)}
                 </span>
               </div>
@@ -129,13 +134,15 @@ export function ActivityHeatmap({
           {/* Legend */}
           <div className="mt-2 flex items-center gap-2">
             <span className="w-28 shrink-0" />
-            <div className="flex items-center gap-1.5 text-[9px] text-ink-faint">
+            <div className="flex items-center gap-1.5 text-2xs text-ink-faint">
               <span>Less</span>
               {[0, 0.15, 0.35, 0.6, 0.9].map((t) => (
                 <div
                   key={t}
-                  className="h-3 w-3 rounded-[2px]"
-                  style={{ background: heatColor(t) }}
+                  className="heat-cell h-3 w-3 rounded-sm"
+                  style={
+                    { "--heat-color": heatColor(t) } as React.CSSProperties
+                  }
                 />
               ))}
               <span>More</span>
@@ -143,6 +150,6 @@ export function ActivityHeatmap({
           </div>
         </div>
       </div>
-    </GlassPanel>
+    </Card>
   );
 }

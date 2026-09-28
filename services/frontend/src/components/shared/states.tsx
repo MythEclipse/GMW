@@ -1,5 +1,7 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { GlassPanel, Skeleton, Spinner } from "@/components/primitives";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 /** A panel-shaped loading placeholder. */
@@ -11,7 +13,7 @@ export function SkeletonPanel({
   className?: string;
 }) {
   return (
-    <GlassPanel className={className}>
+    <Card className={className}>
       <div className="mb-3 flex items-center justify-between">
         <Skeleton className="h-4 w-28" />
         <Skeleton className="h-3 w-12" />
@@ -19,13 +21,13 @@ export function SkeletonPanel({
       <div className="space-y-2.5">
         {Array.from({ length: rows }).map((_, i) => (
           <div key={i} className="flex items-center gap-3">
-            <Skeleton className="size-8 shrink-0 rounded-full" />
+            <Skeleton shape="circle" className="size-8 shrink-0" />
             <Skeleton className="h-3.5 flex-1" />
             <Skeleton className="h-3 w-10" />
           </div>
         ))}
       </div>
-    </GlassPanel>
+    </Card>
   );
 }
 
@@ -62,9 +64,9 @@ export function SkeletonRows({
       {Array.from({ length: rows }).map((_, i) => (
         <div
           key={i}
-          className="flex items-start gap-3 rounded-[12px] border border-hairline bg-surface-2 p-3"
+          className="flex items-start gap-3 rounded-xl border border-hairline bg-surface-2 p-3"
         >
-          <Skeleton className="size-8 shrink-0 rounded-full" />
+          <Skeleton shape="circle" className="size-8 shrink-0" />
           <div className="flex-1 space-y-2 py-0.5">
             <Skeleton className="h-3 w-32" />
             <Skeleton className="h-2.5 w-full max-w-[90%]" />
@@ -78,7 +80,7 @@ export function SkeletonRows({
 /** Hero block placeholder (dashboard headline). */
 export function SkeletonHero({ className }: { className?: string }) {
   return (
-    <GlassPanel glow className={cn("relative overflow-hidden", className)}>
+    <Card glow className={cn("relative overflow-hidden", className)}>
       <div className="scan-line absolute inset-x-0 top-0" />
       <div className="flex items-center justify-between gap-4">
         <div className="flex-1 space-y-3">
@@ -86,9 +88,9 @@ export function SkeletonHero({ className }: { className?: string }) {
           <Skeleton className="h-9 w-56" />
           <Skeleton className="h-3 w-72 max-w-full" />
         </div>
-        <Skeleton className="size-28 shrink-0 rounded-full" />
+        <Skeleton shape="circle" className="size-28 shrink-0" />
       </div>
-    </GlassPanel>
+    </Card>
   );
 }
 
@@ -111,7 +113,7 @@ export function EmptyState({
       )}
     >
       {icon && (
-        <span className="mb-1 flex size-14 items-center justify-center rounded-full border border-hairline bg-surface-2 text-ink-soft shadow-[0_0_30px_-12px_var(--color-signal-glow)]">
+        <span className="mb-1 flex size-14 items-center justify-center rounded-full border border-hairline bg-surface-2 text-ink-soft shadow-glow-halo">
           {icon}
         </span>
       )}
@@ -146,7 +148,7 @@ export function ErrorState({
         <button
           type="button"
           onClick={onRetry}
-          className="mt-1 rounded-[10px] border border-hairline px-3 py-1.5 text-xs text-ink-soft hover:text-ink hover:border-signal/40"
+          className="mt-1 rounded-xl border border-hairline px-3 py-1.5 text-xs text-ink-soft hover:text-ink hover:border-signal/40"
         >
           Retry
         </button>

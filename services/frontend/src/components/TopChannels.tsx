@@ -1,8 +1,8 @@
 "use client";
 
 import { Download } from "lucide-react";
-import { GlassPanel } from "@/components/primitives";
 import { SectionHeader } from "@/components/shared";
+import { Card } from "@/components/ui/card";
 import { downloadCsv } from "@/lib/csv";
 import { formatNumber } from "@/lib/format";
 import type { FlaggedChannel } from "@/lib/types";
@@ -10,7 +10,7 @@ import type { FlaggedChannel } from "@/lib/types";
 export function TopChannels({ channels }: { channels: FlaggedChannel[] }) {
   const max = channels.reduce((m, c) => Math.max(m, c.flagged_count), 0);
   return (
-    <GlassPanel className="lg:col-span-2">
+    <Card className="lg:col-span-2">
       <SectionHeader
         eyebrow="channels"
         title="Top Flagged Channels"
@@ -55,8 +55,10 @@ export function TopChannels({ channels }: { channels: FlaggedChannel[] }) {
                 </span>
                 <div className="h-2 flex-1 overflow-hidden rounded-full bg-hairline">
                   <div
-                    className="h-full rounded-full bg-amber"
-                    style={{ width: `${pct}%` }}
+                    className="meter-fill h-full rounded-full bg-amber"
+                    style={
+                      { "--meter-width": `${pct}%` } as React.CSSProperties
+                    }
                   />
                 </div>
                 <span className="mono w-10 shrink-0 text-right text-ink">
@@ -67,6 +69,6 @@ export function TopChannels({ channels }: { channels: FlaggedChannel[] }) {
           })}
         </div>
       )}
-    </GlassPanel>
+    </Card>
   );
 }
