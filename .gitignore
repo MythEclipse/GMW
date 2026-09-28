@@ -20,7 +20,7 @@ nix/
 .planning/
 # Nix build result symlink
 result
-
+todo.md
 # Playwright MCP artifacts
 .playwright-mcp/
 findings.md
