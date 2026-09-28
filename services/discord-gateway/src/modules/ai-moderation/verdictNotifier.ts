@@ -76,22 +76,28 @@ interface VerdictRow {
   edited_content: string | null;
   metadata: string | null;
   created_at: string;
+  /** Epoch millis of the last write to this verdict. The cursor. */
+  updated_at: string;
 }
 
 /**
- * Verdicts written since the last tick.
+ * Verdicts written since the last tick, as a (updated_at, message_id) cursor.
  *
  * `updated_at` is the cursor, not `created_at`: a re-analysis updates an
  * existing row in place (ON CONFLICT DO UPDATE), and its `created_at` is the
  * original judgement's time, so a cursor on `created_at` would miss every
- * re-analysis and never advance past a row rewritten in place.
+ * re-analysis.
  *
- * The lookback window re-reads a few seconds of overlap on purpose. It costs
- * a handful of duplicate publishes — the frontend merge is idempotent — and
- * it removes any chance of a cursor/`updated_at` tie silently dropping a
- * verdict at a millisecond boundary.
+ * The comparison is STRICTLY greater and carries a message_id tiebreak. An
+ * inclusive `>=` on `updated_at` alone re-selects the newest row on every
+ * single tick — measured in production, one verdict was republished 4x in
+ * 40 seconds — and message_id alone cannot order rows that share a
+ * millisecond. The pair is a total order, so each verdict is published once.
  */
-async function fetchUnnotified(sinceMs: number): Promise<VerdictRow[]> {
+async function fetchUnnotified(
+  sinceMs: number,
+  sinceId: string,
+): Promise<VerdictRow[]> {
   const db = getDatabase();
   // Raw SQL: `verdicts` is not in the Drizzle schema (the gateway treats it
   // as read-only), which is the same reason autoDeleteEnforcer queries it
@@ -105,8 +111,8 @@ async function fetchUnnotified(sinceMs: number): Promise<VerdictRow[]> {
            m.created_at
       FROM verdicts v
       JOIN messages m ON m.id = v.message_id
-     WHERE v.updated_at >= ${sinceMs}
-     ORDER BY v.updated_at ASC
+     WHERE (v.updated_at, v.message_id) > (${sinceMs}, ${sinceId})
+     ORDER BY v.updated_at ASC, v.message_id ASC
      LIMIT ${BATCH_LIMIT}
   `);
   const rows = Array.isArray(res)
@@ -176,25 +182,30 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let broadcaster: EventBroadcaster | undefined;
 let running = false;
 
-/** Start high enough to catch everything written while this process was down. */
+/**
+ * Start high enough to catch everything written while this process was down,
+ * but not so high that the backlog floods the browser on a restart.
+ */
 let cursorSince = Date.now() - 60_000;
+/** Tiebreak for rows sharing cursorSince's millisecond. Empty string sorts
+ *  first, so the first tick replays that millisecond and then moves on. */
+let cursorId = "";
 
 async function tick(): Promise<void> {
   if (running) return;
   running = true;
   try {
-    const rows = await fetchUnnotified(cursorSince);
+    const rows = await fetchUnnotified(cursorSince, cursorId);
     if (rows.length === 0) return;
 
     for (const row of rows) {
       // Advance the cursor per row, not per batch: if publishing throws
       // halfway, the next tick resumes from the last row actually sent
       // rather than replaying or skipping the whole batch.
-      const updatedAt = Number(
-        (row as unknown as { updated_at: string }).updated_at,
-      );
-      if (Number.isFinite(updatedAt) && updatedAt > cursorSince) {
+      const updatedAt = Number(row.updated_at);
+      if (Number.isFinite(updatedAt) && updatedAt >= cursorSince) {
         cursorSince = updatedAt;
+        cursorId = row.message_id;
       }
       try {
         await broadcaster?.messageAnalyzed(
