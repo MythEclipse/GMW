@@ -256,8 +256,31 @@ jobs:
 
           echo "=== Restarting service ===\n"
                     ssh "$VPS_USER@$VPS_HOST" \
-                      "sudo systemctl daemon-reload && sudo systemctl restart gmw-${{ matrix.service }} && for i in \$(seq 1 15); do state=\$(sudo systemctl is-active gmw-${{ matrix.service }} 2>/dev/null || echo inactive); [ \"\$state\" = \"active\" ] && break; sleep 2; done; echo \"final-state=\$state\"; [ \"\$state\" = \"active\" ]" 
+                      "sudo systemctl daemon-reload && sudo systemctl restart gmw-${{ matrix.service }} && for i in \$(seq 1 15); do state=\$(sudo systemctl is-active gmw-${{ matrix.service }} 2>/dev/null || echo inactive); [ \"\$state\" = \"active\" ] && break; sleep 2; done; echo \"final-state=\$state\"; [ \"\$state\" = \"active\" ]"
                     echo "✅ gmw-${{ matrix.service }} deployed"
+
+          # The moderation worker is a SEPARATE process from the gateway — its
+          # own binary (gmw-discord-gateway-worker) and its own systemd unit
+          # (gmw-discord-gateway-worker.service, defined on the VPS outside
+          # this repo). Restarting gmw-discord-gateway does NOT restart it, so
+          # without this the worker keeps running the previous build and every
+          # change to ai-moderation/ ships dark. Same store path as the gateway,
+          # so no extra build is needed.
+          #
+          # Three outcomes, deliberately handled differently:
+          #   - unit absent         -> warn, deploy continues. A VPS that never
+          #     set the worker up must not be wedged by this.
+          #   - unit present, restart lands active -> fine.
+          #   - unit present, restart fails        -> FAIL the step. A worker
+          #     that is present but broken means moderation is silently stale
+          #     or dead, and a green run would report a deploy that did not
+          #     happen. Actions runs this under `bash -e`, so exiting 1 is
+          #     enough and needs no extra plumbing.
+          if [ "${{ matrix.service }}" = "discord-gateway" ]; then
+            echo "=== Restarting moderation worker ==="
+            ssh "$VPS_USER@$VPS_HOST" \
+              "if ! systemctl cat gmw-discord-gateway-worker.service >/dev/null 2>&1; then echo '⚠️ gmw-discord-gateway-worker.service not present — worker NOT restarted; ai-moderation changes will not take effect'; exit 0; fi; sudo systemctl restart gmw-discord-gateway-worker; for i in \$(seq 1 15); do wstate=\$(sudo systemctl is-active gmw-discord-gateway-worker 2>/dev/null || echo inactive); [ \"\$wstate\" = \"active\" ] && break; sleep 2; done; echo \"worker-state=\$wstate\"; [ \"\$wstate\" = \"active\" ]"
+          fi
 
   cleanup:
     # Bersihkan sampah Nix di VPS SETELAH semua deploy selesai: hapus generasi
