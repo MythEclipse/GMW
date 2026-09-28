@@ -12,6 +12,18 @@
 @custom-variant ending-style (&[data-ending-style]);
 @custom-variant open (&[data-open], &:popover-open, &:open);
 @custom-variant closed (&[data-closed], &:not(:popover-open):not(:open));
+
+/* base-ui reports orientation as `data-orientation="horizontal|vertical"`, but
+ * the shadcn primitives style themselves with `data-horizontal:` /
+ * `data-vertical:` variants (tabs, slider, separator, scroll-area,
+ * button-group). Without these declarations Tailwind never generates the
+ * variant, so every one of those rules silently matched nothing.
+ *
+ * Symptom this caused: the Tabs list lost its `h-8` cap and its
+ * `flex-col` orientation, so the tab bar stretched to the full height of the
+ * page (measured 6652px) and was invisible in the layout. */
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
 @custom-variant activation-direction-left (&[data-activation-direction="left"]);
 @custom-variant activation-direction-right (&[data-activation-direction="right"]);
 
@@ -210,6 +222,16 @@
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-xl: 10px;
+  /* The shadcn primitives use Tailwind's rounded-2xl/3xl/4xl scale (badge is
+   * `rounded-4xl`, alert-dialog/sheet/carousel use 2xl and 3xl). Those compile
+   * to `var(--radius-2xl|3xl|4xl)`, and with the scale stopping at xl the
+   * variable was undefined — so every pill and large surface silently rendered
+   * with the browser default 0px radius. The steps continue the existing
+   * progression and land on --radius-r-pill for the roundest one, which is what
+   * a pill-shaped badge should be. */
+  --radius-2xl: 12px;
+  --radius-3xl: 16px;
+  --radius-4xl: var(--radius-r-pill);
   /* Tab shape for the mobile nav — a 20px cap, distinct from the panel radii. */
   --radius-tab: 20px;
 

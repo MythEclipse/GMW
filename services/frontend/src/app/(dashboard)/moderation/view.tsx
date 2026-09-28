@@ -56,6 +56,13 @@ import { useWsEvent } from "@/lib/ws/context";
  * selection" and renders the placeholder), so "unfiltered" gets a sentinel
  * that is mapped back to "" in state.
  */
+/**
+ * Sentinel for "unfiltered" in the shadcn Select. A Select cannot hold "",
+ * so the unfiltered state needs an explicit token; it is mapped back to
+ * undefined before it reaches the backend and is never shown to the user,
+ * because each Select passes an `items` label map so the trigger renders text
+ * rather than the raw value.
+ */
 const ANY = "__any__";
 
 const ACTION_STATUSES = ["executed", "pending", "failed"] as const;
@@ -67,6 +74,22 @@ const ACTION_TYPES = [
   "ban_user",
   "reset_nickname",
 ] as const;
+
+/**
+ * Label maps for the enforcement-log filters.
+ *
+ * Without `items`, `<Select.Value>` prints the raw item value, so the trigger
+ * showed "__any__" instead of a human label.
+ */
+const STATUS_ITEMS: Record<string, string> = {
+  [ANY]: "Any status",
+  ...Object.fromEntries(ACTION_STATUSES.map((s) => [s, humanize(s)])),
+};
+
+const ACTION_ITEMS: Record<string, string> = {
+  [ANY]: "Any action",
+  ...Object.fromEntries(ACTION_TYPES.map((t) => [t, humanize(t)])),
+};
 
 export function ModerationView({
   initialStats,
@@ -253,6 +276,7 @@ export function ModerationView({
         action={
           <div className="flex items-center gap-2">
             <Select
+              items={STATUS_ITEMS}
               value={status || ANY}
               onValueChange={(v) => setStatus(v === ANY ? "" : (v ?? ""))}
             >
@@ -270,6 +294,7 @@ export function ModerationView({
             </Select>
 
             <Select
+              items={ACTION_ITEMS}
               value={actionType || ANY}
               onValueChange={(v) => setActionType(v === ANY ? "" : (v ?? ""))}
             >

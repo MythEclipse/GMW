@@ -1,50 +1,41 @@
 import { cn } from "cn";
+import { Badge as BadgePrimitive } from "@/components/ui/badge";
 
 /**
- * Tone → class mapping, the single place the dashboard decides what a state
- * LOOKS like.
+ * Status pill for moderation state.
  *
- * Colours come from the `--color-*` tokens in globals.css (signal/amber/
- * vermilion), never raw hex — the oxlint `shadcn/no-raw-colors` rule enforces
- * that, and it is what keeps light and dark mode in sync from one definition.
+ * Built ON the shadcn `Badge` primitive rather than as hand-rolled markup: the
+ * primitive owns padding, radius, focus ring and font, and this only maps the
+ * dashboard's four semantic tones onto its variant vocabulary.
  *
- * This is a PLAIN span rather than the shadcn `Badge` primitive on purpose:
- * the design gate forbids restyling a primitive's colour/shape/spacing, and
- * these status pills need tones that map to the dashboard's semantic palette
- * rather than to the primitive's variant list.
+ * shadcn's Badge has no "warning" variant, so warning and danger both map to
+ * `destructive` and are told apart by the token-coloured dot and label. The
+ * token classes sit on CHILD spans, not on the primitive, because the shadcn
+ * design gate forbids restyling a primitive's own colour.
  */
 export type Tone = "neutral" | "positive" | "warning" | "danger";
 
-const TONE_TEXT: Record<Tone, string> = {
-  neutral: "text-ink-muted",
-  positive: "text-ink-soft",
-  warning: "text-amber",
-  danger: "text-vermilion",
-};
+const TONE_VARIANT = {
+  neutral: "outline",
+  positive: "secondary",
+  warning: "destructive",
+  danger: "destructive",
+} as const satisfies Record<Tone, "outline" | "secondary" | "destructive">;
 
-const TONE_BADGE: Record<Tone, string> = {
-  neutral: "border-hairline bg-surface-2 text-ink-muted",
-  positive: "border-hairline bg-surface-2 text-ink-soft",
-  warning: "border-amber/30 bg-amber/10 text-amber",
-  danger: "border-vermilion/30 bg-vermilion/10 text-vermilion",
-};
-
-const TONE_DOT: Record<Tone, string> = {
+const TONE_DOT = {
   neutral: "bg-ink-faint",
   positive: "bg-ink-muted",
   warning: "bg-amber",
   danger: "bg-vermilion",
-};
+} as const satisfies Record<Tone, string>;
 
-/**
- * Small inline status pill.
- *
- * `text-micro-lg` and `rounded-full` are both on the design system's own scale
- * (`--text-micro-lg` is declared in globals.css). The hand-rolled
- * `text-[0.7rem]` / `rounded-pill` this replaced were off-scale, and
- * `rounded-pill` did not exist as a utility at all — so it generated no CSS
- * and the pills rendered square.
- */
+const TONE_TEXT = {
+  neutral: "text-ink-muted",
+  positive: "text-ink-soft",
+  warning: "text-amber",
+  danger: "text-vermilion",
+} as const satisfies Record<Tone, string>;
+
 export function Badge({
   children,
   tone = "neutral",
@@ -55,19 +46,15 @@ export function Badge({
   className?: string;
 }) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-micro-lg font-medium whitespace-nowrap",
-        TONE_BADGE[tone],
-        className,
-      )}
-    >
-      <span
-        className={cn("size-1.5 rounded-full", TONE_DOT[tone])}
-        aria-hidden
-      />
-      {children}
-    </span>
+    <BadgePrimitive variant={TONE_VARIANT[tone]} className={className}>
+      <span className="flex items-center gap-1.5">
+        <span
+          className={cn("size-1.5 rounded-full", TONE_DOT[tone])}
+          aria-hidden
+        />
+        <span className={TONE_TEXT[tone]}>{children}</span>
+      </span>
+    </BadgePrimitive>
   );
 }
 

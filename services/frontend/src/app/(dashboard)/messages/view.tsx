@@ -8,7 +8,7 @@ import {
   ErrorState,
   NoResultsState,
 } from "@/components/shared/states";
-import { Badge } from "@/components/shared/tone";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -30,9 +30,38 @@ import { formatRelative, humanize } from "@/lib/format";
 import type { Guild, Message, MessageEdit, TextChannel } from "@/lib/types";
 import { useWsEvent } from "@/lib/ws/context";
 
+/**
+ * Sentinel for "no filter" in the shadcn Select. A Select cannot hold "" —
+ * base-ui reads it as "nothing selected" and shows the placeholder — so the
+ * unfiltered state needs an explicit token. It is mapped back to undefined
+ * before it reaches the backend and is never shown to the user, because each
+ * Select below passes an `items` label map so the trigger renders text.
+ */
 const ANY = "__any__";
 const FEED_LIMIT = 50;
 const REVIEW_LIMIT = 20;
+
+/**
+ * Label maps for the two filter Selects.
+ *
+ * Without `items`, `<Select.Value>` falls back to printing the raw item value,
+ * so the trigger showed the literal "__any__". Passing the map on the Root
+ * lets base-ui resolve the label on the server too, where the item portal is
+ * not mounted.
+ */
+const PIPELINE_ITEMS: Record<string, string> = {
+  [ANY]: "Any queue state",
+  ...Object.fromEntries(
+    PIPELINE_STATUSES.map((status) => [status, humanize(status)]),
+  ),
+};
+
+const VERDICT_ITEMS: Record<string, string> = {
+  [ANY]: "Any verdict",
+  ...Object.fromEntries(
+    VERDICT_STATUSES.map((verdict) => [verdict, humanize(verdict)]),
+  ),
+};
 
 export function MessagesView({
   initialGuilds,
@@ -103,6 +132,9 @@ export function MessagesView({
     setChannelId(null);
   }, []);
 
+  const reviewCount = review.data?.results.length ?? 0;
+  const editCount = edits.data?.length ?? 0;
+
   const feed = useMemo(() => {
     const rows = messages.data?.data ?? [];
     const q = search.trim().toLowerCase();
@@ -146,13 +178,20 @@ export function MessagesView({
           <TabsTrigger value="feed">Feed</TabsTrigger>
           <TabsTrigger value="review">
             Review
-            {(review.data?.results.length ?? 0) > 0 && (
-              <Badge tone="warning" className="ml-1.5">
-                {review.data?.results.length}
+            {reviewCount > 0 && (
+              <Badge variant="secondary" className="ml-1.5">
+                {reviewCount}
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="edits">Edits</TabsTrigger>
+          <TabsTrigger value="edits">
+            Edits
+            {editCount > 0 && (
+              <Badge variant="outline" className="ml-1.5">
+                {editCount}
+              </Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="feed" className="mt-4">
@@ -167,12 +206,13 @@ export function MessagesView({
               />
 
               <Select
+                items={PIPELINE_ITEMS}
                 value={pipelineFilter}
                 onValueChange={(v) => setPipelineFilter(v ?? ANY)}
               >
                 <SelectTrigger
                   size="sm"
-                  className="w-40"
+                  className="w-44"
                   aria-label="Queue state"
                 >
                   <SelectValue placeholder="Queue state" />
@@ -188,10 +228,11 @@ export function MessagesView({
               </Select>
 
               <Select
+                items={VERDICT_ITEMS}
                 value={verdictFilter}
                 onValueChange={(v) => setVerdictFilter(v ?? ANY)}
               >
-                <SelectTrigger size="sm" className="w-40" aria-label="Verdict">
+                <SelectTrigger size="sm" className="w-44" aria-label="Verdict">
                   <SelectValue placeholder="Verdict" />
                 </SelectTrigger>
                 <SelectContent>
