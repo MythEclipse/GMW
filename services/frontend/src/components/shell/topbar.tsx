@@ -3,6 +3,7 @@
 import { Command, Hash, Search, ShieldAlert, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ModeToggle } from "@/components/mode-toggle";
 import { StatusDot } from "@/components/shell/status-dot";
 import { Button } from "@/components/ui/button";
 import { activeNavItem } from "@/lib/navigation";
@@ -43,6 +44,10 @@ export function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
 
       <div className="ml-auto flex items-center gap-3">
         <StatusDot className="hidden md:flex" />
+
+        {/* Theme control. Always visible, on every breakpoint — it is a global
+            preference, not a per-page one. */}
+        <ModeToggle />
 
         {/*
           No colour/spacing overrides here: the design gate gives the Button
