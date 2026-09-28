@@ -12,10 +12,12 @@ import type {
  * expensive bug this dashboard has had:
  *
  *   `messages.ai_status`  — WHERE the message is in the queue.
- *                            pending | claimed | analyzed | retry_wait | dead
- *                            A hard CHECK constraint (migration 0020) rejects
- *                            anything else, so the v1 names ("processing",
- *                            "clean", "flagged"…) can never be written.
+ *                            pending | claimed | analyzed | retry_wait
+ *                            dead | skipped
+ *                            A hard CHECK constraint (migration 0020, widened
+ *                            by 0023) rejects anything else, so the v1 names
+ *                            ("processing", "clean", "flagged"…) can never be
+ *                            written.
  *
  *   `verdicts.status`     — WHAT the model decided.
  *                            clean | warn | flagged | error
@@ -23,6 +25,10 @@ import type {
  * So "still queued" and "judged clean" are different facts. A message that is
  * `pending` has no outcome yet; rendering it as clean is a lie, and a filter
  * written against `ai_status IN ('flagged')` can never match a row.
+ *
+ * `skipped` is the other end: terminal, and deliberately un-judged. The message
+ * was captured and is on the dashboard, but its channel is exempt from
+ * moderation, so it has no verdict — not a clean one, and not an error.
  */
 
 export const PIPELINE_STATUSES: readonly PipelineStatus[] = [
@@ -31,6 +37,7 @@ export const PIPELINE_STATUSES: readonly PipelineStatus[] = [
   "analyzed",
   "retry_wait",
   "dead",
+  "skipped",
 ] as const;
 
 export const VERDICT_STATUSES: readonly VerdictStatus[] = [
@@ -120,6 +127,10 @@ export function pipelineLabel(
       return "Retrying";
     case "dead":
       return "Abandoned";
+    // Deliberately not analysed: a channel on the skip list. NOT an error
+    // and not "queued" — the message was captured and will never be judged.
+    case "skipped":
+      return "Not moderated";
     default:
       return "Unknown";
   }
@@ -131,6 +142,10 @@ export function pipelineTone(
   switch (status) {
     case "dead":
       return "danger";
+    // Neutral, not positive: `analyzed` is green because a judgement was
+    // reached, and nothing was judged here. Not a warning either.
+    case "skipped":
+      return "neutral";
     case "retry_wait":
       return "warning";
     case "claimed":
@@ -170,9 +185,13 @@ export function needsHuman(message: {
 }
 
 /**
- * Work still owed by the worker. `dead` is excluded on purpose — it is not
- * queued any more, it is abandoned, and conflating the two hides a stuck
- * pipeline behind a healthy-looking backlog number.
+ * Work still owed by the worker.
+ *
+ * `dead` is excluded on purpose — it is not queued any more, it is
+ * abandoned, and conflating the two hides a stuck pipeline behind a
+ * healthy-looking backlog number. `skipped` is excluded for a different
+ * reason: nothing is ever owed, so counting it would put an exempt channel
+ * in the backlog permanently.
  */
 export function isBacklogged(
   status: PipelineStatus | null | undefined,

@@ -153,6 +153,10 @@ export class ModerationRepository {
       claimed: byStatus.claimed ?? 0,
       retry_wait: byStatus.retry_wait ?? 0,
       dead: byStatus.dead ?? 0,
+      // Terminal like `analyzed`, so it stays out of every "outstanding
+      // work" number above. Reported on its own so an operator can see that
+      // the skip list is actually taking effect.
+      skipped: byStatus.skipped ?? 0,
     };
   }
 

@@ -14,6 +14,7 @@ export const pipelineStatusSchema = z.enum([
   "claimed",
   "analyzed",
   "retry_wait",
+  "skipped",
   "dead",
 ]);
 

@@ -56,6 +56,8 @@ async function main(): Promise<void> {
     idlePollMs: config.AI_ANALYSIS_POLL_INTERVAL_MS,
     maxAttempts: config.AI_ANALYSIS_MAX_ATTEMPTS,
     retryBackoffBaseMs: config.AI_ANALYSIS_RETRY_BACKOFF_MS,
+    // Channels deliberately outside moderation. Still captured, never judged.
+    skipChannelIds: config.AI_SKIP_ANALYSIS_CHANNEL_IDS,
   });
 
   let shuttingDown = false;

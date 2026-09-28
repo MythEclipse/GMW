@@ -15,7 +15,7 @@
 
 /**
  * QUEUE position, not the outcome. `messages.ai_status` has a hard CHECK
- * constraint in migration 0020 allowing exactly these five values.
+ * constraint (migration 0020, widened by 0023) allowing exactly these six.
  *
  * The v1 names ("processing", "clean", "warn", "flagged", "error") are NOT
  * valid here — a query filtering on them matches nothing, which is how the
@@ -26,7 +26,8 @@ export type PipelineStatus =
   | "claimed"
   | "analyzed"
   | "retry_wait"
-  | "dead";
+  | "dead"
+  | "skipped";
 
 /**
  * The JUDGEMENT, from the `verdicts` table. A separate column from
@@ -214,6 +215,8 @@ export interface QueueOverview {
   claimed: number;
   retry_wait: number;
   dead: number;
+  /** Terminal: captured, never analysed (channel on the skip list). */
+  skipped: number;
   error: number;
 }
 
@@ -228,6 +231,7 @@ export interface DashboardStats {
   total_claimed: number;
   total_retry_wait: number;
   total_dead: number;
+  total_skipped: number;
   total_voice_recordings: number;
   total_profiles: number;
   today_messages: number;

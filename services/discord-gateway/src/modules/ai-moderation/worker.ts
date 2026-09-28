@@ -110,6 +110,16 @@ export type WorkerConfig = {
   includeContext: boolean;
   /** Max history messages included per analysed message. */
   contextWindow: number;
+  /**
+   * Channels deliberately excluded from moderation. Their messages are still
+   * captured and still visible on the dashboard — they are simply never
+   * judged, and land in the terminal `skipped` state.
+   *
+   * Empty by default, and the empty list skips nothing: the default direction
+   * is "moderate", so a mis-set env var can never quietly unmoderate a
+   * channel.
+   */
+  skipChannelIds?: readonly string[];
   /** Stop after this many batches (0 = run forever). Used by tests. */
   maxBatches?: number;
 };
@@ -470,7 +480,7 @@ export class ModerationWorker {
     // pre-UPDATE snapshot, so `m.attempts` is always one behind — the
     // increment claim_messages() performs is only visible to a later
     // statement. Reading it from `c` gives the post-increment value.
-    const { rows } = await this.pool.query<ClaimedMessage>(
+    const { rows: claimed } = await this.pool.query<ClaimedMessage>(
       `SELECT m.id,
               m.guild_id      AS "guildId",
               m.channel_id    AS "channelId",
@@ -489,7 +499,7 @@ export class ModerationWorker {
          ) a ON a.message_id = m.id`,
       [this.workerId, this.config.claimBatchSize, this.config.leaseMs],
     );
-    if (rows.length > 0) logClaimed(this.workerId, rows);
+    if (claimed.length > 0) logClaimed(this.workerId, claimed);
 
     // Never analyse or moderate inside a channel Discord marks NSFW.
     //
@@ -502,9 +512,10 @@ export class ModerationWorker {
     // Claimed rows are released straight back to pending rather than
     // analyzed — otherwise the claim batch would silently shrink and the
     // worker would spin on the same unanalysable rows every tick.
-    const inNsfw = rows.filter((r) => r.channelIsNsfw === true);
+    const inNsfw = claimed.filter((r) => r.channelIsNsfw === true);
+    let rows = claimed;
     if (inNsfw.length > 0) {
-      const safe = rows.filter((r) => r.channelIsNsfw !== true);
+      const safe = claimed.filter((r) => r.channelIsNsfw !== true);
       await this.pool.query(
         `UPDATE messages
             SET ai_status = 'pending',
@@ -518,7 +529,66 @@ export class ModerationWorker {
         { skipped: inNsfw.length, kept: safe.length },
         "skipped NSFW channel messages — not analysed",
       );
-      return safe;
+      // `safe` still needs the skip-list pass below, so fall through rather
+      // than returning here.
+      rows = safe;
+    }
+
+    // A channel on the skip list is never analysed, and — unlike NSFW — never
+    // re-offered. NSFW is a poll, because an admin can toggle the channel at
+    // any time and the rule should follow them; the skip list is a decision
+    // that does not change on its own, so a re-claim loop is pure waste:
+    // 12 claims an hour per message forever, `attempts` climbing past the cap
+    // so the row eventually parks as `dead` — reported as a human-needing-a-
+    // look message that was in fact never broken — and a backlog gauge that
+    // never drains.
+    //
+    // So it goes to the terminal `skipped` state (migration 0023): no verdict
+    // (nothing was judged, so nothing to delete), no retry budget consumed,
+    // and `claim_messages` never selects it again.
+    //
+    // `messages.channel_id` holds the PARENT id for a thread, so one entry
+    // exempts every thread under the channel — the same rule
+    // EXCLUDED_CHANNEL_IDS applies at capture time.
+    const skip = new Set(this.config.skipChannelIds ?? []);
+    const inSkipped = skip.size
+      ? rows.filter((r) => skip.has(r.channelId))
+      : [];
+    if (inSkipped.length > 0) {
+      const keep = rows.filter((r) => !skip.has(r.channelId));
+      await this.pool.query(
+        `UPDATE messages
+            SET ai_status = 'skipped',
+                worker_id = NULL,
+                lease_until = NULL
+          WHERE id = ANY($1)`,
+        [inSkipped.map((r) => r.id)],
+      );
+      this.stats.skipped += inSkipped.length;
+      log.info(
+        { skipped: inSkipped.length, kept: keep.length, channels: [...skip] },
+        "channel is on the skip list — captured, never analysed",
+      );
+      for (const m of inSkipped) {
+        logMessageRequeued({
+          trace: traceId(m.id),
+          messageId: m.id,
+          // Not a requeue: the terminal reason, kept on the same event so one
+          // grep on the trace id explains the message's whole life.
+          reason: "skipped_by_channel_config",
+          detail: `channel ${m.channelId} is on AI_SKIP_ANALYSIS_CHANNEL_IDS`,
+          attempts: m.attempts,
+          createdAt: m.createdAt,
+        });
+      }
+      rows = keep;
+    }
+
+    if (rows.length === 0) {
+      // Everything in this batch was released. Returning false is what makes
+      // the poll loop take its idle sleep — otherwise a batch of nothing but
+      // skips would report "did work" and spin at full speed.
+      return [];
     }
     return rows;
   }

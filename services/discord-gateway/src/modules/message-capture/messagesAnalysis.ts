@@ -22,7 +22,13 @@ export interface AIAnalysisUpdate {
    * ("processing", "clean", "warn", "flagged", "error") are rejected by the
    * database, so they must not be offered here.
    */
-  status: "pending" | "claimed" | "analyzed" | "retry_wait" | "dead";
+  status:
+    | "pending"
+    | "claimed"
+    | "analyzed"
+    | "retry_wait"
+    | "dead"
+    | "skipped";
   flags?: string | null;
   score?: number | null;
   analysis?: string | null;

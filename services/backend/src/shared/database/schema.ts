@@ -54,7 +54,7 @@ export const pgMessagesTable = pgTable(
     // and filtering by `warn` silently returned nothing once the new worker
     // started writing only `analyzed`.
     ai_status: pgText("ai_status", {
-      enum: ["pending", "claimed", "analyzed", "retry_wait", "dead"],
+      enum: ["pending", "claimed", "analyzed", "retry_wait", "dead", "skipped"],
     })
       .notNull()
       .default("pending"),
@@ -593,7 +593,7 @@ export type ChatbotMessageInsert = typeof chatbotMessagesTable.$inferInsert;
 // can READ the data, and it never writes here.
 //
 // The important split: `messages.ai_status` is pipeline position
-// (pending/claimed/analyzed/retry_wait/dead) and says nothing about the
+// (pending/claimed/analyzed/retry_wait/dead/skipped) and says nothing about the
 // judgement. The outcome — clean, warn, flagged, error — is `verdicts.status`.
 // Filtering messages by `ai_status = 'flagged'` returns nothing, because
 // nothing writes that value any more.

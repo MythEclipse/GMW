@@ -20,6 +20,7 @@ const QUEUE_STATES = [
   "claimed",
   "analyzed",
   "retry_wait",
+  "skipped",
   "dead",
 ] as const;
 
@@ -46,7 +47,7 @@ export function buildListMessageConditions(query: MessageQuery): SQL[] {
 
   // `ai_status` is the QUEUE state in the v2 state machine, not the
   // judgement. It only ever holds:
-  //   pending | claimed | analyzed | retry_wait | dead
+  //   pending | claimed | analyzed | retry_wait | dead | skipped
   // and a hard CHECK constraint (0020:58) rejects anything else. The v1
   // values this filter used to accept ("clean", "warn", "flagged", "error",
   // "processing") can therefore never match a row, which is why
@@ -64,7 +65,12 @@ export function buildListMessageConditions(query: MessageQuery): SQL[] {
         inArray(
           messagesTable.ai_status,
           requested as Array<
-            "pending" | "claimed" | "analyzed" | "retry_wait" | "dead"
+            | "pending"
+            | "claimed"
+            | "analyzed"
+            | "retry_wait"
+            | "dead"
+            | "skipped"
           >,
         ),
       );

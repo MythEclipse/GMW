@@ -48,6 +48,34 @@ export const configSchema = z
       .default("411916947773587456")
       .transform((v) => v.split(",").filter(Boolean))
       .describe("User IDs to skip AI analysis for (captured but not analyzed)"),
+    // Channel IDs whose messages are never AI-analyzed. Unlike
+    // EXCLUDED_CHANNEL_IDS these are still CAPTURED and still shown on the
+    // dashboard — only the judgement is withheld, and the message lands in the
+    // terminal `skipped` state so it is never re-claimed.
+    //
+    // This is for channels that are deliberately outside moderation: a
+    // bot-dedicated channel, where the traffic is command output rather than
+    // conversation. Use EXCLUDED_CHANNEL_IDS instead when the channel should
+    // be invisible to the dashboard too.
+    //
+    // A thread inherits its parent's id, so listing a channel also exempts
+    // every thread under it (messages.channel_id stores the parent).
+    //
+    // Entries are trimmed because this list is hand-edited as a CI secret
+    // (`a, b` is the natural way to write it) and an untrimmed id would match
+    // nothing — the channel would stay moderated with no error anywhere.
+    AI_SKIP_ANALYSIS_CHANNEL_IDS: z
+      .string()
+      .default("")
+      .transform((v) =>
+        v
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean),
+      )
+      .describe(
+        "Channel IDs to skip AI analysis for (captured, never analyzed)",
+      ),
 
     AVATAR_SIZE: z.coerce.number().positive().default(64),
 

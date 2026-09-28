@@ -52,6 +52,10 @@ async function emitQueueGauges(logger: Logger): Promise<void> {
     setGauge("moderation_queue_claimed", byState.claimed ?? 0);
     setGauge("moderation_queue_retry_wait", byState.retry_wait ?? 0);
     setGauge("moderation_queue_analyzed", byState.analyzed ?? 0);
+    // Terminal, like `analyzed`: deliberately never analysed (a channel on the
+    // skip list). Not backlog — a gauge that showed it as work owed would
+    // never drain for a channel that is exempt by design.
+    setGauge("moderation_queue_skipped", byState.skipped ?? 0);
     // `dead` is the actionable number: messages only a human can resolve.
     setGauge("moderation_queue_dead", byState.dead ?? 0);
 

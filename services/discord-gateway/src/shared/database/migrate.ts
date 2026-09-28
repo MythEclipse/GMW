@@ -62,8 +62,12 @@ async function getFirstMigrationTag(): Promise<string> {
  * migration only when `tracked_max_created_at < migration.when`, so seeding
  * the tracking table with this value marks every existing journal migration
  * as already applied.
+ *
+ * Exported for tests: the reconciler's whole job is to compare the tracking
+ * table against this number, and a DB stuck at an older migration is only
+ * detectable by driving both together.
  */
-async function getLastMigrationWhen(): Promise<number> {
+export async function getLastMigrationWhen(): Promise<number> {
   const journalPath = join(
     process.cwd(),
     "drizzle/migrations/meta/_journal.json",
@@ -167,6 +171,17 @@ export async function seedDrizzleHistory(client: PoolClient): Promise<void> {
       AND EXISTS (
         SELECT FROM information_schema.columns
         WHERE table_name = 'verdicts' AND column_name = 'auto_delete_claimed_at'
+      )
+      -- 0023: the queue's terminal skip state. A CHECK constraint is the only
+      -- object 0023 touches, and a column-existence test cannot see a
+      -- constraint — so this reads the constraint's own definition. Without
+      -- it a database stuck at 0022 still reports "at latest" here, 0023 gets
+      -- stamped as applied without running, and every skip write then fails
+      -- with check_violation at runtime.
+      AND EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'messages_ai_status_check'
+          AND pg_get_constraintdef(oid) LIKE '%skipped%'
       )
       -- 0021 is DATA-ONLY: it creates no object, so nothing above can detect
       -- it. Its sentinel is the absence of the state it was written to fix —

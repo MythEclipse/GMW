@@ -50,7 +50,7 @@ export const pgMessagesTable = pgTable(
     // exactly this set, so the Drizzle enum must match it or code type-checks
     // against states the database rejects at runtime.
     ai_status: pgText("ai_status", {
-      enum: ["pending", "claimed", "analyzed", "retry_wait", "dead"],
+      enum: ["pending", "claimed", "analyzed", "retry_wait", "dead", "skipped"],
     })
       .notNull()
       .default("pending"),

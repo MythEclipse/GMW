@@ -35,6 +35,9 @@ export class DashboardRepository {
         COUNT(*) FILTER (WHERE m.ai_status = 'claimed')::int AS total_claimed,
         COUNT(*) FILTER (WHERE m.ai_status = 'retry_wait')::int AS total_retry_wait,
         COUNT(*) FILTER (WHERE m.ai_status = 'dead')::int AS total_dead,
+        -- Terminal: captured but deliberately never analysed, because the
+        -- channel is on the skip list. Never backlog, never a human's job.
+        COUNT(*) FILTER (WHERE m.ai_status = 'skipped')::int AS total_skipped,
         COUNT(DISTINCT m.user_id)::int AS total_users,
         COUNT(*) FILTER (WHERE m.created_at >= ${oneDayAgo})::int AS today_messages,
         COUNT(*) FILTER (WHERE v.status = 'flagged' AND m.created_at >= ${oneDayAgo})::int AS today_flagged,
@@ -80,6 +83,7 @@ export class DashboardRepository {
       total_claimed: msgRow?.total_claimed ?? 0,
       total_retry_wait: msgRow?.total_retry_wait ?? 0,
       total_dead: msgRow?.total_dead ?? 0,
+      total_skipped: msgRow?.total_skipped ?? 0,
       total_voice_recordings: voiceResult.rows[0]?.count ?? 0,
       total_profiles: profileResult.rows[0]?.count ?? 0,
       today_messages: msgRow?.today_messages ?? 0,
@@ -101,6 +105,7 @@ export class DashboardRepository {
         claimed: msgRow?.total_claimed ?? 0,
         retry_wait: msgRow?.total_retry_wait ?? 0,
         dead: msgRow?.total_dead ?? 0,
+        skipped: msgRow?.total_skipped ?? 0,
         error: msgRow?.total_error ?? 0,
       },
     };

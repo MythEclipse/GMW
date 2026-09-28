@@ -155,6 +155,13 @@
       "when": 1788086400000,
       "tag": "0022_enforce_verdicts",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788090000000,
+      "tag": "0023_skipped_state",
+      "breakpoints": true
     }
   ]
 }

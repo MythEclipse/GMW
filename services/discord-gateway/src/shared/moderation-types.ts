@@ -5,7 +5,7 @@
  * The QUEUE state, not the judgement.
  *
  * Migration 0020 replaced the v1 set with a hard CHECK constraint:
- *   CHECK (ai_status IN ('pending','claimed','analyzed','retry_wait','dead'))
+ *   CHECK (ai_status IN ('pending','claimed','analyzed','retry_wait','dead','skipped'))
  * so the v1 values ("processing", "clean", "warn", "flagged", "error") are
  * rejected by the database. Declaring them here let code type-check against a
  * state that can never be written. The judgement is `verdicts.status`
@@ -16,7 +16,8 @@ export type AIStatus =
   | "claimed"
   | "analyzed"
   | "retry_wait"
-  | "dead";
+  | "dead"
+  | "skipped";
 
 /** The verdict, from the `verdicts` table. Never stored in `ai_status`. */
 export type VerdictStatus = "clean" | "warn" | "flagged" | "error";

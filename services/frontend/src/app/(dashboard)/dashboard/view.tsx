@@ -226,6 +226,14 @@ function QueueBreakdown({
     },
     { key: "dead", label: "Abandoned", value: queue.dead, tone: "danger" },
     {
+      key: "skipped",
+      // Terminal like `analyzed`, so the list order puts it last. Not an
+      // alert: the channel is exempt on purpose.
+      label: "Not moderated",
+      value: queue.skipped,
+      tone: "neutral",
+    },
+    {
       key: "error",
       label: "Errored verdict",
       value: queue.error,
