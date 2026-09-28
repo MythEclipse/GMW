@@ -26,9 +26,21 @@ export class MessagesSearch {
   }): Promise<MessageRecord[]> {
     this.logger.debug({ query: input.query }, "searchMessages entry");
     try {
-      const { query, channelId, guildId, limit = 20 } = input;
+      const { query, channelId, guildId } = input;
+      // Clamp. An unbounded limit is a full table scan pulled into memory,
+      // and this is reachable from the dashboard's search box.
+      const limit = Math.min(Math.max(1, input.limit ?? 20), 200);
 
-      const searchPattern = `%${query}%`;
+      // The pattern is LOWERED, because the column is compared with
+      // `lower(content)`. The previous code lowercased neither side, so a
+      // search for "Halo" found nothing in a column holding "halo".
+      //
+      // LIKE metacharacters must also be escaped: a user typing `%` or `_`
+      // otherwise injects a wildcard and matches every row — the exact
+      // opposite of what they asked for, and a cheap way to enumerate the
+      // archive.
+      const escaped = query.replace(/[\\%_]/g, (c) => `\\${c}`);
+      const searchPattern = `%${escaped.toLowerCase()}%`;
       const conditions: (SQL | undefined)[] = [
         isNull(messagesTable.deleted_at),
       ];
@@ -43,8 +55,8 @@ export class MessagesSearch {
 
       conditions.push(
         or(
-          sql`lower(${messagesTable.content}) LIKE ${searchPattern}`,
-          sql`lower(${messagesTable.edited_content}) LIKE ${searchPattern}`,
+          sql`lower(${messagesTable.content}) LIKE ${searchPattern} ESCAPE '\\'`,
+          sql`lower(${messagesTable.edited_content}) LIKE ${searchPattern} ESCAPE '\\'`,
         ),
       );
 

@@ -156,10 +156,18 @@ export const configSchema = z
     // works too but requires the key for every call.
     AI_LLM_BASE_URL: z.string().url().default("http://127.0.0.1:4014/v1"),
     AI_LLM_MODEL: z.string().default("text"),
-    // Vision uses the SAME router/base URL as text moderation
-    // (AI_LLM_BASE_URL) but a different model alias. The dedicated NVIDIA
-    // multimodal endpoint was removed.
-    AI_LLM_VISION_MODEL: z.string().default("multimodal"),
+    // ── Vision (multimodal) pass ─────────────────────────────────────────
+    //
+    // The vision pass sends REAL image content blocks, so it needs its own
+    // model alias, and optionally its own credentials/endpoint. These three
+    // used to exist in the deployment env but were absent from this schema —
+    // Zod strips unknown keys, so they were silently dropped and the vision
+    // call fell back to the text model with the URL as a *string*, which the
+    // model answers with "Tidak dapat memproses URL gambar". Every image
+    // message therefore reached moderation with zero visual evidence.
+    AI_LLM_VISION_MODEL: z.string().default("text"),
+    AI_LLM_VISION_BASE_URL: z.string().url().optional(),
+    AI_LLM_VISION_API_KEY: z.string().optional(),
     AI_LLM_DISABLE_THINKING: z
       .string()
       .default("true")
@@ -256,11 +264,17 @@ export const configSchema = z
     // How long a claim is held. MUST exceed AI_ANALYSIS_LLM_TIMEOUT_MS, or a
     // slow call outlives its lease and a second worker re-processes messages
     // that are still in flight. The worker asserts this at construction.
+    // The claim lease. It must exceed the vision pre-pass PLUS the moderation
+    // call, because `analyze()` runs vision first for any batch containing
+    // media and both hold the same lease. The default was 120s against a
+    // 120s vision budget and a 90s moderation budget — a 210s worst case
+    // under a 120s lease, so every media batch was reclaimed and re-processed
+    // by a second worker mid-flight.
     AI_ANALYSIS_PROCESSING_TIMEOUT_MS: z.coerce
       .number()
       .int()
       .positive()
-      .default(120000),
+      .default(300000),
     // Deadline for one LLM call.
     AI_ANALYSIS_LLM_TIMEOUT_MS: z.coerce
       .number()
@@ -357,18 +371,23 @@ export const configSchema = z
     // the first is still paying for them. That reintroduces exactly the
     // duplicate-verdict class this design exists to make impossible, so it is
     // rejected at boot rather than discovered in production.
-    if (
-      value.AI_ANALYSIS_ENABLED &&
-      value.AI_ANALYSIS_PROCESSING_TIMEOUT_MS <=
-        value.AI_ANALYSIS_LLM_TIMEOUT_MS
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["AI_ANALYSIS_PROCESSING_TIMEOUT_MS"],
-        message:
-          "AI_ANALYSIS_PROCESSING_TIMEOUT_MS (the claim lease) must be greater than " +
-          "AI_ANALYSIS_LLM_TIMEOUT_MS, otherwise messages are reprocessed while still in flight",
-      });
+    // The lease must cover the WHOLE batch: the vision pre-pass and the
+    // moderation call both run under it, and a media batch pays both.
+    if (value.AI_ANALYSIS_ENABLED) {
+      const worstCase =
+        value.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS +
+        value.AI_ANALYSIS_LLM_TIMEOUT_MS;
+      if (value.AI_ANALYSIS_PROCESSING_TIMEOUT_MS <= worstCase) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["AI_ANALYSIS_PROCESSING_TIMEOUT_MS"],
+          message:
+            "AI_ANALYSIS_PROCESSING_TIMEOUT_MS (the claim lease) must be greater than " +
+            "AI_LLM_VISION_ANALYSIS_TIMEOUT_MS + AI_ANALYSIS_LLM_TIMEOUT_MS " +
+            `(${value.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS} + ${value.AI_ANALYSIS_LLM_TIMEOUT_MS} = ${worstCase}), ` +
+            "otherwise a media batch is reclaimed and reprocessed while still in flight",
+        });
+      }
     }
 
     // Validate database configuration

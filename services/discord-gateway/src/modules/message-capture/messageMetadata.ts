@@ -16,6 +16,22 @@ export interface MessageLocation {
   nsfw?: boolean;
   nsfwLevel?: string | null;
   ageRestricted?: boolean;
+  /** Discord channel type ("GUILD_TEXT", "GUILD_PUBLIC_THREAD", …), so the
+   *  dashboard and the prompt can tell an announcement channel from a support
+   *  thread without resolving the id. */
+  channelType?: string | null;
+  /** Slowmode in seconds. 0 or null means none. */
+  rateLimitPerUser?: number | null;
+  /** Thread-only. Who started it and when. `ownerId` is null when the account
+   *  cannot see the owner (e.g. a thread in a channel it lost access to). */
+  threadOwnerId?: string | null;
+  threadCreatedAt?: number | null;
+  threadArchived?: boolean | null;
+  threadLocked?: boolean | null;
+  threadMemberCount?: number | null;
+  threadMessageCount?: number | null;
+  /** Forum/media post tags. Empty for an ordinary channel. */
+  appliedTags?: string[];
 }
 
 export interface StickerEvidence {
@@ -23,6 +39,13 @@ export interface StickerEvidence {
   name: string;
   url: string;
   format: string | null;
+  /** Alt text a human set on the sticker — often the only description there is. */
+  description?: string | null;
+  /** Owning pack, so the dashboard can group stickers and spot a pack that
+   *  someone posted repeatedly. */
+  packId?: string | null;
+  type?: string | null;
+  tags?: string[] | null;
 }
 
 export interface CustomEmojiEvidence {
@@ -30,16 +53,44 @@ export interface CustomEmojiEvidence {
   name: string;
   animated: boolean;
   url: string;
+  /** Guild that owns the emoji, or null for a global one. Lets a prompt tell
+   *  "an emoji someone uploaded" from Discord's own set. */
+  guildId?: string | null;
 }
 
 export interface MentionedRoleEvidence {
   id: string;
   name: string;
+  /** Higher = more privileged, so a ping at the mod team is distinguishable
+   *  from a ping at a colour role. */
+  position?: number | null;
+  /** True for @everyone and @here, which are materially different from
+   *  mentioning a named role. */
+  isEveryone?: boolean;
 }
 
 export interface MentionedUserEvidence {
   id: string;
   username: string;
+  /** Bot authors are legitimate moderation context: a raid tool posting fifty
+   *  identical messages looks nothing like a user. */
+  bot?: boolean;
+  displayName?: string | null;
+  globalName?: string | null;
+}
+
+export interface PollEvidence {
+  question: string | null;
+  allowMultiselect: boolean;
+  durationHours: number | null;
+  answers: Array<{
+    id: number;
+    text: string | null;
+    /** EMOJI | NUMERIC. A poll of numbers with a question like "how much do you
+     *  bet" is a different moderation signal from a yes/no poll. */
+    pollMediaType: string | null;
+    emoji: string | null;
+  }>;
 }
 
 export interface EmbedEvidence {
@@ -56,6 +107,20 @@ export interface EmbedEvidence {
   } | null;
   footer: { text: string | null; iconURL: string | null } | null;
   fields: Array<{ name: string; value: string; inline: boolean }>;
+  /** "rich", "image", "video", "link", "tweet"… The type alone separates a
+   *  plain link preview from a rich embed, which are different content. */
+  type?: string | null;
+  /** Epoch millis of a timestamp footer, or null. */
+  timestamp?: number | null;
+  /** Video URL for a video embed — YouTube/TikTok embeds put the whole
+   *  offending content in the video, not in the title. */
+  video?: {
+    url: string | null;
+    width: number | null;
+    height: number | null;
+  } | null;
+  /** Embed provider ("Twitter", "YouTube", …). */
+  provider?: { name: string | null; url: string | null } | null;
 }
 
 export interface AttachmentEvidence {
@@ -64,6 +129,20 @@ export interface AttachmentEvidence {
   url: string;
   contentType: string | null;
   size: number;
+  /** Pixel dimensions; present for images and video, null otherwise. Worth
+   *  capturing: a 2000x3000 phone screenshot reads very differently from a
+   *  64x64 sticker when the vision model looks at it. */
+  width?: number | null;
+  height?: number | null;
+  /** Seconds, for audio and video. */
+  duration?: number | null;
+  /** User-supplied alt text, which frequently says more than the file does
+   *  (or is itself the thing worth moderating). */
+  description?: string | null;
+  /** Discord's spoiler marker. */
+  spoiler?: boolean;
+  /** "REMIX" when the attachment was edited into a new message. */
+  flags?: string[];
 }
 
 export interface MessageMediaEvidence {
@@ -73,6 +152,22 @@ export interface MessageMediaEvidence {
   customEmojis: CustomEmojiEvidence[];
 }
 
+export interface MemberRoleEvidence {
+  id: string;
+  name: string;
+  /** Role hierarchy. This is what makes a moderation verdict actionable: a
+   *  slur from someone with Manage Server is a different decision from the
+   *  same slur from a drive-by account. */
+  position: number;
+  /** Set for @everyone. */
+  isEveryone?: boolean;
+  /** Role colour, as a Discord colour integer. */
+  color?: number | null;
+  hoist?: boolean;
+  managed?: boolean;
+  mentionable?: boolean;
+}
+
 export interface RichMessageMetadata {
   stickers: Array<StickerEvidence>;
   embeds: Array<EmbedEvidence>;
@@ -80,17 +175,43 @@ export interface RichMessageMetadata {
   customEmojis: Array<CustomEmojiEvidence>;
   mentionedRoles: Array<MentionedRoleEvidence>;
   mentionedUsers: Array<MentionedUserEvidence>;
+  /** Channel pings, which the old metadata dropped entirely. A link posted
+   *  with a channel ping is a broadcast, not a reply. */
+  mentionedChannels: Array<{
+    id: string;
+    name: string | null;
+    type: string | null;
+  }>;
   author: {
     id: string;
     username: string;
     tag: string | null;
     avatarURL: string | null;
     bot: boolean;
+    /** Display name (the new-style name), when it differs from the username. */
+    displayName?: string | null;
+    globalName?: string | null;
+    /** Discord system/verified flags, as raw bit values. Distinguishes a
+     *  verified staff badge from an account that merely claims to be staff. */
+    flags?: number | null;
+    accountCreatedTimestamp?: number | null;
+    system?: boolean;
   };
   member: {
     displayName: string | null;
-    roles: Array<{ id: string; name: string }>;
+    roles: MemberRoleEvidence[];
     joinedTimestamp: number | null;
+    /** The member's per-guild nickname, when set. */
+    nickname?: string | null;
+    /** Guild-relative permissions, as a JSON-safe array of permission names.
+     *  This is the single most useful fact for deciding whether a message is
+     *  worth escalating: a moderator posting a link is not a spam report. */
+    permissions?: string[];
+    /** Epoch millis the member is timed out until, or null. A message from a
+     *  currently-timed-out member is worth a look. */
+    communicationDisabledUntil?: number | null;
+    premiumSince?: number | null;
+    pending?: boolean;
   } | null;
   channel: MessageLocation;
   reference: {
@@ -101,8 +222,87 @@ export interface RichMessageMetadata {
     content: string | null;
     repliedUsername: string | null;
     repliedUserId: string | null;
+    /** Attachments on the replied-to message. A reply that forwards a
+     *  screenshot has no text, so without this the moderator sees an empty
+     *  quote. */
+    attachments?: AttachmentEvidence[];
+    authorId?: string | null;
+    authorIsBot?: boolean | null;
   } | null;
   isCrosspost: boolean;
+  /** True when the message pinged @everyone or @here. */
+  mentionsEveryone?: boolean;
+  /** Raw MessageFlags bitfield, so any flag Discord adds later is preserved
+   *  instead of being dropped at capture time. */
+  flags?: number;
+  /** Decoded, human-readable flag names — what the prompt actually wants. */
+  flagNames?: string[];
+  /** Webhook id, when the message came through a webhook. A webhook author is
+   *  not the person whose name it borrows. */
+  webhookId?: string | null;
+  applicationId?: string | null;
+  /** Pinned state. */
+  pinned?: boolean;
+  /** Text-to-speech read out loud in-channel. */
+  tts?: boolean;
+  /** Discord-generated (join/boost/pin) rather than written by a user. */
+  system?: boolean;
+  /** Timestamp of the last edit, or null. */
+  editedTimestamp?: number | null;
+  /** Position in a thread, when Discord reports it. */
+  position?: number | null;
+  /** A thread was started from this message. */
+  hasThread?: boolean;
+  /** Poll attached to the message. */
+  poll?: PollEvidence | null;
+  /** Components (buttons/selects) attached to the message. */
+  componentCount?: number;
+  /** Set when the account reacted to its own message — a spoiler or a bot
+   *  self-reply, both of which change how the message should be read. */
+  selfReacted?: boolean;
+}
+
+/**
+ * Read the channel topic, which Discord only exposes on a *parent* text
+ * channel — `ThreadChannel` has no `topic` field at all.
+ *
+ * Reading `channel.topic` off a thread therefore always returned null, so
+ * every thread message lost the one piece of context that says what the
+ * thread is for. Fall back to the parent.
+ */
+function resolveTopic(channel: TextChannel | ThreadChannel): string | null {
+  if ("topic" in channel && typeof channel.topic === "string") {
+    return channel.topic;
+  }
+  const parent = (channel as ThreadChannel).parent;
+  if (parent && "topic" in parent && typeof parent.topic === "string") {
+    return parent.topic;
+  }
+  return null;
+}
+
+/**
+ * Read the NSFW flag, inheriting it from the parent for threads.
+ *
+ * `ThreadChannel` has no `nsfw` property (Discord has no per-thread toggle;
+ * the flag lives on the parent). The old code read `channel.nsfw` only, so a
+ * thread inside an age-restricted channel reported `nsfw: undefined` and both
+ * the worker (which skips NSFW messages) and the auto-delete enforcer treated
+ * it as safe. Age-restricted channel content was being sent to the moderation
+ * model and, when flagged, deleted.
+ */
+function resolveNsfw(
+  channel: TextChannel | ThreadChannel,
+): boolean | undefined {
+  const self = channel as { nsfw?: unknown };
+  if (typeof self.nsfw === "boolean") return self.nsfw;
+  if (channel.isThread?.()) {
+    const parent = (channel as ThreadChannel).parent as {
+      nsfw?: unknown;
+    } | null;
+    if (parent && typeof parent.nsfw === "boolean") return parent.nsfw;
+  }
+  return undefined;
 }
 
 export function getMessageLocation(message: Message): MessageLocation {
@@ -111,10 +311,8 @@ export function getMessageLocation(message: Message): MessageLocation {
     nsfw?: boolean;
     nsfwLevel?: string | null;
   };
-  const topic =
-    "topic" in channel && typeof channel.topic === "string"
-      ? channel.topic
-      : null;
+  const topic = resolveTopic(channel);
+  const nsfw = resolveNsfw(channel);
   if (!channel.isThread?.()) {
     return {
       channelId: message.channelId,
@@ -122,18 +320,12 @@ export function getMessageLocation(message: Message): MessageLocation {
       threadName: null,
       channelName: "name" in channel ? channel.name : null,
       topic,
-      nsfw:
-        typeof safetyChannel.nsfw === "boolean"
-          ? safetyChannel.nsfw
-          : undefined,
+      nsfw,
       nsfwLevel:
         typeof safetyChannel.nsfwLevel === "string"
           ? safetyChannel.nsfwLevel
           : null,
-      ageRestricted:
-        typeof safetyChannel.nsfw === "boolean"
-          ? safetyChannel.nsfw
-          : undefined,
+      ageRestricted: nsfw,
     };
   }
 
@@ -143,14 +335,12 @@ export function getMessageLocation(message: Message): MessageLocation {
     threadName: channel.name,
     channelName: channel.parent?.name ?? null,
     topic,
-    nsfw:
-      typeof safetyChannel.nsfw === "boolean" ? safetyChannel.nsfw : undefined,
+    nsfw,
     nsfwLevel:
       typeof safetyChannel.nsfwLevel === "string"
         ? safetyChannel.nsfwLevel
         : null,
-    ageRestricted:
-      typeof safetyChannel.nsfw === "boolean" ? safetyChannel.nsfw : undefined,
+    ageRestricted: nsfw,
   };
 }
 
@@ -162,6 +352,12 @@ export function getStickerMetadata(
     name: sticker.name,
     url: sticker.url,
     format: sticker.format ?? null,
+    // A sticker's name alone is weak evidence; the description a human wrote
+    // for it is usually the actual joke, and it was being thrown away.
+    description: sticker.description ?? null,
+    packId: sticker.packId ?? null,
+    type: sticker.type ?? null,
+    tags: sticker.tags ?? null,
   }));
 }
 
@@ -184,6 +380,9 @@ export function getCustomEmojiMetadata(
       name,
       animated: animated === "a",
       url: `https://cdn.discordapp.com/emojis/${id}.${ext}?size=128`,
+      // The custom-emoji collection is populated from the guild cache, so
+      // presence here means "uploaded to this server".
+      guildId: message.guildId ?? null,
     });
   }
   return emojis;
@@ -198,6 +397,17 @@ export function getAttachmentMetadata(
     url: attachment.url,
     contentType: attachment.contentType ?? null,
     size: attachment.size,
+    // Everything below is already on the object discord.js parsed; it was
+    // simply never read. Dimensions decide whether the vision model can see
+    // the image at all, and the description is frequently the only text.
+    width: attachment.width ?? null,
+    height: attachment.height ?? null,
+    duration: attachment.duration ?? null,
+    description: attachment.description ?? null,
+    spoiler: Boolean(attachment.spoiler),
+    flags: attachment.flags
+      ? (Object.keys(attachment.flags.toJSON?.() ?? {}) as string[])
+      : undefined,
   }));
 }
 
@@ -229,6 +439,18 @@ export function getEmbedMetadata(
       value: field.value,
       inline: Boolean(field.inline),
     })),
+    type: embed.type ?? null,
+    timestamp: embed.timestamp ?? null,
+    video: embed.video
+      ? {
+          url: embed.video.url ?? null,
+          width: embed.video.width ?? null,
+          height: embed.video.height ?? null,
+        }
+      : null,
+    provider: embed.provider
+      ? { name: embed.provider.name ?? null, url: embed.provider.url ?? null }
+      : null,
   }));
 }
 
@@ -240,9 +462,13 @@ export function getEmbedMetadata(
  * stores in `message.messageSnapshots` as a Collection of partial Message objects.
  * Returns null if the message can't be resolved from either source.
  */
-function getReferencedMessageContent(
-  message: Message,
-): { content: string; username: string; userId: string } | null {
+function getReferencedMessageContent(message: Message): {
+  content: string;
+  username: string;
+  userId: string;
+  attachments: AttachmentEvidence[];
+  authorIsBot: boolean;
+} | null {
   const ref = message.reference;
   if (!ref?.messageId) return null;
 
@@ -251,11 +477,34 @@ function getReferencedMessageContent(
     const cached = (message.channel as any)?.messages?.cache?.get(
       ref.messageId,
     );
-    if (cached?.content) {
+    if (cached) {
       return {
-        content: cached.content,
+        content: cached.content ?? "",
         username: cached.author?.username ?? "Unknown",
         userId: cached.author?.id ?? "",
+        attachments: Array.from(
+          (cached.attachments as { values: () => Iterable<unknown> }).values(),
+        ).map((raw: unknown) => {
+          const a = raw as {
+            id: string;
+            name: string | null;
+            url: string;
+            contentType: string | null;
+            size: number;
+            width?: number | null;
+            height?: number | null;
+          };
+          return {
+            id: a.id,
+            name: a.name || "unknown",
+            url: a.url,
+            contentType: a.contentType ?? null,
+            size: a.size,
+            width: a.width ?? null,
+            height: a.height ?? null,
+          };
+        }),
+        authorIsBot: Boolean(cached.author?.bot),
       };
     }
   } catch {
@@ -267,11 +516,36 @@ function getReferencedMessageContent(
   //    and discord.js-selfbot-v13 stores them in message.messageSnapshots.
   try {
     const snapshot = message.messageSnapshots?.get(ref.messageId);
-    if (snapshot?.content) {
+    if (snapshot) {
       return {
-        content: snapshot.content,
+        content: snapshot.content ?? "",
         username: (snapshot as any).author?.username ?? "Unknown",
         userId: (snapshot as any).author?.id ?? "",
+        attachments: Array.from(
+          (
+            snapshot as { attachments?: { values: () => Iterable<unknown> } }
+          ).attachments?.values() ?? [],
+        ).map((raw: unknown) => {
+          const a = raw as {
+            id: string;
+            name: string | null;
+            url: string;
+            contentType: string | null;
+            size: number;
+            width?: number | null;
+            height?: number | null;
+          };
+          return {
+            id: a.id,
+            name: a.name || "unknown",
+            url: a.url,
+            contentType: a.contentType ?? null,
+            size: a.size,
+            width: a.width ?? null,
+            height: a.height ?? null,
+          };
+        }),
+        authorIsBot: Boolean((snapshot as any).author?.bot),
       };
     }
   } catch {
@@ -281,27 +555,115 @@ function getReferencedMessageContent(
   return null;
 }
 
+/**
+ * Decode a MessageFlags bitfield into names.
+ *
+ * The numeric value is stored as well, so a flag Discord adds later is
+ * preserved in the metadata even though this list predates it. Without the
+ * names the raw bitfield is unreadable in a prompt.
+ */
+export function decodeMessageFlags(flags: unknown): {
+  raw: number;
+  names: string[];
+} {
+  const raw = typeof flags === "number" ? flags : 0;
+  const names: string[] = [];
+  if (raw === 0) return { raw, names };
+
+  const KNOWN: Array<[number, string]> = [
+    [1 << 0, "CROSSPOSTED"],
+    [1 << 1, "IS_CROSSPOST"],
+    [1 << 2, "SUPPRESS_EMBEDS"],
+    [1 << 3, "SOURCE_MESSAGE_DELETED"],
+    [1 << 4, "URGENT"],
+    [1 << 5, "HAS_THREAD"],
+    [1 << 6, "EPHEMERAL"],
+    [1 << 7, "LOADING"],
+    [1 << 8, "FAILED_TO_MENTION_SOME_ROLES_IN_THREAD"],
+    [1 << 9, "SUPPRESS_NOTIFICATIONS"],
+    [1 << 12, "IS_VOICE_MESSAGE"],
+    [1 << 13, "HAS_SNAPSHOT"],
+    [1 << 14, "IS_COMPONENTS_V2"],
+    [1 << 15, "IS_FORWARD"],
+  ];
+  for (const [bit, name] of KNOWN) {
+    if (raw & bit) names.push(name);
+  }
+  return { raw, names };
+}
+
+/**
+ * Read a member's effective permissions as plain names.
+ *
+ * Guild-wide permissions, not per-channel: it is the cheapest available
+ * signal for "is this person a moderator", which decides whether a message is
+ * an escalation or a routine one. `toArray()` throws on unknown bits on
+ * older discord.js, so it is guarded — a throw here would drop the whole
+ * message.
+ */
+export function getMemberPermissionNames(
+  permissions: { toArray?: () => string[] } | null | undefined,
+): string[] {
+  if (!permissions || typeof permissions.toArray !== "function") return [];
+  try {
+    const list = permissions.toArray();
+    return Array.isArray(list) ? list.filter((p) => typeof p === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export function getMessageMetadata(message: Message): RichMessageMetadata {
   const member = message.member;
   const referenceContent = getReferencedMessageContent(message);
   const ref = message.reference;
+  const flagInfo = decodeMessageFlags(message.flags?.bitfield ?? 0);
+
   return {
     stickers: getStickerMetadata(message),
     embeds: getEmbedMetadata(message),
     attachments: getAttachmentMetadata(message),
     customEmojis: getCustomEmojiMetadata(message),
     mentionedRoles: Array.from(message.mentions?.roles?.values() ?? []).map(
-      (role) => ({ id: role.id, name: role.name }),
+      (role) => ({
+        id: role.id,
+        name: role.name,
+        position: role.position ?? null,
+        isEveryone: role.id === message.guildId,
+      }),
     ),
     mentionedUsers: Array.from(message.mentions?.users?.values() ?? []).map(
-      (user) => ({ id: user.id, username: user.username }),
+      (user) => ({
+        id: user.id,
+        username: user.username,
+        bot: Boolean(user.bot),
+        displayName: (user as { displayName?: string }).displayName ?? null,
+        globalName: (user as { globalName?: string | null }).globalName ?? null,
+      }),
     ),
+    mentionedChannels: Array.from(
+      message.mentions?.channels?.values() ?? [],
+    ).map((channel) => ({
+      id: channel.id,
+      name:
+        "name" in channel
+          ? ((channel as { name?: string }).name ?? null)
+          : null,
+      type: (channel as { type?: string }).type ?? null,
+    })),
     author: {
       id: message.author.id,
       username: message.author.username,
       tag: "tag" in message.author ? message.author.tag : null,
       avatarURL: message.author.avatarURL() ?? null,
       bot: Boolean(message.author.bot),
+      displayName: message.author.displayName ?? null,
+      globalName: message.author.globalName ?? null,
+      // Bitfield, not the resolved object: UserFlags resolves lazily and can
+      // be null on a partial user, and the raw value always survives.
+      flags: message.author.flags?.bitfield ?? null,
+      accountCreatedTimestamp: message.author.createdTimestamp ?? null,
+      system: Boolean((message.author as { system?: boolean }).system),
     },
     member: member
       ? {
@@ -309,8 +671,22 @@ export function getMessageMetadata(message: Message): RichMessageMetadata {
           roles: member.roles.cache.map((role) => ({
             id: role.id,
             name: role.name,
+            // Role position is what turns a verdict into a decision: the same
+            // word from an admin and from a drive-by are not the same event.
+            position: role.position,
+            isEveryone: role.id === member.guild?.id,
+            color: role.color ?? null,
+            hoist: Boolean(role.hoist),
+            managed: Boolean(role.managed),
+            mentionable: Boolean(role.mentionable),
           })),
           joinedTimestamp: member.joinedTimestamp ?? null,
+          nickname: member.nickname ?? null,
+          permissions: getMemberPermissionNames(member.permissions),
+          communicationDisabledUntil:
+            member.communicationDisabledUntilTimestamp ?? null,
+          premiumSince: member.premiumSinceTimestamp ?? null,
+          pending: Boolean(member.pending),
         }
       : null,
     channel: getMessageLocation(message),
@@ -322,11 +698,84 @@ export function getMessageMetadata(message: Message): RichMessageMetadata {
           type: (ref.type as unknown as string | undefined) ?? null,
           content: referenceContent?.content ?? null,
           repliedUsername: referenceContent?.username ?? null,
-          repliedUserId: referenceContent?.userId ?? null,
+          repliedUserId: referenceContent?.userId || null,
+          attachments: referenceContent?.attachments ?? [],
+          authorId: referenceContent?.userId || null,
+          authorIsBot: referenceContent?.authorIsBot ?? null,
         }
       : null,
     isCrosspost: message.flags?.has(1 << 1) ?? false,
+    // @everyone / @here, which the old metadata could not express at all:
+    // `mentions.roles` never contains it, so a mass ping looked like a
+    // message with no role mentions.
+    mentionsEveryone: Boolean(message.mentions?.everyone),
+    flags: flagInfo.raw,
+    flagNames: flagInfo.names,
+    webhookId: message.webhookId ?? null,
+    applicationId: message.applicationId ?? null,
+    pinned: Boolean(message.pinned),
+    tts: Boolean(message.tts),
+    system: Boolean(message.system),
+    editedTimestamp: message.editedTimestamp ?? null,
+    position: message.position ?? null,
+    hasThread: Boolean(message.hasThread),
+    poll: getPollMetadata(message),
+    // `components` is a plain array on a full message but absent on a partial
+    // one. Array.isArray() collapsed both cases to 0; read the length
+    // defensively so a real component row is never reported as "none".
+    componentCount: Array.isArray(message.components)
+      ? message.components.length
+      : ((message as { components?: { length?: number } }).components?.length ??
+        0),
   };
+}
+
+/**
+ * Poll metadata, or null.
+ *
+ * A poll is often the whole message: "who wants to bet $500" is four words and
+ * a poll, and without this the moderator saw an empty body.
+ */
+function getPollMetadata(message: Message): PollEvidence | null {
+  const poll = message.poll;
+  if (!poll) return null;
+  try {
+    return {
+      question: poll.question?.text ?? null,
+      allowMultiselect: Boolean(poll.allowMultiselect),
+      durationHours: Number.isFinite(poll.expiresTimestamp)
+        ? Math.max(
+            0,
+            Math.round((poll.expiresTimestamp - Date.now() / 1000) / 3600),
+          )
+        : null,
+      answers: Array.from(poll.answers.values()).map((answer) => {
+        // `answer.emoji` is an Emoji object, not a string. JSON.stringify of
+        // that is a whole object graph in the metadata column, so flatten it
+        // to the token a human would read.
+        const emoji = answer.emoji as {
+          name?: string | null;
+          id?: string | null;
+          animated?: boolean;
+        } | null;
+        return {
+          id: answer.id,
+          text: answer.text ?? null,
+          // PollAnswer exposes the media through the parent poll's question
+          // shape; the durable per-answer signal is the text.
+          pollMediaType: answer.text != null ? "TEXT" : "EMOJI",
+          emoji: emoji
+            ? emoji.id
+              ? `<${emoji.animated ? "a" : ""}:${emoji.name ?? "_"}:${emoji.id}>`
+              : (emoji.name ?? null)
+            : null,
+        };
+      }),
+    };
+  } catch {
+    // A partially-populated poll must not cost us the whole metadata object.
+    return null;
+  }
 }
 
 export function parseRichMessageMetadata(
@@ -349,11 +798,44 @@ export function parseRichMessageMetadata(
       mentionedUsers: Array.isArray(parsed.mentionedUsers)
         ? parsed.mentionedUsers
         : [],
+      // Optional keys pass through only when present, so a row captured
+      // before these fields existed still parses — and still round-trips
+      // without inventing values it never had.
+      mentionedChannels: Array.isArray(parsed.mentionedChannels)
+        ? parsed.mentionedChannels
+        : [],
       author: parsed.author as RichMessageMetadata["author"],
       member: (parsed.member ?? null) as RichMessageMetadata["member"],
       channel: parsed.channel as RichMessageMetadata["channel"],
       reference: (parsed.reference ?? null) as RichMessageMetadata["reference"],
       isCrosspost: Boolean(parsed.isCrosspost),
+      ...(typeof parsed.mentionsEveryone === "boolean"
+        ? { mentionsEveryone: parsed.mentionsEveryone }
+        : {}),
+      ...(typeof parsed.flags === "number" ? { flags: parsed.flags } : {}),
+      ...(Array.isArray(parsed.flagNames)
+        ? { flagNames: parsed.flagNames }
+        : {}),
+      ...(parsed.webhookId !== undefined
+        ? { webhookId: parsed.webhookId }
+        : {}),
+      ...(parsed.applicationId !== undefined
+        ? { applicationId: parsed.applicationId }
+        : {}),
+      ...(typeof parsed.pinned === "boolean" ? { pinned: parsed.pinned } : {}),
+      ...(typeof parsed.tts === "boolean" ? { tts: parsed.tts } : {}),
+      ...(typeof parsed.system === "boolean" ? { system: parsed.system } : {}),
+      ...(parsed.editedTimestamp !== undefined
+        ? { editedTimestamp: parsed.editedTimestamp }
+        : {}),
+      ...(parsed.position !== undefined ? { position: parsed.position } : {}),
+      ...(typeof parsed.hasThread === "boolean"
+        ? { hasThread: parsed.hasThread }
+        : {}),
+      ...(parsed.poll !== undefined ? { poll: parsed.poll } : {}),
+      ...(typeof parsed.componentCount === "number"
+        ? { componentCount: parsed.componentCount }
+        : {}),
     };
   } catch {
     return null;
@@ -400,6 +882,17 @@ export function isAgeRestrictedMessage(message: Message): boolean {
     // Can't determine → allow capture
   }
   return false;
+}
+
+/**
+ * Attachments recorded on a stored row, for comparing a live message against
+ * its persisted copy. Returns [] for a row captured before attachments were
+ * recorded, so the caller sees "no attachments" rather than throwing.
+ */
+export function getAttachmentsFromMetadata(
+  metadata: string | null | undefined,
+): AttachmentEvidence[] {
+  return parseRichMessageMetadata(metadata)?.attachments ?? [];
 }
 
 export function extractMessageMediaEvidence(

@@ -16,6 +16,63 @@ class AttachmentDownloadError extends Error {
   }
 }
 
+export class AttachmentTooLargeError extends Error {
+  constructor(
+    readonly actualBytes: number,
+    readonly maxBytes: number,
+  ) {
+    super(
+      `Attachment is ${(actualBytes / 1024 / 1024).toFixed(2)}MB, over the ${(
+        maxBytes / 1024 / 1024
+      ).toFixed(2)}MB limit`,
+    );
+    this.name = "AttachmentTooLargeError";
+  }
+}
+
+/**
+ * Read a response body, aborting the moment it exceeds `maxBytes`.
+ *
+ * `arrayBuffer()` has no ceiling, so the limit has to be enforced during the
+ * read. The reader is always released, including on the abort path, or the
+ * socket stays open until GC.
+ */
+async function readBodyWithLimit(
+  response: Response,
+  maxBytes: number,
+): Promise<ArrayBuffer> {
+  if (!response.body) return new ArrayBuffer(0);
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        // Release the connection before throwing: an abandoned stream keeps
+        // the socket (and its buffer) alive.
+        await reader.cancel().catch(() => {});
+        throw new AttachmentTooLargeError(total, maxBytes);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out.buffer;
+}
+
 export type RefreshDiscordAttachmentUrl = () => Promise<string | null>;
 
 function toErrorMessage(error: unknown): string {
@@ -72,7 +129,11 @@ export async function downloadDiscordAttachment(
   timeoutMs?: number,
 ): Promise<Buffer> {
   const timeout = timeoutMs ?? config.ATTACHMENT_UPLOAD_TIMEOUT_MS;
-  logger.debug({ url }, "Starting Discord attachment download");
+  const maxBytes = config.ATTACHMENT_MAX_SIZE_MB * 1024 * 1024;
+  logger.debug(
+    { url, maxMb: config.ATTACHMENT_MAX_SIZE_MB },
+    "Starting Discord attachment download",
+  );
   try {
     // Timeout-only retry: a CDN abort mid-download is transient (the prod
     // failure signature is "The operation was aborted due to timeout").
@@ -97,7 +158,23 @@ export async function downloadDiscordAttachment(
       );
     }
 
-    const buffer = await response.arrayBuffer();
+    // Refuse BEFORE buffering, not after.
+    //
+    // The size check used to run on the fully-materialised Buffer, so an
+    // oversized file was downloaded into memory in its entirety and only then
+    // rejected. Discord caps a single upload at 10MB/25MB, but the gateway is
+    // a selfbot reading whatever URL the API hands it, and the service runs
+    // under MemoryMax=1G shared with the client. A handful of concurrent
+    // large attachments is an OOM.
+    //
+    // `content-length` is only a hint, so it is used as an early exit and the
+    // real bound is enforced while streaming.
+    const declared = Number(response.headers.get("content-length") ?? "");
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      throw new AttachmentTooLargeError(declared, maxBytes);
+    }
+
+    const buffer = await readBodyWithLimit(response, maxBytes);
     const result = Buffer.from(buffer);
     logger.debug(
       { url, sizeBytes: result.length },
@@ -136,6 +213,9 @@ export async function processAttachmentUpload(
     try {
       buffer = await downloadDiscordAttachment(currentDiscordUrl);
     } catch (error) {
+      // An oversized file will still be oversized on the retry, and a
+      // refresh would only re-download it to fail again.
+      if (error instanceof AttachmentTooLargeError) throw error;
       if (!options.refreshDiscordUrl || !shouldRefreshDiscordUrl(error)) {
         throw error;
       }
@@ -151,14 +231,17 @@ export async function processAttachmentUpload(
       buffer = await downloadDiscordAttachment(currentDiscordUrl);
     }
 
+    // The limit is now enforced during the download (readBodyWithLimit), so
+    // this is a cheap belt-and-braces assertion rather than the only guard.
     const sizeMb = buffer.length / (1024 * 1024);
     logger.debug(
       { attachmentId, sizeMb: sizeMb.toFixed(2) },
       "Attachment size check",
     );
     if (sizeMb > config.ATTACHMENT_MAX_SIZE_MB) {
-      throw new Error(
-        `File size ${sizeMb.toFixed(2)}MB exceeds limit of ${config.ATTACHMENT_MAX_SIZE_MB}MB`,
+      throw new AttachmentTooLargeError(
+        buffer.length,
+        config.ATTACHMENT_MAX_SIZE_MB * 1024 * 1024,
       );
     }
 

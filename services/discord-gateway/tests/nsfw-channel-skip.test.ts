@@ -87,6 +87,19 @@ function scriptedGateway(
   return g;
 }
 
+/**
+ * A small, self-consistent budget. The shipped defaults are large and the
+ * lease must exceed vision + moderation, so an explicit small pair keeps these
+ * tests fast and exercises the same state machine.
+ */
+const TEST_WORKER_CONFIG = {
+  claimBatchSize: 10,
+  leaseMs: 60_000,
+  llmTimeoutMs: 10_000,
+  visionTimeoutMs: 10_000,
+  idlePollMs: 10,
+} as const;
+
 const verdictFor = (ids: string[], status: string, category: string) =>
   JSON.stringify({
     results: ids.map((id) => ({
@@ -132,7 +145,7 @@ describe("NSFW channels are never moderated", () => {
       return verdictFor(ids, "flagged", "nsfw");
     });
 
-    const worker = new ModerationWorker(pool, llm, { claimBatchSize: 10 });
+    const worker = new ModerationWorker(pool, llm, TEST_WORKER_CONFIG);
     await worker.runOnce();
 
     // Only the safe channel's message reached the model.
@@ -161,7 +174,7 @@ describe("NSFW channels are never moderated", () => {
     const llm = scriptedGateway(() =>
       verdictFor(["nsfw-2"], "flagged", "nsfw"),
     );
-    const worker = new ModerationWorker(pool, llm, { claimBatchSize: 10 });
+    const worker = new ModerationWorker(pool, llm, TEST_WORKER_CONFIG);
     await worker.runOnce();
 
     const { rows } = await pool.query<{ n: number }>(
@@ -189,7 +202,7 @@ describe("NSFW channels are never moderated", () => {
       const ids = [...req.user.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
       return verdictFor(ids, "clean", "none");
     });
-    const worker = new ModerationWorker(pool, llm, { claimBatchSize: 10 });
+    const worker = new ModerationWorker(pool, llm, TEST_WORKER_CONFIG);
     await worker.runOnce();
 
     expect(llm.calls).toBe(1);
@@ -239,12 +252,7 @@ describe("image descriptions reach the moderation prompt", () => {
         return '["A white mug on a wooden surface."]';
       },
     };
-    const worker = new ModerationWorker(
-      pool,
-      llm,
-      { claimBatchSize: 10 },
-      vision,
-    );
+    const worker = new ModerationWorker(pool, llm, TEST_WORKER_CONFIG, vision);
     await worker.runOnce();
 
     // The description call is a real LLM call in this path, so the scripted
@@ -277,7 +285,7 @@ describe("image descriptions reach the moderation prompt", () => {
       seen = req.user;
       return verdictFor(["txt-1"], "clean", "none");
     });
-    const worker = new ModerationWorker(pool, llm, { claimBatchSize: 10 });
+    const worker = new ModerationWorker(pool, llm, TEST_WORKER_CONFIG);
     await worker.runOnce();
 
     expect(seen).toContain("halo dunia");

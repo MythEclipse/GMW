@@ -50,6 +50,9 @@ async function main(): Promise<void> {
     claimBatchSize: config.AI_ANALYSIS_MAX_BATCH_SIZE,
     leaseMs: config.AI_ANALYSIS_PROCESSING_TIMEOUT_MS,
     llmTimeoutMs: config.AI_ANALYSIS_LLM_TIMEOUT_MS,
+    // The vision pre-pass runs before the moderation call and holds the same
+    // lease, so the lease assertion is against this + llmTimeoutMs.
+    visionTimeoutMs: config.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS,
     idlePollMs: config.AI_ANALYSIS_POLL_INTERVAL_MS,
     maxAttempts: config.AI_ANALYSIS_MAX_ATTEMPTS,
     retryBackoffBaseMs: config.AI_ANALYSIS_RETRY_BACKOFF_MS,

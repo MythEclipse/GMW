@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint as pgBigint,
   boolean as pgBoolean,
@@ -45,8 +46,11 @@ export const pgMessagesTable = pgTable(
     reference_channel_id: pgText("reference_channel_id"),
     reference_guild_id: pgText("reference_guild_id"),
     metadata: pgText("metadata"),
+    // The v2 state machine (migration 0020). The DB has a hard CHECK on
+    // exactly this set, so the Drizzle enum must match it or code type-checks
+    // against states the database rejects at runtime.
     ai_status: pgText("ai_status", {
-      enum: ["pending", "processing", "clean", "warn", "flagged", "error"],
+      enum: ["pending", "claimed", "analyzed", "retry_wait", "dead"],
     })
       .notNull()
       .default("pending"),
@@ -66,6 +70,22 @@ export const pgMessagesTable = pgTable(
       mode: "number",
     }),
     ai_error: pgText("ai_error"),
+    // ── v2 state machine (migration 0020_moderation_state_machine.sql) ──────
+    //
+    // Added to the database by 0020 but never declared here, so the Drizzle
+    // schema could not express the durable queue at all — every claim/lease/
+    // retry path had to go through raw SQL, and code trying to use the ORM had
+    // no column to name.
+    attempts: pgInteger("attempts").notNull().default(0),
+    ready_for_work_at: pgBigint("ready_for_work_at", { mode: "number" })
+      .notNull()
+      .default(0),
+    lease_until: pgBigint("lease_until", { mode: "number" }),
+    worker_id: pgText("worker_id"),
+    last_error: pgText("last_error"),
+    owner: pgText("owner").notNull().default("worker"),
+    content_hash: pgText("content_hash"),
+    context_key: pgText("context_key"),
   },
   (table) => ({
     channelIdx: pgIndex("idx_messages_channel").on(table.channel_id),
@@ -108,6 +128,17 @@ export const pgMessagesTable = pgTable(
     threadAiStatusCreatedIdx: pgIndex(
       "idx_messages_thread_ai_status_created",
     ).on(table.thread_id, table.ai_status, table.created_at, table.id),
+    // The claim is the only hot query in the system, and its predicate MUST
+    // match `claim_messages()` exactly or Postgres cannot use this as an
+    // index scan. Both are created by 0020.
+    claimIdx: pgIndex("idx_messages_claim")
+      .on(table.created_at)
+      .where(
+        sql`${table.ai_status} IN ('pending','retry_wait') AND ${table.deleted_at} IS NULL`,
+      ),
+    leaseIdx: pgIndex("idx_messages_lease")
+      .on(table.lease_until)
+      .where(sql`${table.ai_status} = 'claimed'`),
   }),
 );
 

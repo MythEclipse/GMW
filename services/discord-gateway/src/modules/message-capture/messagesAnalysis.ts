@@ -17,7 +17,12 @@ function stringifyAIList(
 // ─── AIAnalysisUpdate interface ──────────────────────────────────────────────
 
 export interface AIAnalysisUpdate {
-  status: "pending" | "processing" | "clean" | "warn" | "flagged" | "error";
+  /**
+   * Queue state, matching the 0020 CHECK constraint. The v1 values
+   * ("processing", "clean", "warn", "flagged", "error") are rejected by the
+   * database, so they must not be offered here.
+   */
+  status: "pending" | "claimed" | "analyzed" | "retry_wait" | "dead";
   flags?: string | null;
   score?: number | null;
   analysis?: string | null;
@@ -236,7 +241,17 @@ export class MessagesAnalysis {
 
         return await tx
           .update(messagesTable)
-          .set({ ai_status: "processing", ai_analyzed_at: Date.now() })
+          .set({
+            // "claimed", not "processing": the 0020 CHECK constraint rejects
+            // "processing", so this write threw a check_violation and the
+            // whole transaction rolled back. These methods have no callers
+            // today, which is why nobody noticed — the next caller would have
+            // got an exception instead of a row.
+            ai_status: "claimed",
+            worker_id: null,
+            lease_until: null,
+            ai_analyzed_at: null,
+          })
           .where(
             inArray(
               messagesTable.id,
@@ -321,7 +336,11 @@ export class MessagesAnalysis {
         .from(messagesTable)
         .where(
           and(
-            eq(messagesTable.ai_status, "error"),
+            // "dead", not "error": the v1 pipeline parked an unjudgeable
+            // message at 'error'; the v2 state machine parks it at 'dead'
+            // after maxAttempts. The 'error' state no longer exists, so this
+            // filter could never match a row.
+            eq(messagesTable.ai_status, "dead"),
             sql`${messagesTable.ai_moderation_flags} LIKE ${"%analysis_incomplete%"}`,
             sql`(${messagesTable.ai_moderation_flags} IS NULL OR ${messagesTable.ai_moderation_flags} NOT LIKE ${"%individual_analysis_exhausted%"})`,
             isNull(messagesTable.deleted_at),
@@ -368,7 +387,8 @@ export class MessagesAnalysis {
                 eq(messagesTable.thread_id, conversationKey),
                 eq(messagesTable.channel_id, conversationKey),
               ),
-              eq(messagesTable.ai_status, "error"),
+              // See above: v2 parks exhausted messages at 'dead'.
+              eq(messagesTable.ai_status, "dead"),
               sql`${messagesTable.ai_moderation_flags} LIKE ${"%analysis_incomplete%"}`,
               sql`(${messagesTable.ai_moderation_flags} IS NULL OR ${messagesTable.ai_moderation_flags} NOT LIKE ${"%individual_analysis_exhausted%"})`,
               isNull(messagesTable.deleted_at),
@@ -384,7 +404,17 @@ export class MessagesAnalysis {
 
         return await tx
           .update(messagesTable)
-          .set({ ai_status: "processing", ai_analyzed_at: Date.now() })
+          .set({
+            // "claimed", not "processing": the 0020 CHECK constraint rejects
+            // "processing", so this write threw a check_violation and the
+            // whole transaction rolled back. These methods have no callers
+            // today, which is why nobody noticed — the next caller would have
+            // got an exception instead of a row.
+            ai_status: "claimed",
+            worker_id: null,
+            lease_until: null,
+            ai_analyzed_at: null,
+          })
           .where(
             inArray(
               messagesTable.id,

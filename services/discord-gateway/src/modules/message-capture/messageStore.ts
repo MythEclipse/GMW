@@ -60,11 +60,13 @@ export class MessageStore {
     messageId: string,
     editedContent: string,
     editedAt: number,
+    metadata?: string,
   ): Promise<void> {
     return this.messages.updateMessageAsEdited(
       messageId,
       editedContent,
       editedAt,
+      metadata,
     );
   }
 

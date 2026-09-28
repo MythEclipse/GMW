@@ -4,9 +4,11 @@ import { config } from "../../shared/config/index.js";
 import { processAttachmentUpload } from "../attachment-upload/attachmentUploader.js";
 import type { EventBroadcaster } from "../event-broadcaster/eventBroadcaster.js";
 import {
+  getAttachmentsFromMetadata,
   getDisplayContent,
   getMessageLocation,
   getMessageMetadata,
+  parseRichMessageMetadata,
 } from "../message-capture/messageMetadata.js";
 import { messageStore } from "../message-capture/messageStore.js";
 import type {
@@ -261,15 +263,26 @@ export async function captureMessage(
     }
   }
 
-  if (!isBacklog) {
-    // No enqueue call is needed. The row is already `ai_status='pending'`
-    // (column default), so the moderation worker claims it on its next poll.
-    // v1 called queueMessageAnalysis() here, which pushed the id into an
-    // in-process Map — work that vanished on restart and left the row stuck
-    // in 'processing' forever.
-    if (attachmentUploadTasks.length > 0) {
-      await Promise.allSettled(attachmentUploadTasks);
-    }
+  // The uploads are NOT awaited here.
+  //
+  // `captureMessage` is awaited by the `messageCreate` handler, so awaiting
+  // them blocked the Discord client's event loop for the whole download +
+  // upload round trip — up to ATTACHMENT_UPLOAD_TIMEOUT_MS (30s) per file,
+  // with retries. On a busy channel that is minutes during which no other
+  // message event, reaction, or heartbeat is processed, and discord.js starts
+  // dropping gateway dispatches. It also meant a slow upload held the
+  // `messageCreate` promise open, so nothing downstream could observe that the
+  // row was already safely persisted.
+  //
+  // The row and its attachment rows are already committed above, and each
+  // upload task carries its own `.catch`, so nothing is lost by not waiting —
+  // `processAttachmentUpload` records its own success/failure on the
+  // attachment row.
+  //
+  // `messageCapture` is not called on the backlog path, which is the only
+  // other caller of this function.
+  if (attachmentUploadTasks.length > 0) {
+    void Promise.allSettled(attachmentUploadTasks);
   }
 }
 
@@ -303,40 +316,89 @@ export function registerMessageCapture(client: Client): void {
       const existing = await messageStore.getMessageById(newMessage.id);
 
       if (existing) {
-        const newContent = getDisplayContent(newMessage as Message);
+        const msg = newMessage as Message;
+        const newContent = getDisplayContent(msg);
         const existingContent = existing.edited_content ?? existing.content;
 
-        // Skip if the displayed text is identical — Discord fires `messageUpdate`
-        // for embed resolution (link previews) which does NOT change the message
-        // body. Re-setting ai_status + re-queuing LLM in that case wastes a call
-        // and risks overwriting a valid completed analysis with a duplicate.
-        if (newContent === existingContent) {
+        // Discord fires `messageUpdate` for embed RESOLUTION (a link preview
+        // arriving after the message) as well as for real edits. The old check
+        // compared only the display text, so it correctly ignored resolution
+        // but ALSO ignored every edit that does not change the text — and an
+        // attachment, embed, poll or reply target is exactly such an edit.
+        // Those changes reached the moderator as stale metadata, or not at all.
+        //
+        // So: compare the text AND the media-bearing parts of the payload. A
+        // pure embed-resolution update changes neither, and is still skipped.
+        const newAttachments = Array.from(msg.attachments.values())
+          .map((a) => `${a.id}:${a.size}:${a.name}`)
+          .sort()
+          .join(",");
+        const existingAttachments = Array.from(
+          getAttachmentsFromMetadata(existing.metadata),
+        )
+          .map((a) => `${a.id}:${a.size}:${a.name}`)
+          .sort()
+          .join(",");
+
+        const newEmbedCount = msg.embeds?.length ?? 0;
+        const existingEmbedCount =
+          parseRichMessageMetadata(existing.metadata)?.embeds.length ?? 0;
+        const newPoll = msg.poll ? "poll" : "";
+        const existingPoll = parseRichMessageMetadata(existing.metadata)?.poll
+          ? "poll"
+          : "";
+        const newRef = msg.reference?.messageId ?? "";
+        const existingRef = existing.reference_message_id ?? "";
+
+        const mediaUnchanged =
+          newAttachments === existingAttachments &&
+          newEmbedCount === existingEmbedCount &&
+          newPoll === existingPoll &&
+          newRef === existingRef;
+
+        if (newContent === existingContent && mediaUnchanged) {
           logger.debug(
             { messageId: newMessage.id },
-            "messageUpdate skipped: content unchanged (embed resolution or no-op)",
+            "messageUpdate skipped: content and media unchanged (embed resolution or no-op)",
           );
           return;
         }
 
+        // Re-write the metadata so the added attachment/embed/poll/reply is
+        // actually captured. Without this the row keeps describing the message
+        // as it was before the edit, and the re-analysis below is asked to
+        // judge evidence that is not in the row.
+        const refreshedMetadata = JSON.stringify(getMessageMetadata(msg));
+
         const editedAt = Date.now();
         const oldContent = existing.edited_content ?? existing.content ?? "";
 
-        // Save edit history snapshot before overwriting
+        // Save edit history snapshot before overwriting.
+        //
+        // AWAITED. It used to be fire-and-forget, so the UPDATE could land
+        // first: `message_edits` is the only record of the pre-edit text, and
+        // losing that race destroyed it permanently. The insert is one small
+        // row and it is the point of the edit handler.
         if (oldContent) {
-          messageStore
-            .insertMessageEdit(newMessage.id, oldContent, editedAt)
-            .catch((err: unknown) => {
-              logger.error(
-                { messageId: newMessage.id, error: err },
-                "Failed to save edit history",
-              );
-            });
+          try {
+            await messageStore.insertMessageEdit(
+              newMessage.id,
+              oldContent,
+              editedAt,
+            );
+          } catch (err: unknown) {
+            logger.error(
+              { messageId: newMessage.id, error: err },
+              "Failed to save edit history",
+            );
+          }
         }
 
         await messageStore.updateMessageAsEdited(
           newMessage.id,
-          getDisplayContent(newMessage as Message),
+          newContent,
           editedAt,
+          refreshedMetadata,
         );
         // Re-analysis of an edited message happens because the update resets
         // the status to 'pending'; the worker picks it up from there.
@@ -344,8 +406,9 @@ export function registerMessageCapture(client: Client): void {
         if (_eventBroadcaster) {
           _eventBroadcaster.messageUpdated({
             id: newMessage.id,
-            edited_content: getDisplayContent(newMessage as Message),
+            edited_content: newContent,
             edited_at: editedAt,
+            metadata: refreshedMetadata,
             type: "edited",
             // Match the DB update (updateMessageAsEdited resets analysis to
             // pending) so the live UI reflects the same state instead of
@@ -380,6 +443,14 @@ export function registerMessageCapture(client: Client): void {
     if (!shouldCaptureForAnyTarget(message, targets)) return;
     if (!message.author) return;
     if (isExcludedThread(message)) return;
+    // The same exclusion messageCreate applies. Without it a bot message
+    // deleted inside a bot-excluded channel was marked deleted even though it
+    // was never captured, so the dashboard showed a deletion for a message
+    // that did not exist in its own data.
+    //
+    // messageDelete yields a PartialMessage; the `message.author` guard above
+    // is the same narrowing the other handlers rely on.
+    if (isBotExcludedChannel(message as Message)) return;
 
     try {
       const deletedAt = Date.now();

@@ -88,8 +88,9 @@ export type ClaimedMessage = {
 export type WorkerConfig = {
   /** How many messages to pull per claim. */
   claimBatchSize: number;
-  /** Lease length. Must exceed the worst-case LLM call, or work is reclaimed
-   *  while still running and two workers process the same message. */
+  /** Lease length. Must exceed the worst-case of a whole batch — the vision
+   *  pre-pass PLUS the moderation call — or work is reclaimed while still
+   *  running and two workers process the same message. */
   leaseMs: number;
   /** How often to poll when the queue is empty. */
   idlePollMs: number;
@@ -99,6 +100,12 @@ export type WorkerConfig = {
   retryBackoffBaseMs: number;
   /** Deadline for a single LLM call. */
   llmTimeoutMs: number;
+  /**
+   * Deadline for the vision pre-pass, which runs BEFORE the moderation call
+   * and holds the same lease. A media batch pays both, so the lease has to
+   * cover their sum.
+   */
+  visionTimeoutMs: number;
   /** Include recent conversation history in the prompt. */
   includeContext: boolean;
   /** Max history messages included per analysed message. */
@@ -109,21 +116,38 @@ export type WorkerConfig = {
 
 export const DEFAULT_WORKER_CONFIG: WorkerConfig = {
   claimBatchSize: 40,
-  leaseMs: 120_000,
+  // Must exceed visionTimeoutMs + llmTimeoutMs (210s here). It was 120s — the
+  // value the config default used to carry — so every media batch outlived its
+  // own lease and was handed to a second worker mid-flight.
+  leaseMs: 300_000,
   idlePollMs: 2_000,
   maxAttempts: 5,
   retryBackoffBaseMs: 15_000,
   llmTimeoutMs: 90_000,
+  visionTimeoutMs: 120_000,
   includeContext: true,
   contextWindow: 10,
 };
 
-/** A lease shorter than the LLM timeout guarantees duplicate work. */
+/**
+ * A lease shorter than the batch's worst case guarantees duplicate work.
+ *
+ * The worst case is the vision pre-pass PLUS the moderation call, because
+ * `analyze()` runs vision first for any batch containing media and both hold
+ * the same lease. The shipped defaults were lease 120s / vision 120s /
+ * moderation 90s — a 210s worst case against a 120s lease, so every media
+ * batch was handed to a second worker mid-flight, paying for duplicate
+ * vision and racing two workers on the same `verdicts` row. The guard that
+ * exists to make duplicate verdicts impossible did not cover the path that
+ * made them likely.
+ */
 export function assertLeaseCoversLlmTimeout(cfg: WorkerConfig): void {
-  if (cfg.leaseMs <= cfg.llmTimeoutMs) {
+  const worstCase = cfg.visionTimeoutMs + cfg.llmTimeoutMs;
+  if (cfg.leaseMs <= worstCase) {
     throw new Error(
-      `leaseMs (${cfg.leaseMs}) must exceed llmTimeoutMs (${cfg.llmTimeoutMs}); ` +
-        `otherwise a slow call outlives its lease and another worker re-processes the message`,
+      `leaseMs (${cfg.leaseMs}) must exceed visionTimeoutMs + llmTimeoutMs ` +
+        `(${cfg.visionTimeoutMs} + ${cfg.llmTimeoutMs} = ${worstCase}); ` +
+        `otherwise a slow media batch outlives its lease and another worker re-processes the messages`,
     );
   }
 }
@@ -233,33 +257,54 @@ Contoh: ["Seseorang mengambil selfie, rambut disisir ke belakang, memakai kemeja
 async function generateVisionDescription(
   pool: Pool,
   message: ClaimedMessage,
+  visionTimeoutMs: number,
   visionGateway?: LlmGateway,
 ): Promise<string> {
-  // Lazy-import the config first so validation runs before anything else, then
-  // the LLM client. The gateway is injectable so tests do not depend on a
-  // live vision model — the description is the thing under test, not the
-  // network round trip.
-  const { config } = await import("../../shared/config/index.js");
-  const { createDefaultGateway } = await import("./llmGateway.js");
+  // Lazy-import the client so config validation runs first. The gateway is
+  // injectable so tests do not depend on a live vision model — the
+  // description is the thing under test, not the network round trip.
+  //
+  // The timeout is passed in rather than read from ambient config, so it is
+  // the SAME number the lease assertion checked. Reading it here instead
+  // meant the assertion could pass while the call used a longer budget.
+  const { createDefaultVisionGateway } = await import("./llmGateway.js");
   try {
-    const vision = visionGateway ?? createDefaultGateway();
+    // MUST be the vision gateway, not the text one. The text model has no
+    // image capability, and the previous code used it, which is why every
+    // image message was judged on an empty description.
+    const vision = visionGateway ?? createDefaultVisionGateway();
     // AttachmentsDb needs a NodePgDatabase; the worker only holds
     // a Pool. Query attachments directly — same columns.
-    const rows = await pool.query<{ discord_url: string | null }>(
-      `SELECT discord_url FROM attachments WHERE message_id = $1`,
-      [message.id],
-    );
+    //
+    // Only image-ish attachments are sent to the model. A .zip or a .mp4
+    // passed as an image_url part makes the provider reject the WHOLE
+    // request, which would take down the batch's media description — and
+    // with it the moderation verdict for every message in the batch.
+    const rows = await pool.query<{
+      discord_url: string | null;
+      type: string | null;
+    }>(`SELECT discord_url, type FROM attachments WHERE message_id = $1`, [
+      message.id,
+    ]);
     if (!rows.rows.length) return "";
     const urls = rows.rows
-      .map((a) => a.discord_url ?? "")
-      .filter((u): u is string => typeof u === "string" && u.length > 0);
+      .filter((a) => isVisionCapable(a.type, a.discord_url))
+      .map((a) => a.discord_url as string)
+      .filter((u) => typeof u === "string" && u.length > 0);
     if (!urls.length) return "";
     const description = await vision.complete({
       system: VISION_SYSTEM_PROMPT,
-      user: `Deskripsikan ${urls.length} gambar berikut. URL: ${urls.join(" ")}`,
-      timeoutMs: config.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS,
+      user: `Deskripsikan ${urls.length} gambar berikut.`,
+      // The image parts, NOT the URLs inlined in the text. A vision model
+      // given a URL as text answers "Tidak dapat memproses URL gambar" and
+      // describes nothing — verified against the production router. The
+      // moderation model then treats that sentence as a description and
+      // concludes the image is fine.
+      images: urls.map((url) => ({ url })),
+      timeoutMs: visionTimeoutMs,
     });
-    return `\n[Media description: ${description}]\n`;
+    if (!description || description.trim().length === 0) return "";
+    return `\n[Media description: ${description.trim()}]\n`;
   } catch (e) {
     log.warn(
       { messageId: message.id, error: String(e) },
@@ -267,6 +312,51 @@ async function generateVisionDescription(
     );
     return "";
   }
+}
+
+/**
+ * Test seam for the vision pass.
+ *
+ * `generateVisionDescription` reads config and the vision gateway through
+ * dynamic imports, which is right for production but leaves the description
+ * itself untestable. This exposes the same code path with both injected.
+ */
+export async function generateVisionDescriptionForTest(
+  pool: Pool,
+  message: ClaimedMessage,
+  vision: LlmGateway,
+  visionTimeoutMs = 120_000,
+): Promise<string> {
+  return generateVisionDescription(pool, message, visionTimeoutMs, vision);
+}
+
+/**
+ * Whether an attachment can be handed to a vision model as an image part.
+ *
+ * Providers reject the entire request on an unsupported media type, so
+ * guessing is not an option: a single .zip in the batch would blank out the
+ * description for every image alongside it.
+ */
+export function isVisionCapable(
+  contentType: string | null | undefined,
+  url?: string | null,
+): boolean {
+  const type = (contentType ?? "").toLowerCase().split(";")[0].trim();
+  if (type.startsWith("image/")) {
+    // SVG and the AVIF/HEIC variants are not universally accepted either.
+    return !type.includes("svg") && !type.includes("avif");
+  }
+  if (type) return false;
+  // No content type recorded: fall back to the file extension.
+  const ext = (url ?? "")
+    .split("?")[0]
+    .split("#")[0]
+    .split(".")
+    .pop()
+    ?.toLowerCase();
+  return ext
+    ? ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)
+    : false;
 }
 
 export class ModerationWorker {
@@ -473,7 +563,12 @@ export class ModerationWorker {
           if (!m.hasMedia) return [m.id, ""] as const;
           return [
             m.id,
-            await generateVisionDescription(this.pool, m, this.vision),
+            await generateVisionDescription(
+              this.pool,
+              m,
+              this.config.visionTimeoutMs,
+              this.vision,
+            ),
           ] as const;
         }),
       );
@@ -571,13 +666,36 @@ export class ModerationWorker {
 
       // Messages the model never mentioned stay queued — they are not judged.
       // Their lease is released so another attempt can pick them up.
+      //
+      // They get the SAME capped, backed-off treatment as a batch failure.
+      // This used to set `ready_for_work_at = now` with no backoff and no
+      // attempt cap, which combined badly:
+      //   - `claim_messages` orders by created_at ASC, so a poison message is
+      //     always the oldest row and is re-sent in the FIRST batch of every
+      //     cycle;
+      //   - `runOnce` returns true after a successful persist, so `start()`
+      //     skips its idle sleep entirely;
+      //   => an unbounded tight loop of full-price LLM calls for a message
+      //      that can never be judged, and the row never reached `dead`, so
+      //      an operator had no signal at all.
       if (result.missing.length > 0) {
         await client.query(
           `UPDATE messages
-              SET ai_status = 'pending', worker_id = NULL, lease_until = NULL,
-                  ready_for_work_at = (extract(epoch from now())*1000)::bigint
+              SET ai_status = CASE
+                    WHEN attempts >= $3 THEN 'dead'
+                    ELSE 'retry_wait'
+                  END,
+                  ready_for_work_at =
+                    (extract(epoch from now())*1000)::bigint
+                    + ($4::bigint * (1 << LEAST(GREATEST(attempts - 1, 0), 20))),
+                  worker_id = NULL, lease_until = NULL
             WHERE id = ANY($1::text[]) AND ai_status = 'claimed' AND worker_id = $2`,
-          [result.missing, this.workerId],
+          [
+            result.missing,
+            this.workerId,
+            this.config.maxAttempts,
+            this.config.retryBackoffBaseMs,
+          ],
         );
         for (const id of result.missing) {
           const msg = byId.get(id);
@@ -611,6 +729,18 @@ export class ModerationWorker {
   ): Promise<void> {
     const isError = v.status === "error";
 
+    // The auto-delete marker is reset when the judgement materially changes.
+    //
+    // `auto_delete_state` is the enforcer's "I already looked at this" flag.
+    // Once a verdict is marked `done`, a re-judgement that RAISES the severity
+    // (warn -> flagged, review -> delete) would otherwise never be acted on:
+    // the enforcer's candidate query only reads NULL or 'pending', and its
+    // partial index `idx_verdicts_auto_delete_pending` has the same predicate,
+    // so the row is excluded from the index too. A message that gets worse is
+    // permanently unenforceable.
+    //
+    // Reset only on a material change, so a routine re-analysis of an
+    // unchanged verdict does not put a settled message back in the queue.
     await client.query(
       `INSERT INTO verdicts
          (message_id, status, severity, score, confidence, flags, categories,
@@ -623,6 +753,22 @@ export class ModerationWorker {
          analysis = EXCLUDED.analysis, evidence = EXCLUDED.evidence,
          recommended_action = EXCLUDED.recommended_action,
          model = EXCLUDED.model,
+         auto_delete_state = CASE
+           WHEN verdicts.status IS DISTINCT FROM EXCLUDED.status
+             OR verdicts.severity IS DISTINCT FROM EXCLUDED.severity
+             OR verdicts.recommended_action IS DISTINCT FROM EXCLUDED.recommended_action
+             OR verdicts.score IS DISTINCT FROM EXCLUDED.score
+           THEN NULL
+           ELSE verdicts.auto_delete_state
+         END,
+         auto_delete_claimed_at = CASE
+           WHEN verdicts.status IS DISTINCT FROM EXCLUDED.status
+             OR verdicts.severity IS DISTINCT FROM EXCLUDED.severity
+             OR verdicts.recommended_action IS DISTINCT FROM EXCLUDED.recommended_action
+             OR verdicts.score IS DISTINCT FROM EXCLUDED.score
+           THEN NULL
+           ELSE verdicts.auto_delete_claimed_at
+         END,
          updated_at = (extract(epoch from now())*1000)::bigint`,
       [
         msg.id,
@@ -728,7 +874,13 @@ export class ModerationWorker {
                 END,
                 ready_for_work_at =
                   (extract(epoch from now())*1000)::bigint
-                  + ($4::bigint * (1 << GREATEST(attempts - 1, 0))),
+                  -- LEAST(...,20) caps the shift: 1 << n is an int4 shift
+                  -- and raises "integer out of range" at n >= 31. A message
+                  -- that reached a high attempt count (the omission path used
+                  -- to increment without ever parking) made this UPDATE
+                  -- throw, the run fail, and the row sit claimed with an
+                  -- expired lease — failing identically forever.
+                  + ($4::bigint * (1 << LEAST(GREATEST(attempts - 1, 0), 20))),
                 worker_id = NULL,
                 lease_until = NULL
           WHERE id = $1 AND ai_status = 'claimed' AND worker_id = $2

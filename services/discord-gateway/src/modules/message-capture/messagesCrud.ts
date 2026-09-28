@@ -116,10 +116,17 @@ export class MessagesCrud {
 
   // ── UPDATE ──────────────────────────────────────────────────────────────────
 
+  /**
+   * `metadata` is the REFRESHED metadata, not the stored one. An edit that
+   * adds an attachment or changes the reply target leaves the text identical,
+   * so without this the row kept describing the pre-edit message and the
+   * re-analysis was asked to judge evidence that was not there.
+   */
   async updateMessageAsEdited(
     messageId: string,
     editedContent: string,
     editedAt: number,
+    metadata?: string,
   ): Promise<void> {
     this.logger.debug({ messageId }, "updateMessageAsEdited entry");
     try {
@@ -129,6 +136,7 @@ export class MessagesCrud {
           edited_content: editedContent,
           edited_at: editedAt,
           type: "edited",
+          ...(metadata !== undefined ? { metadata } : {}),
           ai_status: "pending",
           ai_moderation_flags: null,
           ai_moderation_score: null,

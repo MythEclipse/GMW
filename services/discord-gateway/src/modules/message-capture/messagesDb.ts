@@ -49,8 +49,14 @@ export class MessagesDb {
     messageId: string,
     editedContent: string,
     editedAt: number,
+    metadata?: string,
   ): Promise<void> {
-    return this.crud.updateMessageAsEdited(messageId, editedContent, editedAt);
+    return this.crud.updateMessageAsEdited(
+      messageId,
+      editedContent,
+      editedAt,
+      metadata,
+    );
   }
 
   updateMessageAsDeleted(messageId: string, deletedAt: number): Promise<void> {

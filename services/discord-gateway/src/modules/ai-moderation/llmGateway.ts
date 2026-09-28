@@ -26,6 +26,23 @@ export type LlmRequest = {
   user: string;
   /** Per-call deadline. Must stay below the worker's lease. */
   timeoutMs: number;
+  /**
+   * Image parts sent as REAL multimodal content blocks, not as text.
+   *
+   * This exists because a vision model handed the URL as a string answers
+   * "Tidak dapat memproses URL gambar" — it will not fetch the URL itself.
+   * Verified against the production router: the identical prompt with the
+   * image as an `image_url` part describes the image; with the URL inlined in
+   * the text it refuses. So the vision pass MUST go through this field.
+   */
+  images?: LlmImagePart[];
+};
+
+export type LlmImagePart = {
+  /** Remote URL or a `data:` URI. Passed to the model verbatim. */
+  url: string;
+  /** Optional hint; ignored by providers that key off the URL scheme. */
+  mimeType?: string;
 };
 
 export interface LlmGateway {
@@ -48,6 +65,7 @@ export class LlmUnavailableError extends Error {
 }
 
 let client: OpenAI | null = null;
+let visionClient: OpenAI | null = null;
 
 function getClient(): OpenAI {
   if (!config.AI_LLM_API_KEY) {
@@ -66,6 +84,52 @@ function getClient(): OpenAI {
     });
   }
   return client;
+}
+
+/**
+ * The multimodal client, deliberately a SEPARATE instance from the text one.
+ *
+ * The vision pass may need a different base URL, key and model alias, and
+ * caching one client for both meant the vision call silently inherited the
+ * text model. That is how the feature shipped inert: the image was described
+ * by a text model that cannot see images.
+ */
+function getVisionClient(): OpenAI {
+  const apiKey = config.AI_LLM_VISION_API_KEY ?? config.AI_LLM_API_KEY;
+  if (!apiKey) {
+    throw new LlmUnavailableError(
+      "AI_LLM_API_KEY is not set — cannot run vision analysis",
+    );
+  }
+  if (!visionClient) {
+    visionClient = new OpenAI({
+      apiKey,
+      baseURL: config.AI_LLM_VISION_BASE_URL ?? config.AI_LLM_BASE_URL,
+      maxRetries: 0,
+      timeout: 60_000,
+    });
+  }
+  return visionClient;
+}
+
+/** Build the user message: plain text, plus one image part per URL. */
+function buildUserContent(
+  text: string,
+  images: LlmImagePart[] | undefined,
+):
+  | string
+  | Array<
+      | OpenAI.Chat.Completions.ChatCompletionContentPartText
+      | OpenAI.Chat.Completions.ChatCompletionContentPartImage
+    > {
+  if (!images || images.length === 0) return text;
+  return [
+    { type: "text", text },
+    ...images.map((img) => ({
+      type: "image_url" as const,
+      image_url: { url: img.url },
+    })),
+  ];
 }
 
 /**
@@ -105,17 +169,26 @@ export function extractChunkText(
 export class HttpLlmGateway implements LlmGateway {
   readonly modelLabel: string;
 
-  constructor(private readonly model: string) {
+  constructor(
+    private readonly model: string,
+    /**
+     * Which credential/endpoint pair this gateway talks to. Vision needs its
+     * own because it can use a different model, key and base URL than the
+     * text moderation pass.
+     */
+    private readonly lane: "text" | "vision" = "text",
+  ) {
     this.modelLabel = model;
   }
 
   async complete(req: LlmRequest): Promise<string> {
-    const c = getClient();
+    const c = this.lane === "vision" ? getVisionClient() : getClient();
+    const userContent = buildUserContent(req.user, req.images);
     const base = {
       model: this.model,
       messages: [
         { role: "system" as const, content: req.system },
-        { role: "user" as const, content: req.user },
+        { role: "user" as const, content: userContent },
       ],
       temperature: 0.2,
       max_tokens: 8192,
@@ -191,4 +264,15 @@ export class HttpLlmGateway implements LlmGateway {
 
 export function createDefaultGateway(): LlmGateway {
   return new HttpLlmGateway(config.AI_LLM_MODEL);
+}
+
+/**
+ * The multimodal gateway for the vision pass.
+ *
+ * Separate from the text gateway on purpose: it resolves its own client, its
+ * own key and its own model alias. Sharing one instance is what made the
+ * vision call fall back to the text model, which cannot see images.
+ */
+export function createDefaultVisionGateway(): LlmGateway {
+  return new HttpLlmGateway(config.AI_LLM_VISION_MODEL, "vision");
 }

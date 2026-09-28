@@ -88,10 +88,14 @@ function responseFor(req: LlmRequest, mutate?: (r: unknown[]) => void): string {
   return JSON.stringify({ results });
 }
 
+// The lease must exceed visionTimeoutMs + llmTimeoutMs (both run under it),
+// so the fixture keeps the vision budget small rather than inflating the lease
+// to the shipped 300s.
 const cfg = (over: Partial<WorkerConfig> = {}): WorkerConfig => ({
   ...DEFAULT_WORKER_CONFIG,
   leaseMs: 60_000,
   llmTimeoutMs: 10_000,
+  visionTimeoutMs: 10_000,
   idlePollMs: 10,
   claimBatchSize: 10,
   ...over,
@@ -210,11 +214,42 @@ describe("moderation worker state machine", () => {
     await w.runOnce();
 
     // 3 judged, 2 back in the queue. Critically: NOT "analyzed" and NOT lost.
-    expect(await statesOf()).toEqual({ analyzed: 3, pending: 2 });
+    //
+    // "retry_wait", not "pending": an omitted message gets the same capped,
+    // backed-off treatment as a batch failure. It used to be reset to
+    // "pending" with ready_for_work_at = now and no attempt cap, and since
+    // `claim_messages` orders by created_at ASC the poison message was
+    // re-sent in the first batch of every cycle, with no idle sleep between —
+    // an unbounded loop of full-price LLM calls on a message that can never
+    // be judged, and the row never reached "dead" so nobody was told.
+    expect(await statesOf()).toEqual({ analyzed: 3, retry_wait: 2 });
+
+    // And the retry is actually delayed, not immediate.
+    const { rows: waits } = await pool.query<{ ready: string }>(
+      `SELECT ready_for_work_at::text AS ready
+         FROM messages WHERE ai_status = 'retry_wait' LIMIT 1`,
+    );
+    expect(Number(waits[0].ready)).toBeGreaterThan(Date.now());
     const { rows } = await pool.query<{ n: number }>(
       "SELECT count(*)::int n FROM verdicts",
     );
     expect(rows[0].n).toBe(3);
+  });
+
+  test("a permanently-omitted message is parked, not retried forever", async () => {
+    if (!reachable) return expect(true).toBe(true);
+    await seed(2);
+    // The model answers, but never mentions these two ids.
+    const gw = scriptedGateway(() => JSON.stringify({ results: [] }));
+    const w = new ModerationWorker(pool as never, gw, cfg({ maxAttempts: 2 }));
+
+    await w.runOnce();
+    expect(await statesOf()).toEqual({ retry_wait: 2 });
+
+    // Make the backoff due, run again: the attempt cap must now park them.
+    await pool.query("UPDATE messages SET ready_for_work_at = 0");
+    await w.runOnce();
+    expect(await statesOf()).toEqual({ dead: 2 });
   });
 
   test("an expired lease is taken over by another worker (crash recovery)", async () => {
@@ -389,9 +424,29 @@ describe("worker configuration guards", () => {
   });
 
   test("the shipped defaults satisfy the guard", () => {
+    // Regression: the shipped defaults were lease 120s / vision 120s /
+    // moderation 90s — a 210s worst case under a 120s lease, so every media
+    // batch was reclaimed and re-processed by a second worker mid-flight.
+    expect(DEFAULT_WORKER_CONFIG.leaseMs).toBeGreaterThan(
+      DEFAULT_WORKER_CONFIG.visionTimeoutMs +
+        DEFAULT_WORKER_CONFIG.llmTimeoutMs,
+    );
     expect(() =>
       assertLeaseCoversLlmTimeout(DEFAULT_WORKER_CONFIG),
     ).not.toThrow();
+  });
+
+  test("a lease that covers only the moderation call is rejected", () => {
+    // The specific misconfiguration that shipped: the lease looked fine
+    // against llmTimeoutMs alone, but the vision pre-pass runs first.
+    expect(() =>
+      assertLeaseCoversLlmTimeout({
+        ...DEFAULT_WORKER_CONFIG,
+        leaseMs: 150_000,
+        llmTimeoutMs: 90_000,
+        visionTimeoutMs: 120_000,
+      }),
+    ).toThrow(/visionTimeoutMs \+ llmTimeoutMs/);
   });
 });
 

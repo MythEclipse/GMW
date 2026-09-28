@@ -47,13 +47,20 @@ export class MessagesCleanup {
     }
   }
 
+  /**
+   * Last-resort recoverer for rows left `claimed` by a worker that died.
+   *
+   * This used to filter on `ai_status = 'processing'`, a v1 state that the
+   * 0020 CHECK constraint forbids, so it matched nothing and silently always
+   * returned 0 — the failure mode it was written to prevent, invisible
+   * because the catch swallowed the violation.
+   *
+   * v2 reclaims by LEASE, not by a status timeout: a `claimed` row whose
+   * `lease_until` has passed is free to be taken. The authoritative
+   * implementation is `reclaim_expired_claims()` in SQL, which is what the
+   * worker calls; this mirrors its predicate so the two cannot disagree.
+   */
   async revertStuckProcessingMessages(
-    // 2026-08-24: lowered from 300000 — this cleanup is the last-resort
-    // recoverer for rows stuck in `processing`. With the upload-pending
-    // race-guard now requeueing properly (fallbackResultClassifier), any row
-    // that still sits here for >2min is a genuine leak; reverting sooner
-    // bounds the worst-case delay without racing legitimate in-flight work
-    // (media batches can legitimately take ~60s+).
     timeoutMs: number = 120000,
   ): Promise<number> {
     this.logger.debug({ timeoutMs }, "revertStuckProcessingMessages entry");
@@ -62,11 +69,11 @@ export class MessagesCleanup {
 
       const rows = await this.db
         .update(messagesTable)
-        .set({ ai_status: "pending", ai_analyzed_at: null })
+        .set({ ai_status: "pending", worker_id: null, lease_until: null })
         .where(
           and(
-            eq(messagesTable.ai_status, "processing"),
-            sql`${messagesTable.ai_analyzed_at} < ${cutoffTime}`,
+            eq(messagesTable.ai_status, "claimed"),
+            sql`${messagesTable.lease_until} IS NOT NULL AND ${messagesTable.lease_until} < ${cutoffTime}`,
           ),
         )
         .returning({ id: messagesTable.id });

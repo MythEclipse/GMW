@@ -1,13 +1,25 @@
 // Shared moderation types for all services
 // Source of truth — snake_case + number (matching PostgreSQL schema)
 
+/**
+ * The QUEUE state, not the judgement.
+ *
+ * Migration 0020 replaced the v1 set with a hard CHECK constraint:
+ *   CHECK (ai_status IN ('pending','claimed','analyzed','retry_wait','dead'))
+ * so the v1 values ("processing", "clean", "warn", "flagged", "error") are
+ * rejected by the database. Declaring them here let code type-check against a
+ * state that can never be written. The judgement is `verdicts.status`
+ * ("clean" | "warn" | "flagged" | "error"), a separate column entirely.
+ */
 export type AIStatus =
   | "pending"
-  | "processing"
-  | "clean"
-  | "warn"
-  | "flagged"
-  | "error";
+  | "claimed"
+  | "analyzed"
+  | "retry_wait"
+  | "dead";
+
+/** The verdict, from the `verdicts` table. Never stored in `ai_status`. */
+export type VerdictStatus = "clean" | "warn" | "flagged" | "error";
 export type AISeverity = "none" | "low" | "medium" | "high" | "critical";
 export type AIRecommendedAction =
   | "none"

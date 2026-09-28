@@ -524,6 +524,24 @@ export async function attemptAutoDeleteFlaggedMessage(
       "Message deleted from Discord",
     );
 
+    // Mirror the deletion into the row.
+    //
+    // The enforcer only ever wrote `moderation_actions`; `messages.deleted_at`
+    // stayed NULL, so the message still looked present everywhere it is read:
+    // the dashboard's live counts, the enforcer's own `m.deleted_at IS NULL`
+    // filter, and the claim query (which excludes deleted rows) — a message
+    // removed from Discord was still eligible for analysis. Best-effort: the
+    // Discord delete has already succeeded, and a failed bookkeeping write
+    // must not be reported as a failed delete.
+    try {
+      await messageStore.updateMessageAsDeleted(message.id, Date.now());
+    } catch (err) {
+      logger.error(
+        { messageId: message.id, error: err },
+        "Deleted from Discord but failed to mark the row deleted",
+      );
+    }
+
     // Notifications must never fail the deletion that already succeeded.
     await sendDeletionNotification(client, message, verdict, guild.name);
     await logDeletionToChannel(guild, message, verdict, channelId);
@@ -551,6 +569,16 @@ export async function attemptAutoDeleteFlaggedMessage(
         skipped: false,
         reason: "already_deleted",
       };
+      // The message is gone from Discord, so the row must say so — otherwise
+      // it is still counted as live and still looks analysable.
+      try {
+        await messageStore.updateMessageAsDeleted(message.id, Date.now());
+      } catch (err) {
+        logger.error(
+          { messageId: message.id, error: err },
+          "Already gone from Discord but failed to mark the row deleted",
+        );
+      }
       if (guild) {
         await logAlreadyDeleted(guild, message, verdict, channelId);
       }
