@@ -1,0 +1,40 @@
+name: Prod Log Dump (manual)
+
+# One-shot, read-only diagnostics against the VPS. Not part of the deploy path.
+# Dispatch with `gh workflow run` when you need `journalctl` for gmw-* units.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lines:
+        description: "journalctl lines per unit"
+        required: false
+        default: "60"
+
+permissions:
+  contents: read
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          LINES: ${{ inputs.lines }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          sed -i 's/\r$//' ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -T "$VPS_USER@$VPS_HOST" "hostname; echo; \
+            for u in gmw-frontend gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-proxy; do \
+              echo \"===== \$u =====\"; \
+              sudo systemctl is-active \$u 2>/dev/null || echo 'NOT INSTALLED'; \
+              sudo journalctl -u \$u -n $LINES --no-pager -o short-iso 2>&1 | tail -$LINES; \
+              echo; \
+            done"
