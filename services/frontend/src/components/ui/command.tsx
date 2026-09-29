@@ -45,10 +45,6 @@ function CommandDialog({
 }) {
   return (
     <Dialog {...props}>
-      <DialogHeader className="sr-only">
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
-      </DialogHeader>
       <DialogContent
         className={cn(
           "top-1/3 translate-y-0 overflow-hidden rounded-xl! p-0",
@@ -56,7 +52,33 @@ function CommandDialog({
         )}
         showCloseButton={showCloseButton}
       >
-        {children}
+        {/*
+          The header MUST be inside `DialogContent`, not a sibling of it.
+
+          base-ui resolves the dialog's accessible name from
+          `Dialog.Title`/`Dialog.Description` relative to the Popup, so
+          rendering them as siblings of the popup leaves the popup with no
+          name and base-ui then refuses to mount it. The visible symptom was
+          that ⌘K and the search button both set `open` true and the palette
+          silently never appeared.
+        */}
+        <DialogHeader className="sr-only">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        {/*
+          `<Command>` is NOT optional. It is the cmdk root that provides the
+          command state context; every child below (`CommandInput`,
+          `CommandList`, `CommandItem`) reads from it via `useCommandState`.
+          Upstream's own `CommandDialog` wraps its children in it for exactly
+          this reason.
+
+          Omitting it did not render a broken palette — it threw
+          `can't access property "subscribe"` during render, which the route
+          error boundary turned into a full-page "Unexpected Application
+          Error!", taking the whole shell with it.
+        */}
+        <Command>{children}</Command>
       </DialogContent>
     </Dialog>
   );

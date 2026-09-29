@@ -70,6 +70,25 @@ export function isVerdictStatus(value: unknown): value is VerdictStatus {
   );
 }
 
+/**
+ * Read a filter value out of a URL query parameter (W2).
+ *
+ * Returns the caller's "unfiltered" sentinel when the parameter is absent OR is
+ * not one the backend accepts. The validation is the point: these strings go
+ * straight into the oRPC call, and `messageQuerySchema` is a Zod enum, so an
+ * unvalidated `?status=whatever` from a shared or hand-edited URL would reject
+ * the whole request and take the page down with it.
+ *
+ * Shared by the messages and moderation views so both validate identically.
+ */
+export function filterFromUrl(
+  value: string | null,
+  allowed: readonly string[],
+  unfiltered: string,
+): string {
+  return value !== null && allowed.includes(value) ? value : unfiltered;
+}
+
 export type VerdictTone = "neutral" | "positive" | "warning" | "danger";
 
 /**

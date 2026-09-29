@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { MessageFeedCard } from "@/components/MessageFeedCard";
 import { ChannelPicker, GuildPicker } from "@/components/shared/pickers";
 import {
@@ -25,7 +26,11 @@ import {
   useReviewMessages,
   useTextChannels,
 } from "@/hooks/use-data";
-import { PIPELINE_STATUSES, VERDICT_STATUSES } from "@/lib/ai-status";
+import {
+  filterFromUrl,
+  PIPELINE_STATUSES,
+  VERDICT_STATUSES,
+} from "@/lib/ai-status";
 import { formatRelative, humanize } from "@/lib/format";
 import type { Guild, Message, MessageEdit, TextChannel } from "@/lib/types";
 import { useWsEvent } from "@/lib/ws/context";
@@ -78,11 +83,35 @@ export function MessagesView({
   initialEdits: MessageEdit[];
   defaultGuildId: string | null;
 }) {
+  // Drill-down filters arrive in the URL (W2). Every stat tile on the
+  // dashboard links here with `?status=` or `?verdict=`, so the view has to
+  // seed its filter state from the query string -- otherwise the link lands on
+  // an unfiltered list, which is what made the app's one pre-existing
+  // drill-down (`/messages?status=dead`) a dead link.
+  const [params, setParams] = useSearchParams();
+  const urlStatus = filterFromUrl(params.get("status"), PIPELINE_STATUSES, ANY);
+  const urlVerdict = filterFromUrl(
+    params.get("verdict"),
+    VERDICT_STATUSES,
+    ANY,
+  );
+
   const [guildId, setGuildId] = useState<string | null>(defaultGuildId);
   const [channelId, setChannelId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [pipelineFilter, setPipelineFilter] = useState<string>(ANY);
-  const [verdictFilter, setVerdictFilter] = useState<string>(ANY);
+  const [pipelineFilter, setPipelineFilter] = useState<string>(urlStatus);
+  const [verdictFilter, setVerdictFilter] = useState<string>(urlVerdict);
+
+  // Keep the address bar in step with the filters so a reload -- or a shared
+  // link -- reproduces the same list. Written back only when something
+  // actually changed, otherwise every filter change would push a history entry.
+  useEffect(() => {
+    if (pipelineFilter === urlStatus && verdictFilter === urlVerdict) return;
+    const next = new URLSearchParams();
+    if (pipelineFilter !== ANY) next.set("status", pipelineFilter);
+    if (verdictFilter !== ANY) next.set("verdict", verdictFilter);
+    setParams(next, { replace: true });
+  }, [pipelineFilter, verdictFilter, urlStatus, urlVerdict, setParams]);
 
   const guilds = useGuilds(initialGuilds);
   const channels = useTextChannels(guildId, initialChannels);
@@ -174,7 +203,7 @@ export function MessagesView({
       </header>
 
       <Tabs defaultValue="feed">
-        <TabsList>
+        <TabsList className="tabs-touch">
           <TabsTrigger value="feed">Feed</TabsTrigger>
           <TabsTrigger value="review">
             Review
@@ -212,7 +241,7 @@ export function MessagesView({
               >
                 <SelectTrigger
                   size="sm"
-                  className="w-44"
+                  className="min-h-11 sm:min-h-8 w-44"
                   aria-label="Queue state"
                 >
                   <SelectValue placeholder="Queue state" />
@@ -232,7 +261,11 @@ export function MessagesView({
                 value={verdictFilter}
                 onValueChange={(v) => setVerdictFilter(v ?? ANY)}
               >
-                <SelectTrigger size="sm" className="w-44" aria-label="Verdict">
+                <SelectTrigger
+                  size="sm"
+                  className="min-h-11 sm:min-h-8 w-44"
+                  aria-label="Verdict"
+                >
                   <SelectValue placeholder="Verdict" />
                 </SelectTrigger>
                 <SelectContent>

@@ -9,7 +9,7 @@ import {
   verdictLabel,
   verdictTone,
 } from "@/lib/ai-status";
-import { formatRelative } from "@/lib/format";
+import { formatRelative, messageBody } from "@/lib/format";
 import { pairLinksWithEmbeds, readEmbeds } from "@/lib/message-metadata";
 import type { Message, Severity, VerdictStatus } from "@/lib/types";
 
@@ -50,9 +50,24 @@ function EmbeddedPreview({ message }: { message: Message }) {
   const embeds = readEmbeds(message.metadata);
 
   if (content.length > 0) {
+    /*
+      `messageBody`, not the raw string. A moderator scanning the queue is
+      reading what someone WROTE, and Discord's own UI renders `**bold**`,
+      `[label](url)` and `<https://…>` as formatting — so showing the source
+      syntax makes the dashboard disagree with the app the message came from,
+      and pushes real content behind noise.
+
+      The check stays on the RAW `content` above, deliberately: cleanup can
+      legitimately reduce a body to nothing (a message that is only a mention,
+      say), and that must still fall through to the embed evidence below rather
+      than render as blank. Cleanup never decides whether a message exists.
+
+      It is a string transform, not HTML — React escapes the result and the
+      links stay plain text, because this renders untrusted author content.
+    */
     return (
       <p className="mt-1.5 text-sm break-words whitespace-pre-wrap text-ink-soft">
-        {content}
+        {messageBody(content)}
       </p>
     );
   }
@@ -190,9 +205,26 @@ export function MessageFeedCard({
       </div>
 
       {message.verdict_analysis && (
-        <p className="mt-2 border-l-2 border-hairline pl-2 text-xs text-ink-muted">
-          {message.verdict_analysis}
-        </p>
+        // The analysis is the model's reasoning, and it is the most valuable
+        // thing on the card — but it is long-form prose, so showing it expanded
+        // on every row turns a 50-message feed into a wall of text that buries
+        // the rows that need a human. It is held to two lines and opens on
+        // hover, focus or tap.
+        //
+        // `<details>` rather than a `div` with `tabIndex`: the element really
+        // is interactive, and `a11y/noNoninteractiveTabindex` rejects the div
+        // version for good reason. A native disclosure also gets keyboard
+        // support and the `open` state for free. The summary is a separate
+        // node from the expanded copy so the collapsed clamp and the full text
+        // are not the same box — that is the whole trick.
+        <details className="group/analysis mt-2 border-l-2 border-hairline pl-2">
+          <summary className="cursor-pointer list-none text-xs text-ink-muted transition-colors hover:text-ink-soft marker:content-none group-open/analysis:text-ink-soft [&::-webkit-details-marker]:hidden">
+            <span className="line-clamp-2">{message.verdict_analysis}</span>
+          </summary>
+          <p className="mt-1 text-xs text-ink-soft">
+            {message.verdict_analysis}
+          </p>
+        </details>
       )}
     </article>
   );

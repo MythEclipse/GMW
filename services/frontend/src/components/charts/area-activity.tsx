@@ -90,6 +90,31 @@ export function AreaChart({
             </linearGradient>
           </defs>
 
+          {/*
+            Two horizontal references at 50% and 100% of the peak.
+
+            The chart has no y-axis labels, and adding them is not an option:
+            `preserveAspectRatio="none"` stretches the viewBox, so text drawn
+            inside it would be distorted by the container's aspect ratio. The
+            peak stated below the chart therefore has to do the labelling, and
+            these lines are what make it actionable — they let a reader place a
+            valley or a shoulder against the peak instead of eyeballing it off
+            an empty field.
+
+            `vectorEffect="non-scaling-stroke"` keeps them 1px despite the
+            non-uniform scale, and they sit under the data so they never
+            obscure it. 50% is y=52, 100% is y=8 — the same 8-unit top inset the
+            plot itself uses, so "100%" and "peak" mean the same line.
+          */}
+          <g
+            stroke="var(--chart-grid)"
+            strokeWidth="1"
+            vectorEffect="non-scaling-stroke"
+          >
+            <line x1="0" y1="8" x2="100" y2="8" />
+            <line x1="0" y1="52" x2="100" y2="52" />
+          </g>
+
           <path d={geometry.area} fill="url(#area-fill)" />
           <path
             d={geometry.line}
@@ -103,9 +128,29 @@ export function AreaChart({
         </svg>
       </div>
 
+      {/*
+        The peak is stated as text rather than left for the reader to estimate
+        off the curve. This chart is the ONLY place the daily series appears —
+        there is no table beneath it — so the panel used to render a headline
+        number above an unlabelled area with no scale at all. The peak is the
+        one magnitude a reader actually wants, and an unlabelled area chart
+        cannot give it.
+      */}
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-xs text-ink-muted">
+          Peak{" "}
+          <span className="font-mono text-ink-soft">
+            {formatCompact(geometry.max)}
+          </span>
+        </span>
+        <span className="font-mono text-micro text-ink-faint">
+          {formatCompact(data.reduce((total, point) => total + point.value, 0))}{" "}
+          total
+        </span>
+      </div>
+
       {/* Axis labels only at the ends and middle: on a narrow tile more than
-          three labels collide, and the day-by-day values are in the table
-          beneath the chart. */}
+          three labels collide, and the peak above now carries the magnitude. */}
       <div className="flex justify-between font-mono text-micro text-ink-faint">
         <span>{data[0]?.label}</span>
         <span>{data[Math.floor(data.length / 2)]?.label}</span>

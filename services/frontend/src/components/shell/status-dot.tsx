@@ -35,13 +35,13 @@ export function StatusDot({ className }: { className?: string }) {
         {copy.pulse && (
           <span
             className={cn(
-              "animate-pulse-ring absolute inline-flex size-full rounded-pill",
+              "animate-pulse-ring absolute inline-flex size-full rounded-full",
               copy.dot,
             )}
           />
         )}
         <span
-          className={cn("relative inline-flex size-2 rounded-pill", copy.dot)}
+          className={cn("relative inline-flex size-2 rounded-full", copy.dot)}
         />
       </span>
       <span className="text-xs text-ink-muted">{copy.label}</span>

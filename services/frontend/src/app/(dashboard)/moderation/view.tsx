@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { HourHeatmap, RankedBars } from "@/components/charts/bars";
 import { StatGrid, StatTile } from "@/components/StatTile";
 import { Section, SectionGrid } from "@/components/shared/section";
@@ -30,13 +31,14 @@ import {
   useModerationStats,
   useModerationTrends,
 } from "@/hooks/use-data";
-import { severityTone } from "@/lib/ai-status";
+import { filterFromUrl, severityTone } from "@/lib/ai-status";
 import {
   formatCompact,
   formatDateTime,
   formatNumber,
   formatPercent,
   humanize,
+  messageBody,
   truncate,
 } from "@/lib/format";
 import type {
@@ -110,8 +112,49 @@ export function ModerationView({
   initialCoverage: Coverage;
   days: number;
 }) {
-  const [status, setStatus] = useState("");
-  const [actionType, setActionType] = useState("");
+  // Seed the enforcement-log filters from the URL (W2) so the "Model errors"
+  // stat tile can deep-link into `?status=failed` and land on the failed
+  // actions rather than on the unfiltered table.
+  //
+  // Select state stays `""` for unfiltered (the shadcn Select cannot hold an
+  // empty string, so the component maps ""<->ANY at its own boundary). The URL
+  // layer therefore speaks the same dialect: validate against the allow-list,
+  // and treat ANY/absent/invalid as unfiltered.
+  const [params, setParams] = useSearchParams();
+  const urlStatus = filterFromUrl(params.get("status"), ACTION_STATUSES, ANY);
+  const urlAction = filterFromUrl(params.get("actionType"), ACTION_TYPES, ANY);
+
+  const [status, setStatus] = useState(
+    urlStatus === ANY ? "" : (urlStatus as string),
+  );
+  const [actionType, setActionType] = useState(
+    urlAction === ANY ? "" : (urlAction as string),
+  );
+
+  // Adopt a URL change made from outside this view (a back/forward navigation,
+  // or a stat tile landing on `?status=failed`). Never fight the user's own
+  // Select: only overwrite when the URL actually specifies a filter.
+  useEffect(() => {
+    setStatus((current) =>
+      urlStatus === ANY ? (current === "" ? current : "") : urlStatus,
+    );
+    setActionType((current) =>
+      urlAction === ANY ? (current === "" ? current : "") : urlAction,
+    );
+  }, [urlStatus, urlAction]);
+
+  // Publish state to the URL so a reload or a shared link reproduces the view.
+  // Guarded on an actual difference so a Select change does not loop.
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (status) next.set("status", status);
+    if (actionType) next.set("actionType", actionType);
+    const current = new URLSearchParams();
+    if (urlStatus !== ANY) current.set("status", urlStatus);
+    if (urlAction !== ANY) current.set("actionType", urlAction);
+    if (next.toString() === current.toString()) return;
+    setParams(next, { replace: true });
+  }, [status, actionType, urlStatus, urlAction, setParams]);
 
   const stats = useModerationStats(initialStats);
   const actions = useModerationActions(status, actionType, initialActions);
@@ -142,14 +185,49 @@ export function ModerationView({
     [trends.data?.categories],
   );
 
-  const severityBars = useMemo(
-    () =>
-      (trends.data?.severities ?? []).map((s) => ({
+  const severityBars = useMemo(() => {
+    // Severity is an ORDINAL scale, so these are sorted by intensity — not by
+    // count, and not alphabetically. Postgres returns `GROUP BY severity` in
+    // arbitrary order, which rendered as "Medium, None, Critical, High, Low":
+    // a reader comparing two severities had to hunt for the right row.
+    //
+    // `none` sorts FIRST because it is the absence of a finding, not a level on
+    // the scale; putting it last would imply it were the most severe thing here.
+    const rank: Record<string, number> = {
+      none: 0,
+      low: 1,
+      medium: 2,
+      high: 3,
+      critical: 4,
+    };
+
+    return (trends.data?.severities ?? [])
+      .map((s) => ({
         label: humanize(s.level),
         value: s.count,
-      })),
-    [trends.data?.severities],
-  );
+        rank: rank[String(s.level).toLowerCase()] ?? 99,
+      }))
+      .sort((a, b) => a.rank - b.rank)
+      .map(({ rank: _rank, ...bar }) => bar);
+  }, [trends.data?.severities]);
+
+  // The two "model errors" figures measure DIFFERENT things, and the tile used
+  // to present them as one fraction.
+  //
+  //   stats.data.failed      — all-time count of errored verdicts (no window)
+  //   coverage.failed_rate   — failed / total WITHIN `analysis_attempts`, over
+  //                           the last `days` days only
+  //
+  // So "1" next to "3.5% of attempts" read as 1/29 when the real denominator
+  // is 4,378. The hint now states the window explicitly, and falls back to the
+  // windowed count when the all-time figure is zero but the window caught some.
+  const errorHint = useMemo(() => {
+    if (stats.data?.failed) return "All time";
+    if (coverage.data?.failed) {
+      return `${formatNumber(coverage.data.failed)} in ${days}d`;
+    }
+    return "None recorded";
+  }, [stats.data?.failed, coverage.data?.failed, coverage.data, days]);
 
   if (stats.error && !stats.data) {
     return (
@@ -173,13 +251,16 @@ export function ModerationView({
         <StatTile
           label="Judged"
           value={formatCompact(stats.data?.executed)}
+          exact={formatNumber(stats.data?.executed)}
           hint={`${formatNumber(stats.data?.total)} total analysed`}
+          to="/messages?verdict=clean"
         />
         <StatTile
           label="Awaiting verdict"
           value={formatNumber(stats.data?.pending)}
           hint="Queued or claimed by a worker"
           tone={(stats.data?.pending ?? 0) > 200 ? "warning" : "neutral"}
+          to="/messages?status=pending"
         />
         <StatTile
           label="Coverage"
@@ -192,12 +273,9 @@ export function ModerationView({
         <StatTile
           label="Model errors"
           value={formatNumber(stats.data?.failed)}
-          hint={
-            coverage.data?.failed
-              ? `${formatPercent(coverage.data.failed_rate)} of attempts`
-              : "None recorded"
-          }
+          hint={errorHint}
           tone={(stats.data?.failed ?? 0) > 0 ? "warning" : "positive"}
+          to="/moderation?status=failed"
         />
       </StatGrid>
 
@@ -280,7 +358,11 @@ export function ModerationView({
               value={status || ANY}
               onValueChange={(v) => setStatus(v === ANY ? "" : (v ?? ""))}
             >
-              <SelectTrigger size="sm" className="w-32" aria-label="Status">
+              <SelectTrigger
+                size="sm"
+                className="min-h-11 sm:min-h-8 w-32"
+                aria-label="Status"
+              >
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -298,7 +380,11 @@ export function ModerationView({
               value={actionType || ANY}
               onValueChange={(v) => setActionType(v === ANY ? "" : (v ?? ""))}
             >
-              <SelectTrigger size="sm" className="w-40" aria-label="Action">
+              <SelectTrigger
+                size="sm"
+                className="min-h-11 sm:min-h-8 w-40"
+                aria-label="Action"
+              >
                 <SelectValue placeholder="Action" />
               </SelectTrigger>
               <SelectContent>
@@ -387,7 +473,14 @@ function ActionsTable({
               </TableCell>
               <TableCell>
                 <span className="block max-w-72 text-xs text-ink-soft">
-                  {row.content ? truncate(row.content, 120) : "—"}
+                  {/*
+            `messageBody` before the truncate, so the 120 characters that
+            survive are 120 characters of the author's text rather than 120
+            characters of markdown source. Order matters: cleaning after
+            truncating would cut a link in half and leave the dangling `(https:`
+            behind.
+          */}
+                  {row.content ? truncate(messageBody(row.content), 120) : "—"}
                 </span>
               </TableCell>
               <TableCell>

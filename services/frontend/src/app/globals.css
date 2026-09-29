@@ -39,55 +39,100 @@
 }
 
 /*
- * GMW — Command Center Tactical HUD Design System
- * Engineered for high precision in both DARK and LIGHT modes.
- * Uses semantic CSS variables for seamless theme switching, eliminating hardcoded hex clashes.
+ * GMW — "Quiet Ops Room" design tokens
+ * ---------------------------------------------------------------------------
+ * A precision instrument, not a sci-fi HUD. The rules that govern this file:
+ *
+ *  1. COLOUR IS A SIGNAL, NEVER A TEXTURE. Brand indigo is spent only on
+ *     live/active state and the single most severe item on screen. Everything
+ *     else is ink or surface. There is no second accent.
+ *  2. MOTION CARRIES MEANING OR IT DOES NOT EXIST. Every animation here is
+ *     driven by real data changing. Nothing loops for decoration. Everything
+ *     respects `prefers-reduced-motion` (see the block at the end).
+ *  3. THE OXLINT `shadcn/*` GATE OWNS PRIMITIVE APPEARANCE. It forbids raw hex
+ *     in components, inline styles and arbitrary values, so new colour,
+ *     spacing or sizing must be a token or a named class HERE rather than a
+ *     utility assembled in a component.
+ *
+ * 2026-09-29: ~48 unreferenced effect classes (glitch-text, radar-sweep,
+ * gradient-border, typing-dots, noise-overlay, game-sweep, ...) were removed.
+ * They were residue from two reverted redesigns — the constellation nav
+ * (reverted in eda5c752) and the GSAP treatment (GSAP removed in 611ba399).
+ * `nav-rail.tsx` carries a standing instruction to keep the plain rail; this
+ * system is the deliberate replacement, not a revival of those attempts.
  */
 
 :root {
-  /* ── Light Mode Base Palette (Crisp High-Contrast Titanium HUD) ── */
+  /* -- Light mode: crisp, high-contrast, paper-white -- */
   --canvas-base: #f0f2f5;
   --canvas-subtle: #e5e8ed;
   --panel-bg: rgba(255, 255, 255, 0.85);
   --panel-bg-subtle: rgba(255, 255, 255, 0.6);
   --panel-border: rgba(15, 23, 42, 0.08);
   --panel-border-hover: rgba(94, 106, 210, 0.35);
+    /* Chart reference lines: a neutral grid needs to be visible but must
+       not read as data, and must not pick up the accent hue that
+       `--panel-border-hover` carries (that is the hover affordance colour,
+       not a scale). */
+    --chart-grid: rgba(15, 23, 42, 0.16);
 
   --text-primary: #0f172a;
   --text-secondary: #334155;
-  --text-muted: #64748b;
-  --text-faint: #94a3b8;
+  /* `muted` sat at 4.24:1 and `faint` at 2.29:1 on the light canvas — both
+     below the 4.5:1 AA threshold for normal text, and both carry real content
+     (timestamps, tile hints, chart axis labels), so neither can be treated as
+     decorative. These are the LIGHTEST values that still clear 4.5:1 against
+     this canvas, which keeps a visible step between the two rather than
+     collapsing them into one grey. Measured: muted 5.11, faint 4.53. */
+  --text-muted: #5b6779;
+  --text-faint: #696f75;
 
   --accent-brand: #4f46e5;
-  --accent-signal: #6366f1;
+  /* `signal` is used as a text colour (text-signal, 3 usages) as well as a fill.
+     #6366f1 read 3.98:1 as text on the light canvas; this steps it to the brand
+     indigo, 5.61:1, which is also what --accent-brand already uses, so light
+     mode now has one brand hue instead of two near-identical violets. */
+  --accent-signal: #4f46e5;
   --accent-signal-bg: rgba(99, 102, 241, 0.1);
   --accent-signal-border: rgba(99, 102, 241, 0.25);
   --accent-signal-glow: rgba(99, 102, 241, 0.25);
 
-  --success-base: #059669;
+  /* Status colours are used as TEXT (tone.tsx maps warning/danger onto
+     text-amber / text-vermilion), so in light mode they have to clear 4.5:1
+     against the canvas. The originals did not: warning 2.84, danger 4.19,
+     success 3.36. These darker steps read 4.66 / 5.60 / 4.89 and still hold
+     up as a fill behind white text (5.22 / 6.29 / 5.48). The `-bg` washes are
+     untouched — they are low-alpha backgrounds, not text. */
+  --success-base: #047857;
   --success-wash: rgba(5, 150, 105, 0.1);
-  --color-warning: #d97706;
+  --color-warning: #a35a06;
   --color-warning-bg: rgba(217, 119, 6, 0.1);
-  --color-danger: #e11d48;
+  --color-danger: #be123c;
   --color-danger-bg: rgba(225, 29, 72, 0.1);
 
-  --grid-pattern: rgba(15, 23, 42, 0.035);
   --shadow-hud: 0 4px 20px -2px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  --shadow-raised: 0 2px 6px -2px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  --shadow-floating: 0 12px 32px -8px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(15, 23, 42, 0.06);
 }
 
 .dark {
-  /* ── Dark Mode Base Palette (Stealth Obsidian Tactical HUD) ── */
+  /* -- Dark mode: near-black, low-glare, tuned for long ops sessions -- */
   --canvas-base: #060709;
   --canvas-subtle: #0c0e12;
   --panel-bg: rgba(13, 16, 23, 0.75);
   --panel-bg-subtle: rgba(255, 255, 255, 0.03);
   --panel-border: rgba(255, 255, 255, 0.07);
   --panel-border-hover: rgba(113, 112, 255, 0.45);
+    /* Dark counterpart of `--chart-grid`. */
+    --chart-grid: rgba(255, 255, 255, 0.16);
 
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
   --text-muted: #94a3b8;
-  --text-faint: #475569;
+  /* The old value was #475569: 2.66:1 on the dark canvas. Faint is the step
+     used for timestamps, tile hints and axis labels — real content, not
+     decoration — so it has to clear 4.5:1 like the rest. This reads 4.61:1. */
+  --text-faint: #7c8899;
 
   --accent-brand: #5e6ad2;
   --accent-signal: #7170ff;
@@ -102,8 +147,9 @@
   --color-danger: #f43f5e;
   --color-danger-bg: rgba(244, 63, 94, 0.15);
 
-  --grid-pattern: rgba(255, 255, 255, 0.025);
   --shadow-hud: 0 8px 32px -4px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-raised: 0 2px 8px -2px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-floating: 0 16px 40px -12px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 @theme {
@@ -112,15 +158,16 @@
   --color-surface: var(--panel-bg);
   --color-surface-2: var(--panel-bg-subtle);
   --color-hairline: var(--panel-border);
+  /* Hover/focus border for interactive panels (navigable stat tiles, rows).
+     Named so a control can opt in without hardcoding a hex. */
   --color-hairline-focus: var(--panel-border-hover);
 
-  /* Dense-HUD micro type. The dashboard runs at 8-11px for metrics, tickers
-   * and axis labels -- below Tailwind's smallest step (text-xs, 12px). These
-   * are discrete names rather than arbitrary values so the type scale stays
-   * inspectable and lint-checkable. */
-  --text-2xs: 0.5rem;
-  --text-micro: 0.625rem;
-  --text-micro-lg: 0.6875rem;
+  /* Micro type. The dashboard runs dense, but 11px is the FLOOR: the previous
+   * scale declared three sub-12px steps (8px / 10px / 11px), and an 8px label
+   * is not legible. Mono is reserved for IDs, timestamps and counts — never
+   * for prose. */
+  --text-micro: 0.6875rem;   /* 11px */
+  --text-micro-lg: 0.75rem;  /* 12px */
 
   --color-ink: var(--text-primary);
   --color-ink-soft: var(--text-secondary);
@@ -132,7 +179,7 @@
   --color-signal: var(--accent-signal);
   --color-signal-glow: var(--accent-signal-glow);
 
-  --color-status-success: var(--color-success);
+  --color-status-success: var(--success-base);
   --color-amber: var(--color-warning);
   --color-vermilion: var(--color-danger);
 
@@ -143,7 +190,7 @@
   --color-success: var(--success-base);
   --color-success-bg: var(--success-wash);
 
-  /* ── Fonts ──────────────────────────────────────────────────────────────
+  /* -- Fonts ---------------------------------------------------------------
    * `--font-inter` / `--font-jetbrains-mono` used to be defined by
    * `next/font/google`, which injected them as classes on <body>. A custom
    * property on <body> is NOT visible when resolving a var() used on <html>,
@@ -163,23 +210,18 @@
    * invalid at computed-value time, so .font-display silently inherited
    * whatever the element already had. Fixed while the line was being touched. */
   --font-display: var(--font-inter);
-
-  --radius-r: 8px;
-  --radius-r-panel: 10px;
-  --radius-r-control: 6px;
-  --radius-r-pill: 9999px;
 }
 
-/* ═══ shadcn/ui compatibility bridge ═══
- * Maps the default shadcn token names onto the GMW tactical palette so the
- * components in src/components/ui/** render correctly without being rewritten.
+/* == shadcn/ui compatibility bridge ==
+ * Maps the default shadcn token names onto the GMW palette so the components
+ * in src/components/ui/** render correctly without being rewritten.
  *
  * MUST be `@theme inline`, not `@theme`: every value is a var() resolved against
  * :root / .dark at runtime. A plain @theme would inline the light value into
  * each utility and silently break dark mode.
  *
- * The HUD palette is two-tone and has no native muted/secondary/sidebar steps,
- * so those are synthesized with color-mix rather than aliased to a raw var --
+ * The palette is two-tone and has no native muted/secondary/sidebar steps, so
+ * those are synthesized with color-mix rather than aliased to a raw var --
  * --canvas-subtle is near-black in dark mode and would render a secondary
  * button invisible.
  */
@@ -192,8 +234,8 @@
   --color-popover: color-mix(in oklab, var(--panel-bg) 70%, var(--canvas-base));
   --color-popover-foreground: var(--text-primary);
 
-  /* Low-emphasis fills. muted is the weakest (67 uses, mostly hover states),
-   * secondary sits one step above it. */
+  /* Low-emphasis fills. muted is the weakest (mostly hover states), secondary
+   * sits one step above it. */
   --color-muted: color-mix(in oklab, var(--text-primary) 5%, var(--canvas-base));
   --color-muted-foreground: var(--text-muted);
   --color-secondary: color-mix(in oklab, var(--text-primary) 8%, var(--canvas-base));
@@ -205,13 +247,20 @@
   --color-accent: var(--accent-signal-bg);
   --color-accent-foreground: var(--accent-brand);
 
-  /* Brand. primary-foreground is hardcoded, not aliased: --text-primary is
-   * #0f172a in light mode, which is ~1.9:1 against the #4f46e5 brand. */
+  /* Brand. `primary-foreground` is the only foreground the system hardcodes, and
+   * it is a token so it can be contrast-checked rather than guessed. Measured
+   * with the WCAG relative-luminance formula: #ffffff reads 6.29:1 on the light
+   * brand #4f46e5 and 4.70:1 on the dark brand #5e6ad2 — both clear the 4.5:1
+   * AA threshold for normal text. The value it replaced, #f8fafc, measured
+   * 4.49:1 on the dark brand: a narrow AA failure. It is aliased to
+   * --color-on-brand rather than duplicated, so the destructive and sidebar
+   * variants cannot drift away from it. */
   --color-primary: var(--accent-brand);
-  --color-primary-foreground: #f8fafc;
+  --color-on-brand: #ffffff;
+  --color-primary-foreground: var(--color-on-brand);
 
   --color-destructive: var(--color-danger);
-  --color-destructive-foreground: #f8fafc;
+  --color-destructive-foreground: var(--color-on-brand);
 
   /* Lines and focus */
   --color-border: var(--panel-border);
@@ -219,21 +268,19 @@
   --color-ring: var(--accent-signal);
 
   /* Sidebar chrome. The app has its own nav, so these map onto the same
-   * surface/line roles as the rest of the chrome. sidebar-width and
-   * sidebar-width-icon are set inline by sidebar.tsx and need no CSS. */
+   * surface/line roles as the rest of the chrome. */
   --color-sidebar: var(--canvas-subtle);
   --color-sidebar-foreground: var(--text-secondary);
   --color-sidebar-primary: var(--accent-brand);
-  --color-sidebar-primary-foreground: #f8fafc;
+  --color-sidebar-primary-foreground: var(--color-on-brand);
   --color-sidebar-accent: var(--accent-signal-bg);
   --color-sidebar-accent-foreground: var(--accent-brand);
   --color-sidebar-border: var(--panel-border);
   --color-sidebar-ring: var(--accent-signal);
 
-  /* Radii use literal px: --radius-r and --radius-r-control above are silently
-   * dropped by Tailwind's namespace tree (--radius-r-panel makes `r` a branch,
-   * not a leaf). A bare --radius is also required -- input-group.tsx reads
-   * var(--radius) directly. */
+  /* Radii use literal px: the --radius-r* family was silently dropped by
+   * Tailwind's namespace tree (--radius-r-panel makes `r` a branch, not a
+   * leaf). A bare --radius is also required by the shadcn Input. */
   --radius: 0.5rem;
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -244,25 +291,20 @@
    * to `var(--radius-2xl|3xl|4xl)`, and with the scale stopping at xl the
    * variable was undefined — so every pill and large surface silently rendered
    * with the browser default 0px radius. The steps continue the existing
-   * progression and land on --radius-r-pill for the roundest one, which is what
-   * a pill-shaped badge should be. */
+   * progression and land fully round at the end, which is what a pill-shaped
+   * badge should be. */
   --radius-2xl: 12px;
   --radius-3xl: 16px;
-  --radius-4xl: var(--radius-r-pill);
-  /* Tab shape for the mobile nav — a 20px cap, distinct from the panel radii. */
-  --radius-tab: 20px;
+  --radius-4xl: 9999px;
 
-  --shadow-sm: var(--shadow-hud);
+  --shadow-sm: var(--shadow-raised);
   --shadow-md: var(--shadow-hud);
+  --shadow-lg: var(--shadow-floating);
 
-  /* The HUD's signature bloom. Named so the glow is a token rather than a
-   * hand-written arbitrary shadow repeated across status dots, nav rails and
-   * the chatbot launcher. */
+  /* The signature bloom, kept only where it MEANS something: the queue
+   * ribbon's live state and the chatbot launcher. */
   --shadow-glow-sm: 0 0 8px var(--color-signal-glow);
   --shadow-glow-md: 0 0 20px var(--color-signal-glow);
-  --shadow-glow-lg: 0 0 24px var(--color-signal-glow);
-  --shadow-glow-halo: 0 0 30px -12px var(--color-signal-glow);
-  --shadow-glow-danger: 0 0 8px var(--color-danger);
   --shadow-ring-signal: 0 0 0 1px color-mix(in oklab, var(--color-signal) 20%, transparent);
 }
 
@@ -276,8 +318,9 @@
   --card: var(--panel-bg);
   --popover: color-mix(in oklab, var(--panel-bg) 70%, var(--canvas-base));
   --primary: var(--accent-brand);
+  --on-primary: var(--color-on-brand);
   --secondary: color-mix(in oklab, var(--text-primary) 8%, var(--canvas-base));
-  --muted: color-mix(in oklab, var(--text-primary) 5%, var(--canvas-base));
+  --muted: var(--color-muted);
   --accent: var(--accent-signal-bg);
   --destructive: var(--color-danger);
   --border: var(--panel-border);
@@ -303,10 +346,6 @@
     min-height: 100dvh;
     background-color: var(--canvas-base);
     color: var(--text-primary);
-    background-image: 
-      linear-gradient(to right, var(--grid-pattern) 1px, transparent 1px),
-      linear-gradient(to bottom, var(--grid-pattern) 1px, transparent 1px);
-    background-size: 32px 32px;
   }
 
   ::selection {
@@ -337,18 +376,41 @@
 }
 
 @layer components {
-  /* Tactical HUD Glass Panel */
+  /* -- Surfaces ------------------------------------------------------------
+   * Three elevation steps, used deliberately rather than one shadow on
+   * everything: `hud` for a panel that IS the page's subject, `glass` for
+   * anything overlapping content.
+   *
+   * The old treatment lifted EVERY card 2px on hover, which at grid density
+   * read as the whole page twitching. Hover now only changes the border. */
+  .hud-card {
+    position: relative;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    backdrop-filter: blur(12px);
+    box-shadow: var(--shadow-hud);
+    transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .hud-card:hover {
+    border-color: var(--panel-border-hover);
+  }
+
   .glass {
     background: var(--panel-bg);
     border: 1px solid var(--panel-border);
-    border-radius: var(--radius-r-panel);
+    border-radius: 10px;
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    box-shadow: var(--shadow-hud);
-    transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+    box-shadow: var(--shadow-floating);
+    transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  /* ── Ambient CSS Background (replaces WebGL/three.js) ── */
+  /* Ambient canvas: three very low-alpha colour washes, GPU-composited via
+   * `transform` only. This is decorative but deliberately near-invisible — the
+   * one place the palette is allowed to be soft, because it carries no
+   * information and sits behind every panel. */
   .ambient-blob {
     position: absolute;
     border-radius: 50%;
@@ -388,10 +450,12 @@
     0%   { transform: translate(0, 0) scale(1); }
     100% { transform: translate(8vw, 5vh) scale(1.15); }
   }
+
   @keyframes ambient-drift-2 {
     0%   { transform: translate(0, 0) scale(1); }
     100% { transform: translate(-6vw, -8vh) scale(1.1); }
   }
+
   @keyframes ambient-drift-3 {
     0%   { transform: translate(0, 0) scale(0.9); }
     100% { transform: translate(5vw, 6vh) scale(1.1); }
@@ -421,118 +485,43 @@
     100% { transform: translateY(-100vh) translateX(20px); opacity: 0; }
   }
 
-  .glass:hover {
-    border-color: var(--panel-border-hover);
+  /* -- Data-driven motion --------------------------------------------------
+   * Every animation here is fired by a real value changing, never by a timer.
+   * The one exception is `route-in`, the single entrance primitive below. */
+
+  /* Route entrance (W7). ONE primitive, deliberately shared by all seven
+   * routes: `router.tsx` gives every route its own element precisely so
+   * navigation remounts the view, and this is what that remount buys.
+   *
+   * It has to live here rather than in a component, because a JS-free CSS
+   * animation must start on first paint — wrapping the content in state and
+   * toggling a class on a later tick is what produces the one-frame flash of
+   * un-animated content that this is meant to avoid.
+   *
+   * 6px of travel, 180ms, settled with `both` fill so a re-render mid-flight
+   * cannot leave a panel stranded half-faded. Deliberately not per-route
+   * choreography — seven bespoke transitions read as noise, and a route that
+   * animates differently from its neighbours makes the reader wait instead of
+   * reading.
+   */
+  .route-in {
+    animation: route-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
-  /* HUD Tactical Card */
-  .hud-card {
-    position: relative;
-    background: var(--panel-bg);
-    border: 1px solid var(--panel-border);
-    border-radius: var(--radius-r-panel);
-    backdrop-filter: blur(12px);
-    box-shadow: var(--shadow-hud);
-    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  @keyframes route-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
-  .hud-card:hover {
-    border-color: var(--panel-border-hover);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-hud), 0 8px 32px -8px rgba(45, 212, 191, 0.08);
-  }
-
-  /* ── Noise grain overlay (applied via pseudo-element) ── */
-  .noise-overlay::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 9998;
-    pointer-events: none;
-    opacity: 0.025;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-repeat: repeat;
-    background-size: 128px 128px;
-  }
-
-  /* ── Animated gradient border (use on glass panels) ── */
-  .gradient-border {
-    position: relative;
-    overflow: hidden;
-  }
-  .gradient-border::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1px;
-    background: conic-gradient(
-      from var(--gb-angle, 0deg),
-      transparent 40%,
-      var(--color-signal) 50%,
-      transparent 60%
-    );
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    animation: gradient-rotate 4s linear infinite;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
-  }
-  .gradient-border:hover::before {
-    opacity: 1;
-  }
-
-  @keyframes gradient-rotate {
-    to { --gb-angle: 360deg; }
-  }
-
-  @property --gb-angle {
-    syntax: "<angle>";
-    initial-value: 0deg;
-    inherits: false;
-  }
-
-  /* ── Glitch text effect (use on status labels) ── */
-  .glitch-text {
-    position: relative;
-  }
-  .glitch-text::before,
-  .glitch-text::after {
-    content: attr(data-text);
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-  .glitch-text::before {
-    color: var(--color-signal);
-    animation: glitch-shift-1 3s infinite steps(2);
-    clip-path: inset(0 0 65% 0);
-  }
-  .glitch-text::after {
-    color: var(--color-vermilion);
-    animation: glitch-shift-2 3s infinite steps(2);
-    clip-path: inset(65% 0 0 0);
-  }
-
-  @keyframes glitch-shift-1 {
-    0%, 92% { transform: translate(0); }
-    93% { transform: translate(-2px, 1px); }
-    94% { transform: translate(2px, -1px); }
-    95%, 100% { transform: translate(0); }
-  }
-  @keyframes glitch-shift-2 {
-    0%, 94% { transform: translate(0); }
-    95% { transform: translate(2px, 1px); }
-    96% { transform: translate(-1px, -1px); }
-    97%, 100% { transform: translate(0); }
-  }
-
-  /* ── Terminal cursor blink ── */
+  /* Terminal cursor — used once, on the chatbot's streaming reply. */
   .cursor-blink::after {
-    content: "█";
+    content: "\2588";
     animation: cursor-blink 1s step-end infinite;
     color: var(--color-signal);
     margin-left: 2px;
@@ -543,180 +532,63 @@
     50% { opacity: 0; }
   }
 
-  /* ── Radar sweep ── */
-  .radar-sweep {
-    position: relative;
-    overflow: hidden;
-  }
-  .radar-sweep::after {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 50%;
-    height: 2px;
-    transform-origin: left center;
-    background: linear-gradient(90deg, var(--color-signal), transparent);
-    animation: radar-spin 3s linear infinite;
-    opacity: 0.4;
-  }
-
-  @keyframes radar-spin {
-    to { transform: rotate(360deg); }
-  }
-
-  /* ── Data flash — quick bright pulse on content update ── */
-  .data-flash {
-    animation: data-flash 0.5s ease-out;
-  }
-
-  @keyframes data-flash {
-    0% { background-color: rgba(45, 212, 191, 0.15); }
-    100% { background-color: transparent; }
-  }
-
-  /* ── Border trace — animated border drawing effect ── */
-  .border-trace {
-    position: relative;
-  }
-  .border-trace::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    border: 1px solid transparent;
-    background: linear-gradient(var(--panel-bg), var(--panel-bg)) padding-box,
-                linear-gradient(var(--trace-angle, 0deg), transparent 30%, var(--color-signal) 50%, transparent 70%) border-box;
-    animation: trace-rotate 3s linear infinite;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-  }
-  .border-trace:hover::before {
-    opacity: 0.6;
-  }
-
-  @keyframes trace-rotate {
-    to { --trace-angle: 360deg; }
-  }
-
-  @property --trace-angle {
-    syntax: "<angle>";
-    initial-value: 0deg;
-    inherits: false;
-  }
-
-  /* ── Typing dots (loading indicator) ── */
-  .typing-dots span {
-    display: inline-block;
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: var(--color-signal);
-    animation: typing-bounce 1.4s ease-in-out infinite;
-    margin: 0 2px;
-  }
-  .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
-  .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
-
-  @keyframes typing-bounce {
-    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-    30% { transform: translateY(-4px); opacity: 1; }
-  }
-
-  /* ── Glow pulse — breathing glow for live indicators ── */
-  .glow-pulse {
-    animation: glow-pulse 2s ease-in-out infinite;
-  }
-
-  @keyframes glow-pulse {
-    0%, 100% { box-shadow: 0 0 4px 1px var(--color-signal-glow); }
-    50% { box-shadow: 0 0 12px 3px var(--color-signal-glow); }
-  }
-
-  /* ── Reveal slide-up — elements rising into view ── */
-  .reveal-up {
-    opacity: 0;
-    transform: translateY(12px);
-    animation: reveal-up 0.5s ease-out forwards;
-  }
-
-  @keyframes reveal-up {
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  /* ── Number ticker — digit roll effect ── */
-  .ticker-digit {
-    display: inline-block;
-    overflow: hidden;
-    height: 1.2em;
-    line-height: 1.2;
-  }
-  .ticker-digit-inner {
-    animation: ticker-roll 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  }
-
-  @keyframes ticker-roll {
-    from { transform: translateY(-100%); }
-    to { transform: translateY(0); }
-  }
-
-  /* ── Status indicator colors ── */
-  .status-live {
-    animation: glow-pulse 2s ease-in-out infinite;
-    background: var(--color-success);
-  }
-  .status-warning {
-    animation: glow-pulse 2s ease-in-out infinite;
-    background: var(--color-amber);
-  }
-  .status-error {
-    animation: glow-pulse 1.5s ease-in-out infinite;
-    background: var(--color-vermilion);
-  }
-
-  .eyebrow {
-    font-family: var(--font-mono);
-    font-size: 0.68rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-  }
-
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.18rem 0.55rem;
-    border-radius: var(--radius-r-pill);
-    font-size: 0.7rem;
-    font-family: var(--font-mono);
-    font-weight: 500;
-    background: var(--panel-bg-subtle);
-    border: 1px solid var(--panel-border);
-    color: var(--text-secondary);
-  }
-
-  .mono {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
+  /* -- Typography ---------------------------------------------------------- */
   .display {
     font-family: var(--font-display);
     font-weight: 700;
     letter-spacing: -0.035em;
     line-height: 1.1;
   }
+
+  /* Tabular figures for anything that will re-render on a WS push, so a
+   * changing number does not reflow the tile around it. */
+  .metric {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 @layer utilities {
+  /* The tab strip on a phone.
+   *
+   * `TabsList` is `h-8` (32px) via the primitive's own
+   * `group-data-horizontal/tabs:h-8`, minus 3px of its padding, and each
+   * trigger is `h-[calc(100%-1px)]` of that — so the triggers come out 25px
+   * tall. 25px is under the 44px touch minimum on the control that switches
+   * the whole page.
+   *
+   * The override has to be a custom class in the UTILITIES layer, not a plain
+   * `h-11` on the list: Tailwind emits `group-data-horizontal/tabs:h-8` after
+   * the plain `h-11` inside the same layer, so the group variant wins on
+   * source order. A `data-[orientation=horizontal]:h-11` would be a plain
+   * variant and is not generated for this element at all.
+   *
+   * Both the list and the triggers are set, because the list's 3px padding and
+   * the trigger's `-1px` are inside whatever height the list has — a 44px list
+   * on its own still yields 37px triggers.
+   */
+  .tabs-touch {
+    min-height: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .tabs-touch > [data-slot="tabs-trigger"] {
+    min-height: 2.75rem;
+  }
+
+  @media (width >= 40rem) {
+    .tabs-touch,
+    .tabs-touch > [data-slot="tabs-trigger"] {
+      min-height: 0;
+      height: 0;
+    }
+  }
+
   .text-signal { color: var(--accent-signal); }
-  .text-brand { color: var(--accent-brand); }
   .text-amber { color: var(--color-warning); }
   .text-vermilion { color: var(--color-danger); }
-  .text-success { color: var(--color-success); }
   .text-ink { color: var(--text-primary); }
   .text-ink-soft { color: var(--text-secondary); }
   .text-ink-muted { color: var(--text-muted); }
@@ -727,33 +599,20 @@
   .bg-surface-2 { background-color: var(--panel-bg-subtle); }
   .border-hairline { border-color: var(--panel-border); }
 
-  .glow-signal {
-    text-shadow: 0 0 16px var(--accent-signal-glow);
-  }
+  /* Reading-width container (W5). The shell had NO max-width at all, so on a
+   * 2560px display the grid stretched edge to edge and every ranked bar became
+   * an unreadable 2000px hairline. 92rem keeps a four-column grid comfortable
+   * while still filling a laptop. */
+  .measure { max-width: var(--measure, 92rem); }
 
-  /* iOS safe-area padding for fixed bottom chrome (mobile nav, chat launcher,
-   * toasts) and the sticky topbar. Named utilities rather than arbitrary
-   * calc() classes so the offsets stay in one place. */
-  .pb-safe-nav { padding-bottom: calc(0.4rem + env(safe-area-inset-bottom)); }
-  .pb-safe-lg { padding-bottom: calc(2rem + env(safe-area-inset-bottom)); }
-  .pt-safe { padding-top: calc(0.75rem + env(safe-area-inset-top)); }
-  .ml-safe { margin-left: calc(0.75rem + env(safe-area-inset-left)); }
-  .mt-safe { margin-top: calc(0.75rem + env(safe-area-inset-top)); }
-
-  /* Safe-area offsets for absolutely/flexibly positioned chrome, where the
-   * inset has to survive being combined with a fixed offset. */  .bottom-safe-launcher { bottom: calc(4.75rem + env(safe-area-inset-bottom)); }
-  .mb-safe-nav-rail { margin-bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
-
-  /* Command palette: parks the dialog ~12vh from the top instead of centring. */
-  .pt-palette { padding-top: 12vh; }
-
-  /* Ambient canvas vignettes. The oklch stops are art direction, not tokens. */
-  .ambient-wash {
-    background-image: radial-gradient(120% 90% at 50% 0%, oklch(0.2 0.04 70 / 0.5), oklch(0.1 0.015 70) 60%);
-  }
-  .ambient-vignette {
-    background-image: radial-gradient(ellipse at center, transparent 20%, oklch(0.08 0.01 70 / 0.7) 100%);
-  }
+  /* Queue ribbon (W3). Its colour and fill are driven entirely by
+   * `analysis_queue_status`; these are the states it can be in, including the
+   * neutral "we do not know" state the socket-down case must fall back to.
+   * See components/shell/queue-ribbon.tsx. */
+  .ribbon-ok { background-color: var(--color-success); }
+  .ribbon-busy { background-color: var(--color-warning); }
+  .ribbon-alert { background-color: var(--color-danger); }
+  .ribbon-unknown { background-color: var(--text-faint); }
 
   /* Per-item values that must stay dynamic (meter fills, heat cells, motes)
    * are passed in as custom properties and read here, so the components carry
@@ -791,217 +650,110 @@
     animation-duration: var(--mote-duration, 8s);
   }
 
-  /* Pop-in used by every floating surface: tooltips, select menus, the command
-   * palette. Replaces a repeated inline `animation: "fade-up … ease"`. */
-  .pop-in { animation: fade-up 0.12s ease; }
-  .pop-in-md { animation: fade-up 0.14s ease; }
-
-  /* SVG charts: measured size and the coloured ring/glow. */
-  .gauge-box {
-    width: var(--gauge-size, auto);
-    height: var(--gauge-size, auto);
-  }
-  .gauge-arc {
-    transition: stroke-dashoffset 0.6s ease;
-    filter: drop-shadow(0 0 6px var(--gauge-stroke, var(--color-signal)));
-  }
+  /* SVG charts: measured size for the hand-rolled area chart. */
   .chart-frame { height: var(--chart-height, auto); }
 
-  /* Vertical column chart bar, and the collapsible grid-rows disclosure. */
-  .column-fill { height: var(--column-height, 0%); }
-  .collapse-rows { grid-template-rows: var(--rows, 0fr); }
-
-  /* Staggered list reveal. The delay arrives per-item from staggerMs(). */
-  .stagger-item { animation-delay: var(--stagger-delay, 0ms); }
-
-  /* HUD layout hooks. These are semantic names the views attach to regions so
-   * the tactical treatment lives in one place; the utility classes alongside
-   * them handle the actual box. They were previously referenced in markup but
-   * never declared, so they generated nothing. */
+  /* HUD layout hooks. Semantic names the views attach to regions so the
+   * treatment lives in one place; the utility classes alongside them handle
+   * the actual box. */
   .linear-tile,
-  .mod-tile,
-  .user-tile,
-  .channel-roster-card,
   .channel-row,
-  .channel-node-card,
-  .search-result-card,
-  .glossary-entry,
   .msg-feed-card,
-  .mod-feed-item,
+  .glossary-entry,
   .nav-dock-item {
     min-width: 0;
   }
 
-  .reactor-bar-fill { min-width: 2px; }
+  /* The dock items were 40px tall — four short of the 44px touch minimum, on
+   * the one control the thumb lands on most. `min-height` (not padding) because
+   * the item is a flex column whose own padding already sets the visual box;
+   * growing the box is what enlarges the hit area, and the bar is 56px tall so
+   * there is room for it without changing the chrome. */
+  .nav-dock-item {
+    min-height: 2.75rem;
+    justify-content: center;
+  }
+
   .reactor-count { font-variant-numeric: tabular-nums; }
+
+  /* Ambient canvas washes (providers.tsx). Deliberately near-invisible: they
+   * carry no information and sit behind every panel. */
+  .ambient-wash {
+    background-image: radial-gradient(120% 90% at 50% 0%, oklch(0.2 0.04 70 / 0.5), oklch(0.1 0.015 70) 60%);
+  }
+  .ambient-vignette {
+    background-image: radial-gradient(ellipse at center, transparent 20%, oklch(0.08 0.01 70 / 0.7) 100%);
+  }
 
   /* Backdrop for the ambient canvas. */
   .ambient-bg { background-color: var(--canvas-base); }
 
-  /* Scroll edge fades and a hidden scrollbar, used by the message feed,
-   * attachment strip and the shadcn menus. */
-  .scroll-fade-b {
-    mask-image: linear-gradient(to bottom, transparent, black 12px);
-  }
-  .scroll-fade-x {
-    mask-image: linear-gradient(to right, transparent, black 12px);
-  }
   .no-scrollbar { scrollbar-width: none; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
 
-  /* Input-OTP container hook from components/ui/input-otp.tsx. */
-  .cn-input-otp { gap: 0.375rem; }
+  /* Safe-area offsets for fixed chrome, where the inset has to survive being
+     combined with a fixed offset. Two different components, two different
+     edges: the chatbot launcher floats above the mobile dock, so it is offset
+     from the viewport bottom, whereas the dock clears the home indicator with
+     a margin below its own content. */
+  .bottom-safe-launcher { bottom: calc(4.75rem + env(safe-area-inset-bottom)); }
+
+  /* Clearance for the fixed chatbot launcher.
+   *
+   * The launcher is `position: fixed`, so it does not participate in layout and
+   * will sit on top of whatever the last row of the page happens to be. On
+   * desktop the main column's `lg:pb-8` (32px) was less than the launcher's own
+   * 44px, so scrolled to the bottom the FAB covered the final row of the queue
+   * list outright — the "Errored verdict" row was unreadable and untappable.
+   *
+   * Rather than give the launcher a scroll-aware hide, the page reserves the
+   * space. `.launcher-clearance` is applied to <main> and grows the bottom
+   * padding to clear the launcher at each breakpoint.
+   */
+  .launcher-clearance {
+    padding-bottom: 6.5rem;
+  }
+
+  @media (width >= 64rem) {
+    .launcher-clearance {
+      padding-bottom: 5.5rem;
+    }
+  }
+  /* The mobile dock referenced `bottom-safe-nav-rail`, which was never
+   * defined — the definition was named `mb-safe-nav-rail`, so the dock's
+   * home-indicator clearance has been a no-op. Now defined under the name the
+   * dock actually uses. */
+  .bottom-safe-nav-rail { margin-bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
+
 }
 
-/* ═══ Keyframes & Animations ═══ */
+/* == Keyframes & Animations == */
 @keyframes breathe {
   0%, 100% { opacity: 0.4; transform: scale(0.95); }
   50% { opacity: 1; transform: scale(1.05); }
 }
 
-@keyframes spin-disc {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
+/* Defined ONCE. It was previously declared twice (an expanding ring, then a
+ * breathing one) with the second silently winning — which meant the reconnect
+ * pulse was not the animation anyone thought it was. */
 @keyframes pulse-ring {
   0% { transform: scale(0.85); opacity: 0.9; }
   100% { transform: scale(2.2); opacity: 0; }
 }
 
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes stagger-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes stagger-slide-in {
-  from { opacity: 0; transform: translateX(-8px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes scale-bounce-in {
-  from { opacity: 0; transform: scale(0.7); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-@keyframes bar-fill-in {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
-}
-
-@keyframes pulse-ring {
-  0%, 100% { transform: scale(1); opacity: 0.2; }
-  50% { transform: scale(1.18); opacity: 0.45; }
-}
-
-@keyframes fade-scale-in {
-  from { opacity: 0; transform: scale(0.95) translateY(15px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-@keyframes toast-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes scan {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100%); }
-}
-
 .animate-breathe { animation: breathe 2.5s ease-in-out infinite; }
-.animate-spin-disc { animation: spin-disc 10s linear infinite; }
 .animate-pulse-ring { animation: pulse-ring 2s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
 
-/* Skeleton shimmer — theme-aware base + moving highlight sheen. */
-.animate-shimmer {
-  background-color: var(--panel-bg-subtle);
-  background-image: linear-gradient(
-    105deg,
-    transparent 40%,
-    color-mix(in oklab, var(--text-primary) 6%, transparent) 50%,
-    transparent 60%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.6s ease-in-out infinite;
-}
-
-/* Entrance for popovers, toasts, mini-player. */
-.animate-fade-up { animation: fade-up 0.18s cubic-bezier(0.16, 1, 0.3, 1); }
-.animate-toast-in { animation: toast-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
-
-/* Staggered list-item reveal — pair with inline `animationDelay` from
-   staggerDelay(i) in lib/utils.ts. Fades + slides up, forwards fill so
-   items stay put after animating. */
-.animate-stagger {
-  animation: fade-up 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* Sweeping glow line across a hero/placeholder panel. */
-.scan-line {
-  position: absolute;
-  inset: 0;
-  height: 100%;
-  pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    transparent,
-    var(--accent-signal-glow),
-    transparent
-  );
-  opacity: 0.5;
-  animation: scan 2.6s ease-in-out infinite;
-}
-
-/* Mobile nav hover/active sweep fill. */
-.game-sweep {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.game-sweep i {
-  position: absolute;
-  inset: 0;
-  background: var(--accent-signal-bg);
-  transform: translateY(100%);
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.game-nav-item.is-active .game-sweep i,
-.game-nav-item:hover .game-sweep i {
-  transform: translateY(0);
-}
-
 @media (prefers-reduced-motion: reduce) {
+  /* Regenerated from the classes that ACTUALLY exist above. The previous list
+   * still guarded ten classes that no longer exist, so it had drifted into
+   * being decoration rather than a real safety net. */
   .animate-breathe,
-  .animate-spin-disc,
   .animate-pulse-ring,
-  .animate-shimmer,
-  .animate-fade-up,
-  .animate-toast-in,
-  .animate-stagger,
-  .scan-line,
   .ambient-blob,
   .ambient-mote,
-  .glitch-text::before,
-  .glitch-text::after,
-  .cursor-blink::after,
-  .radar-sweep::after,
-  .border-trace::before,
-  .gradient-border::before {
+  .route-in,
+  .cursor-blink::after {
     animation: none !important;
   }
   *,

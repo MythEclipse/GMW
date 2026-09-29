@@ -27,19 +27,23 @@
             "pattern": "^Card$",
             "allow": [
               "layout",
-              "channel-node-card",
+              "channel-row",
               "channel-roster-card",
               "glass",
               "glossary-entry",
               "hud-card",
               "linear-tile",
-              "mod-feed-item",
               "mod-tile",
               "msg-feed-card",
-              "pop-in-md",
-              "search-result-card",
               "stagger-item",
               "user-tile"
+            ]
+          },
+          {
+            "pattern": "^TabsList$",
+            "allow": [
+              "layout",
+              "tabs-touch"
             ]
           }
         ]
@@ -67,14 +71,6 @@
         "shadcn/no-restyle": "off",
         "shadcn/no-arbitrary-values": "off",
         "shadcn/require-static-classes": "off"
-      }
-    },
-    {
-      "files": [
-        "src/components/ui/chart.tsx"
-      ],
-      "rules": {
-        "shadcn/no-inline-styles": "off"
       }
     }
   ]

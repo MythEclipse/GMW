@@ -39,13 +39,25 @@ export function NavRail() {
                 palette intact and reads at a glance in a long rail. */}
             <span
               className={cn(
-                "absolute top-1/2 left-0 h-4 w-0.5 -translate-y-1/2 rounded-pill bg-signal transition-opacity",
+                "absolute top-1/2 left-0 h-4 w-0.5 -translate-y-1/2 rounded-full bg-signal transition-opacity",
                 active ? "opacity-100" : "opacity-0",
               )}
               aria-hidden
             />
             <span className="text-sm font-medium">{item.label}</span>
-            <span className="text-xs text-ink-faint line-clamp-1">
+            {/*
+              Two lines, not one. The rail is a fixed 208px and the descriptions
+              run 43–56 characters, so `line-clamp-1` cut four of the seven
+              mid-word — which reads as broken rather than as summarised.
+              Clamping at two lines fits every description at this width and
+              still bounds the rail's height.
+
+              The descriptions are left intact rather than shortened, because
+              they double as the search index for the command palette
+              (`navigation.ts` matches against `description`), and trimming them
+              to fit a pixel width would quietly degrade search.
+            */}
+            <span className="line-clamp-2 text-xs text-ink-faint">
               {item.description}
             </span>
           </Link>

@@ -64,7 +64,12 @@ export function SectionGrid({
   return (
     <div
       className={cn(
-        "grid grid-cols-1 gap-4 md:grid-cols-2",
+        // `items-start` so a panel is as tall as its own content. The default
+        // `stretch` forced every panel in a row to the height of the tallest,
+        // which left the 5-row severity list wearing a 15-row panel's height
+        // and ~60% of it was empty space. Panels with similar content height
+        // look identical either way, so this only changes the mismatched case.
+        "grid grid-cols-1 items-start gap-4 md:grid-cols-2",
         gridCols,
         className,
       )}

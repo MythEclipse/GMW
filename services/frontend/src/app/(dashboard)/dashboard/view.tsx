@@ -14,7 +14,12 @@ import {
   useTopReactions,
   useTopReactors,
 } from "@/hooks/use-data";
-import { formatCompact, formatNumber, formatPercent } from "@/lib/format";
+import {
+  formatCompact,
+  formatNumber,
+  formatPercent,
+  messageLabel,
+} from "@/lib/format";
 import type {
   DashboardActivity,
   DashboardStats,
@@ -109,7 +114,9 @@ export function DashboardView({
         <StatTile
           label="Messages"
           value={formatCompact(stats.data?.total_messages)}
+          exact={formatNumber(stats.data?.total_messages)}
           hint={`${formatNumber(stats.data?.today_messages)} today`}
+          to="/messages"
         />
         <StatTile
           label="Flagged"
@@ -120,6 +127,7 @@ export function DashboardView({
               : `${formatPercent(flaggedRate, 2)} of all messages`
           }
           tone={flaggedRate !== null && flaggedRate > 2 ? "warning" : "neutral"}
+          to="/messages?verdict=flagged"
         />
         <StatTile
           label="In queue"
@@ -130,11 +138,13 @@ export function DashboardView({
               : "Awaiting a verdict"
           }
           tone={backlogged > 500 ? "warning" : "neutral"}
+          to="/messages?status=pending"
         />
         <StatTile
           label="Active members"
           value={formatNumber(stats.data?.active_users_24h)}
           hint={`${formatNumber(stats.data?.total_users)} total`}
+          to="/users"
         />
       </StatGrid>
 
@@ -161,15 +171,33 @@ export function DashboardView({
       <SectionGrid cols={2}>
         <Section title="Most reacted messages" description="All time">
           <RankedBars
-            data={(reactions.data ?? []).map((r) => ({
-              label: r.content.slice(0, 60) || `by ${r.username}`,
-              value: r.reaction_count,
-            }))}
+            data={(reactions.data ?? []).map((r) => {
+              // A custom-emoji-only message has no readable text, so the label
+              // falls back to the author instead of rendering the raw
+              // `<:adobe:1520373128566411417>` token as the row's whole identity.
+              const text = messageLabel(r.content, 60);
+              return {
+                label: text || `Reaction from ${r.username}`,
+                value: r.reaction_count,
+              };
+            })}
             max={6}
           />
         </Section>
 
-        <Section title="Most active reactors" description="Net reactions added">
+        {/*
+          The description names the DIRECTION and the netting, because
+          "net reactions added" said neither. `net_count` is
+          `add_count - remove_count` on `message_reactions` rows, and every
+          such row is a reaction this user gave — so the old label could be read
+          as reactions this user *received*, which is the opposite panel
+          ("Most reacted messages"). "Reactions they gave, adds minus removes"
+          is longer, but it is the only reading that is correct.
+        */}
+        <Section
+          title="Most active reactors"
+          description="Reactions they gave, adds minus removes"
+        >
           <ul className="space-y-2">
             {(reactors.data ?? []).map((reactor) => (
               <li key={reactor.user_id} className="flex items-center gap-2.5">

@@ -62,7 +62,7 @@ export function GlossaryView({
       />
 
       <Tabs defaultValue="culture">
-        <TabsList>
+        <TabsList className="tabs-touch">
           <TabsTrigger value="culture">Channel culture</TabsTrigger>
           <TabsTrigger value="terms">Terms</TabsTrigger>
           <TabsTrigger value="domains">Flagged domains</TabsTrigger>
