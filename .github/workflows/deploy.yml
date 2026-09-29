@@ -58,11 +58,14 @@ jobs:
           cd services/backend && ./node_modules/.bin/biome check src/ tests/
           cd ../discord-gateway && ./node_modules/.bin/biome check src/
 
-      - name: Install deps + typecheck (frontend)
+      - name: Install deps + typecheck + build (frontend)
         working-directory: services/frontend
         run: |
           bun install --frozen-lockfile
           ./node_modules/.bin/tsc --noEmit
+          # The Nix frontend derivation runs vite build; failing here catches a
+          # broken bundle in the fast test job instead of in the deploy matrix.
+          ./node_modules/.bin/vite build
 
       - name: Biome + design lint (frontend)
         working-directory: services/frontend

@@ -1,8 +1,7 @@
 "use client";
 
 import { cn } from "cn";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router";
 import { navItems } from "@/lib/navigation";
 
 /**
@@ -14,7 +13,7 @@ import { navItems } from "@/lib/navigation";
  * usability. Do not replace this.
  */
 export function NavRail() {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const normalized = pathname.replace(/\/+$/, "") || "/";
 
   return (
@@ -27,7 +26,7 @@ export function NavRail() {
         return (
           <Link
             key={item.href}
-            href={item.href}
+            to={item.href}
             aria-current={active ? "page" : undefined}
             className={cn(
               "group relative flex flex-col gap-0.5 rounded-md px-3 py-2 transition-colors",

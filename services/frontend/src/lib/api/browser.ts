@@ -1,6 +1,7 @@
 "use client";
 
 import { getBrowserClient } from "@/lib/orpc/client";
+import type { AppConfig } from "@/lib/types";
 import type { RpcClient } from "@/lib/types/rpc";
 
 /**
@@ -85,6 +86,24 @@ export const browserApi = {
   },
   config: {
     get: () => client().config.get({}),
+    /**
+     * The monitored guild, or null when none is configured OR the lookup
+     * fails.
+     *
+     * The null-on-error half is load-bearing, not laziness: the deleted
+     * `getDefaultGuildId` in `@/lib/api/server` wrapped `config.get` in a
+     * try/catch for exactly this reason, so a config outage degrades to "no
+     * guild scoping" instead of failing the whole page. Callers rely on null
+     * being a supported, non-fatal state.
+     */
+    async defaultGuildId(): Promise<string | null> {
+      try {
+        const config = (await client().config.get({})) as AppConfig;
+        return config.monitorGuildId ?? null;
+      } catch {
+        return null;
+      }
+    },
   },
   uiState: {
     get: () => client().uiState.get({}),

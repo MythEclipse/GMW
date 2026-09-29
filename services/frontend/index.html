@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+
+    <!--
+      Replaces `export const metadata` in the deleted src/app/layout.tsx.
+      Per-route titles are set by the router, so only the default lives here.
+    -->
+    <title>Guild Moderation Watcher</title>
+    <meta
+      name="description"
+      content="Live AI moderation monitoring for a Discord guild: verdicts, queue health, and enforcement activity."
+    />
+    <!-- The dashboard is not indexed; it is a private operations surface. -->
+    <meta name="robots" content="noindex, nofollow" />
+
+    <!--
+      Replaces `export const viewport` in layout.tsx. The colours are the two
+      --canvas-base values from globals.css, so browser chrome matches
+      whichever theme resolved.
+    -->
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: light)"
+      content="#f0f2f5"
+    />
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: dark)"
+      content="#060709"
+    />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+
+    <!--
+      next-themes' no-flash script. It MUST be a blocking inline script
+      before the bundle: under createRoot the module script is deferred, so
+      anything React does at mount runs after first paint. Without this the
+      page flashes the light theme before switching to dark.
+
+      Keep it in sync with the ThemeProvider's storageKey in src/main.tsx —
+      renaming the key silently discards every saved theme on deploy.
+    -->
+    <script>
+      (function () {
+        try {
+          var d = document.documentElement;
+          var e = localStorage.getItem("theme");
+          if (e === "system" || !e) {
+            e = window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+          }
+          if (e === "dark") d.classList.add("dark");
+        } catch (_) {}
+      })();
+    </script>
+  </head>
+  <body class="font-sans antialiased">
+    <!--
+      react-dom mounts here. A boot failure (bad import.meta.env read, missing
+      alias) would otherwise leave this empty — a blank page with a console
+      error nobody opens — so src/main.tsx installs global handlers that
+      replace this node's contents with a readable message.
+    -->
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

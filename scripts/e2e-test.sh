@@ -127,10 +127,17 @@ blue "── API: Auth (POST) → 401" POST "${API}/auth" 401 '{"password": "wro
 blue "── API: Voice ──"
 assert "GET /api/guilds → 200" GET "${API}/guilds" 200 ""
 
-# ── 8. Frontend ────────────────────────────────────────────────
+# ── 8. Frontend (Vite SPA shell) ─────────────────────────────────
+# The dashboard is a client-rendered SPA: every page returns the same
+# index.html shell with <div id="root">, and the router takes over in the
+# browser. Assert the shell (not SSR content) on / and each deep link.
 blue "── Frontend ──"
 assert "GET / → 200" GET "${BASE_URL}/" 200 ""
-assert_contains "Frontend renders title" "${BASE_URL}/" "IMPHNEN"
+assert_contains "Shell has React mount point" "${BASE_URL}/" '<div id="root">'
+for route in dashboard messages moderation channels users analysis glossary; do
+  assert "GET /${route} → 200 (SPA fallback)" GET "${BASE_URL}/${route}" 200 ""
+  assert_contains "Shell on /${route}" "${BASE_URL}/${route}" '<div id="root">'
+done
 
 # ── 9. Endpoints that should 404 ──────────────────────────────
 blue "── Negative Tests ──"

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Outlet } from "react-router";
 import { Chatbot } from "@/components/chatbot/chatbot";
 import {
   CommandPalette,
@@ -13,21 +13,27 @@ import { Topbar } from "@/components/shell/topbar";
 import { WsProvider } from "@/lib/ws/context";
 
 /**
- * Client shell: providers, chrome, and the content slot.
+ * Client shell: providers, chrome, and the route content slot.
  *
- * `page.tsx` stays a server component and renders `children` here — the SSR
- * payload arrives as already-rendered markup, so the first paint has real data
- * and only the interactive parts hydrate.
+ * This is the pathless layout route in `@/router`, so the routed page renders
+ * through `<Outlet />` instead of a `children` prop. Because it sits ABOVE the
+ * route elements, the chrome never remounts on navigation and the `/ws` socket
+ * stays open — which is what the App Router's root layout did.
+ *
+ * The old doc comment claimed "the SSR payload arrives as already-rendered
+ * markup, so the first paint has real data and only the interactive parts
+ * hydrate". There is no SSR and no hydration any more; each route now blocks
+ * its own render on `useRouteSeed` until its data arrives.
  */
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers() {
   return (
     <WsProvider>
-      <Shell>{children}</Shell>
+      <Shell />
     </WsProvider>
   );
 }
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell() {
   return (
     <div className="ambient-bg relative min-h-dvh">
       <AmbientBackground />
@@ -37,7 +43,9 @@ function Shell({ children }: { children: ReactNode }) {
       <div className="flex">
         <NavRail />
         <main className="min-w-0 flex-1 px-4 pt-4 pb-24 lg:pb-8">
-          <ErrorBoundary>{children}</ErrorBoundary>
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
 

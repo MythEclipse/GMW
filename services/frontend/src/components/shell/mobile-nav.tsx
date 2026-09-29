@@ -1,8 +1,7 @@
 "use client";
 
 import { cn } from "cn";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router";
 import { navItems } from "@/lib/navigation";
 
 /**
@@ -20,7 +19,7 @@ import { navItems } from "@/lib/navigation";
  * home indicator on iOS.
  */
 export function MobileNav() {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const normalized = pathname.replace(/\/+$/, "") || "/";
 
   return (
@@ -34,7 +33,7 @@ export function MobileNav() {
           return (
             <li key={item.href} className="snap-start">
               <Link
-                href={item.href}
+                to={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "nav-dock-item flex min-w-16 flex-col items-center gap-0.5 rounded-md px-3 py-1.5 text-micro-lg transition-colors",

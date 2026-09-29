@@ -1,8 +1,8 @@
 "use client";
 
 import { CornerDownLeft, Search } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import {
   CommandDialog,
   CommandEmpty,
@@ -27,7 +27,7 @@ export function openCommandPalette(): void {
 }
 
 export function CommandPalette() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -54,9 +54,9 @@ export function CommandPalette() {
     (href: string) => {
       setOpen(false);
       setQuery("");
-      router.push(href);
+      navigate(href);
     },
-    [router],
+    [navigate],
   );
 
   return (

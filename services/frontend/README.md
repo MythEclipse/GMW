@@ -1,36 +1,32 @@
 # Bete Frontend
 
-Next.js 16 (React 19) dashboard untuk Discord Moderation Watcher.
+React 19 + Vite SPA dashboard untuk Discord Moderation Watcher.
 
-**Stack:** Next.js 16 (App Router, static export), React 19, TypeScript strict, Tailwind v4, shadcn/ui, base-ui, lucide-react.
+**Stack:** React 19, Vite, react-router, TypeScript strict, Tailwind v4, shadcn/ui, base-ui, lucide-react.
 
 ## Dev
 
 ```bash
-bun run dev        # next dev — port 3000 (lokal; prod via nginx 4009)
-bun run build      # next build — static export ke out/
-bun run lint       # Biome check
+bun run dev        # vite dev — port 5173 (proxy /trpc + /ws ke backend 4001)
+bun run build      # tsc + vite build — output ke dist/
+bun run lint       # Biome check + oxlint
+bun run start      # serve.mjs — serve dist/ di 127.0.0.1:4017 (prod lokal)
 ```
 
 ## Architecture
 
 ```
 src/
-├── app/                  # Pages
-│   ├── page.tsx          # Redirect ke /dashboard
-│   └── dashboard/        # Dashboard layout + tabs
-│       ├── layout.tsx    # Sidebar, header, WS provider, chatbot
-│       └── page.tsx      # Tab routing (messages/dashboard)
-├── features/
-│   ├── messages/         # Message feed, search, review, detail modal
-│   ├── dashboard/        # Stats, users, channels overview
-│   └── chatbot/          # AI chatbot
-├── lib/
-│   ├── api/              # Fetch-based API client (all BE endpoints)
-│   ├── ws/               # WebSocket client + React context
-│   └── hooks/            # Shared hooks (config, auth)
-└── components/
-    └── layout/           # Sidebar, header, mobile tab bar
+├── main.tsx               # React entry (mount #root, ThemeProvider)
+├── router.tsx             # Route table (react-router, redirect / ke /dashboard)
+├── app/
+│   └── (dashboard)/       # Route components — satu per halaman + view.tsx
+├── components/            # UI (primitives, shell, charts, chatbot, command)
+├── hooks/                 # Shared hooks (use-route-seed, config, auth)
+└── lib/
+    ├── orpc/client.ts     # oRPC over WebSocket (/trpc, partysocket)
+    ├── ws/                # Typed event socket (/ws) + React context
+    └── api/browser.ts     # Browser-side fetcher untuk live ops
 ```
 
 ## API

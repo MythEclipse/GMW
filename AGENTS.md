@@ -1,6 +1,6 @@
 # GMW — Agent Guide
 
-GMW (Guild Moderation Watcher) is a Discord bot + web dashboard for AI-powered moderation. A monorepo with three services: a selfbot gateway that captures Discord events and runs LLM moderation, an Express/oRPC backend that serves the dashboard API, and a Next.js 16 SSR frontend. They communicate via Redis pub/sub (gateway→backend) and WebSocket (backend→browser).
+GMW (Guild Moderation Watcher) is a Discord bot + web dashboard for AI-powered moderation. A monorepo with three services: a selfbot gateway that captures Discord events and runs LLM moderation, an Express/oRPC backend that serves the dashboard API, and a React 19 + Vite SPA frontend. They communicate via Redis pub/sub (gateway→backend) and WebSocket (backend→browser).
 
 ## Quick reference
 
@@ -10,7 +10,7 @@ bun install              # install deps (bun 1.3.14, not pnpm/npm)
 bun typecheck            # tsc --noEmit
 bun lint                 # biome check
 bun format               # biome format --write
-bun build                # gateway/backend: tsc + fix-imports.mjs; frontend: next build
+bun build                # gateway/backend: tsc + fix-imports.mjs; frontend: tsc + vite build
 bun test                 # bun test tests/ (gateway & backend only — frontend has no tests)
 ```
 
@@ -38,12 +38,13 @@ services/
 │   │   └── shared/         Config, DB, errors, Redis, logger
 │   └── tests/              Vitest tests
 │
-└── frontend/          Next.js 16 App Router, React 19, Tailwind v4 (:4017).
+└── frontend/          React 19 + Vite SPA, Tailwind v4 (:4017).
     ├── src/
-    │   ├── src/            Pages — route groups under (dashboard)/
+    │   ├── src/            Routes — route components under (dashboard)/ + router.tsx
     │   ├── components/     UI components (primitives, shell, charts, etc.)
-    │   ├── hooks/          React hooks
-    │   └── lib/            API clients, types, utils, WebSocket, audio
+    │   ├── hooks/          React hooks (incl. use-route-seed for first paint)
+    │   ├── lib/            API clients, types, utils, WebSocket, audio
+    │   └── main.tsx        React entry (replaces the Next.js app/layout root)
     ```
 
     ## Conventions
@@ -75,11 +76,11 @@ Environment variables are validated with Zod at startup in `shared/config/index.
 
 - Gateway: each feature lives in `src/modules/<name>/` with its own `index.ts` barrel. Modules register event listeners and are composed in `src/app/bootstrap.ts`.
 - Backend: `modules/<name>/` follows schema → repository → service → controller → routes. Data flows up only. No cross-module repository imports.
-- Frontend: `page.tsx` is a server component that fetches data via `src/lib/api/server.ts` (oRPC over HTTP, server-side only) and passes it to a `view.tsx` client component. Browser code uses `src/lib/orpc/client.ts` (oRPC over WebSocket via partysocket). Never import the server API client from a client component.
+- Frontend: each route component under `src/app/(dashboard)/*/` seeds its first paint via `useRouteSeed` (oRPC over WebSocket through `src/lib/orpc/client.ts`, partysocket-backed) and passes the result to its `view.tsx`. Routes are client-only; there is no server component layer. One element per route in `src/router.tsx` so navigation remounts the view.
 
 ### API layer
 
-The backend exposes an oRPC router mounted at `/trpc` (both HTTP and WebSocket). The frontend does **not** use a REST `/api/*` layer — all data goes through oRPC procedures. The server-side client (`src/lib/api/server.ts`) uses a fetch-based RPCLink; the browser client uses a WebSocket-based RPCLink backed by partysocket for auto-reconnection. Results are asserted to the frontend's local types at each call site (the backend's router type is not imported into the frontend).
+The backend exposes an oRPC router mounted at `/trpc` (HTTP + WebSocket). The frontend does **not** use a REST `/api/*` layer — all data goes through oRPC procedures, and the dashboard only uses the WebSocket transport: a single RPCLink backed by partysocket for auto-reconnection. Results are asserted to the frontend's local types at each call site (the backend's router type is not imported into the frontend).
 
 ### Testing
 
@@ -96,6 +97,6 @@ Biome, 2-space indent, spaces. Config at repo root `biome.json`. `lint` uses `--
 
 1. **Never commit without running `fix-imports.mjs` after `tsc`** — gateway and backend builds will produce ESM that crashes at startup (`ERR_MODULE_NOT_FOUND`).
 2. **Don't add `@discordjs/opus` build-from-source flags** — it ships prebuilt binaries for Node 22. Forcing source builds in CI/Nix will fail or add minutes of compile time.
-3. **Frontend SSR fetches are always `cache: "no-store"`** — the server API client bypasses Next.js fetch cache. Do not add caching without understanding the live dashboard requirement.
+3. **Frontend seed fetches bypass the SWR cache** — `useRouteSeed` fetches fresh on every route mount (the dashboard is live). Do not add caching without understanding the live dashboard requirement.
 4. **oRPC types are loosely coupled** — the frontend casts oRPC results to its own types with `as unknown`. Adding a field to the backend schema does not automatically update the frontend type. Update both sides.
 5. **Gateway is a selfbot** (`discord.js-selfbot-v13`) — it uses a user token, not a bot token. It must not be deployed as a standard Discord bot.

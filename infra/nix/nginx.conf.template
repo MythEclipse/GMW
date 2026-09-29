@@ -11,7 +11,7 @@ http {
     ''      close;
   }
 
-  # Next.js standalone SSR server (backend-fetching on every render).
+  # Vite SPA static server (serve.mjs serves dist/ + SPA fallback).
   # Not for hand-editing: @NEXT_PORT@ is substituted at build time.
   upstream gmw_next {
     server 127.0.0.1:@NEXT_PORT@;
@@ -61,10 +61,9 @@ http {
       proxy_send_timeout 86400s;
     }
 
-    # ── Backend oRPC (structured data RPCs over WebSocket + HTTP POST)
-    #     Browser reaches this via partysocket (wss://…/trpc); SSR/RSC uses
-    #     the fetch RPCLink (POST /trpc). Same path, same backend handler:
-    #     oRPC's RPCHandler (HTTP) + ORPCWebSocketServer (WS) on :4001. ──
+    # ── Backend oRPC (structured data RPCs over WebSocket)
+    #     Browser reaches this via partysocket (wss://…/trpc): oRPC's
+    #     ORPCWebSocketServer on :4001. No server-side fetcher remains. ──
     location ^~ /trpc {
       proxy_pass http://gmw_backend$uri$is_args$args;
       proxy_http_version 1.1;
@@ -80,8 +79,8 @@ http {
       proxy_send_timeout 86400s;
     }
 
-    # ── Next.js build assets — immutable, edge/shareable ───────────
-    location ^~ /_next/static/ {
+    # ── Vite build assets — immutable, edge/shareable ──────────────
+    location ^~ /assets/ {
       proxy_pass http://gmw_next$uri$is_args$args;
       proxy_http_version 1.1;
       proxy_set_header Host              $host;
@@ -92,7 +91,7 @@ http {
       add_header Cache-Control "public, immutable";
     }
 
-    # ── Everything else → Next.js server (SSR) ──
+    # ── Everything else → SPA shell (index.html via serve.mjs) ──
     location / {
       proxy_pass http://gmw_next$uri$is_args$args;
       proxy_http_version 1.1;
@@ -101,7 +100,6 @@ http {
       proxy_set_header X-Real-IP         $remote_addr;
       proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_set_header X-Next-Prefetch  $http_x_next_prefetch;
       proxy_buffering off;
       proxy_read_timeout 30s;
     }

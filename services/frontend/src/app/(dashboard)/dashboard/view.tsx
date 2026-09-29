@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo } from "react";
+import { Link } from "react-router";
 import { AreaChart } from "@/components/charts/area-activity";
 import { RankedBars } from "@/components/charts/bars";
 import { Avatar } from "@/components/MessageFeedCard";
@@ -253,7 +253,7 @@ function QueueBreakdown({
           {formatNumber(queue.dead)} message
           {queue.dead === 1 ? "" : "s"} exhausted their retries and will not be
           judged automatically.{" "}
-          <Link href="/messages?status=dead" className="underline">
+          <Link to="/messages?status=dead" className="underline">
             Review them
           </Link>
           .

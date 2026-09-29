@@ -15,10 +15,13 @@ import ReconnectingWebSocket from "partysocket/ws";
  * reconnection with backoff, so callers never need a special "offline" path.
  */
 function websocketUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_WS_URL;
+  // `import.meta.env`, not `process.env`: Vite defines neither `process` nor
+  // `process.env`, so the old `process.env.NEXT_PUBLIC_WS_URL` raised a
+  // ReferenceError while evaluating the argument — before the same-origin
+  // fallback below could run. That killed the app on boot, as a blank page
+  // with a single console error.
+  const configured = import.meta.env.VITE_WS_URL;
   if (configured) return configured;
-
-  if (typeof window === "undefined") return "ws://127.0.0.1:4001/trpc";
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   // Same-origin: the reverse proxy forwards /trpc to the backend, so no host

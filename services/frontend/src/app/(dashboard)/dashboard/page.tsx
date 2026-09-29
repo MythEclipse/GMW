@@ -1,37 +1,62 @@
-import type { Metadata } from "next";
-import {
-  getActivity,
-  getStats,
-  getTopReactions,
-  getTopReactors,
-} from "@/lib/api/server";
-import { DashboardView } from "./view";
+"use client";
 
-export const metadata: Metadata = { title: "Overview" };
+import { useCallback } from "react";
+import { ErrorState, LoadingState } from "@/components/shared/states";
+import { useRouteSeed } from "@/hooks/use-route-seed";
+import { browserApi } from "@/lib/api/browser";
+import type {
+  DashboardActivity,
+  DashboardStats,
+  TopReaction,
+  TopReactor,
+} from "@/lib/types";
+import { DashboardView } from "./view";
 
 const DAYS = 14;
 
 /**
- * Server component: fetches the seed data, hands it to the client view.
+ * Client route for /dashboard — was an async React Server Component that
+ * fetched its seed from `@/lib/api/server` at render time.
  *
- * Everything here is `no-store`, so the first paint already shows live numbers
- * and the client hook continues from exactly this payload.
+ * The fetch list, the parallel Promise.all, and the props handed to the view
+ * are unchanged; only the transport and the timing moved. `useRouteSeed` holds
+ * the render until all four resolve, so `DashboardView` still receives real
+ * numbers on its first render exactly as it did under SSR.
  */
-export default async function DashboardPage() {
-  // Independent reads, so they go in parallel rather than in sequence.
-  const [stats, activity, reactions, reactors] = await Promise.all([
-    getStats(),
-    getActivity(DAYS),
-    getTopReactions(10),
-    getTopReactors(10),
-  ]);
+export function DashboardPage() {
+  const fetcher = useCallback(async () => {
+    // Independent reads, so they go in parallel rather than in sequence.
+    const [stats, activity, reactions, reactors] = await Promise.all([
+      browserApi.dashboard.stats(),
+      browserApi.dashboard.activity(DAYS),
+      browserApi.dashboard.reactions(10),
+      browserApi.dashboard.reactors(10),
+    ]);
+
+    return {
+      stats: stats as unknown as DashboardStats,
+      activity: activity as unknown as DashboardActivity,
+      reactions: reactions as unknown as TopReaction[],
+      reactors: reactors as unknown as TopReactor[],
+    };
+  }, []);
+
+  const seed = useRouteSeed(fetcher);
+
+  if (seed.error) {
+    return <ErrorState error={seed.error} onRetry={seed.retry} />;
+  }
+
+  if (seed.isPending || !seed.data) {
+    return <LoadingState label="Loading overview" />;
+  }
 
   return (
     <DashboardView
-      initialStats={stats}
-      initialActivity={activity}
-      initialReactions={reactions}
-      initialReactors={reactors}
+      initialStats={seed.data.stats}
+      initialActivity={seed.data.activity}
+      initialReactions={seed.data.reactions}
+      initialReactors={seed.data.reactors}
       days={DAYS}
     />
   );

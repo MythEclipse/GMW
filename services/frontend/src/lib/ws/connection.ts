@@ -56,7 +56,10 @@ export class WsConnection {
   }
 
   private url(): string {
-    const configured = process.env.NEXT_PUBLIC_WS_URL;
+    // `import.meta.env`, not `process.env` — see the same note in
+    // `@/lib/orpc/client.ts`. Both sockets read one VITE_WS_URL so the two
+    // cannot drift apart.
+    const configured = import.meta.env.VITE_WS_URL;
     if (configured) return configured;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";

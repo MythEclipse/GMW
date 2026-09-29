@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useState } from "react";
 import { Badge, type Tone } from "@/components/shared/tone";
 import {
@@ -135,15 +134,15 @@ export function Avatar({
   }
 
   return (
-    <Image
+    // Plain <img>, not next/image: avatars come straight from Discord's CDN
+    // and are tiny, so the optimizer would add a hop and a server round trip
+    // for no benefit. `unoptimized` already told Next to pass these through
+    // untouched, so behaviour is identical minus the wrapper.
+    <img
       src={src}
       alt=""
       width={size}
       height={size}
-      // Avatars are already CDN-cached and tiny; the optimizer would add a hop
-      // and a server round trip for no benefit, and would break for any host
-      // not allow-listed in next.config.ts.
-      unoptimized
       onError={() => setFailed(true)}
       className="shrink-0 rounded-full"
     />

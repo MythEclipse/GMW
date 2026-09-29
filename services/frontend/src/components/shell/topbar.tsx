@@ -1,8 +1,7 @@
 "use client";
 
 import { Command, Hash, Search, ShieldAlert, Sparkles } from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router";
 import { ModeToggle } from "@/components/mode-toggle";
 import { StatusDot } from "@/components/shell/status-dot";
 import { Button } from "@/components/ui/button";
@@ -16,12 +15,12 @@ import { activeNavItem } from "@/lib/navigation";
  * dispatches the event.
  */
 export function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const current = activeNavItem(pathname);
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-hairline bg-canvas/80 px-4 backdrop-blur-md">
-      <Link href="/dashboard" className="flex items-center gap-2.5">
+      <Link to="/dashboard" className="flex items-center gap-2.5">
         <span className="flex size-7 items-center justify-center rounded-md border border-hairline bg-surface">
           <ShieldAlert className="size-4 text-signal" aria-hidden />
         </span>
@@ -62,7 +61,7 @@ export function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
           </kbd>
         </Button>
 
-        <Link href="/moderation" className="md:hidden">
+        <Link to="/moderation" className="md:hidden">
           <Button variant="ghost" size="icon-sm" aria-label="Open moderation">
             <Sparkles aria-hidden />
           </Button>

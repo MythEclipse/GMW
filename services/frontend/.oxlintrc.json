@@ -4,7 +4,7 @@
     "@shadcn/lint"
   ],
   "ignorePatterns": [
-    ".next/**",
+    "dist/**",
     "out/**",
     "build/**"
   ],

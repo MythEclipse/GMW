@@ -21,7 +21,7 @@
         };
         frontendSrc = filterSource {
           dir = ./services/frontend;
-          ignore = [ "out" ".next" "node_modules" "pnpm-lock.yaml" ];
+          ignore = [ "out" "dist" "node_modules" "pnpm-lock.yaml" ];
         };
 
         # OpenSSL headers (.dev output) + STATIC libs (pkgsStatic.openssl.out —
@@ -208,7 +208,7 @@ WORKER
           };
         };
 
-        # ---- Frontend (Next.js SSR standalone) ----
+        # ---- Frontend (Vite SPA static) ----
         frontend = pkgs.stdenv.mkDerivation {
           pname = "gmw-frontend";
           version = "1.0.0";
@@ -218,47 +218,46 @@ WORKER
           nativeBuildInputs = [ nodejs bun pkgs.gnumake pkgs.gcc pkgs.cacert ];
 
           buildPhase = bunInstall + ''
-            echo "=== Building Next.js SSR (standalone) ==="
-            export NEXT_TELEMETRY_DISABLED=1
-            export GMW_BACKEND_URL=http://127.0.0.1:4001
-            ./node_modules/.bin/next build 2>&1
+            echo "=== Building Vite SPA ==="
+            ./node_modules/.bin/vite build 2>&1
           '';
 
           installPhase = ''
-            echo "=== Packaging standalone server ==="
-            mkdir -p $out/lib/gmw-frontend/standalone
-            # The standalone server bundles its own minimal node_modules but
-            # needs the build assets + public copied INSIDE its tree.
-            cp -r .next/standalone/. $out/lib/gmw-frontend/standalone/
-            mkdir -p $out/lib/gmw-frontend/standalone/.next
-            cp -r .next/static $out/lib/gmw-frontend/standalone/.next/static
-            cp -r public $out/lib/gmw-frontend/standalone/public 2>/dev/null || true
+            echo "=== Packaging static dist + server ==="
+            mkdir -p $out/lib/gmw-frontend
+            # serve.mjs (node builtins only) + the self-contained dist/ tree.
+            # No node_modules ships: nothing is imported at runtime.
+            cp serve.mjs $out/lib/gmw-frontend/serve.mjs
+            cp -r dist $out/lib/gmw-frontend/dist
 
-            # Remove dangling symlinks left by pnpm's hoisted .pnpm layout
-            # (e.g. node_modules/.pnpm/node_modules/...). The standalone server
-            # never resolves those at runtime — it bundles its own node_modules
-            # — and they trip stdenv's noBrokenSymlinks check.
-            find $out/lib/gmw-frontend/standalone -type l \
+            # Remove dangling symlinks left by the install layout
+            # (they trip stdenv's noBrokenSymlinks check).
+            find $out/lib/gmw-frontend -type l \
               ! -exec test -e {} \; -delete 2>/dev/null || true
 
             mkdir -p $out/bin
+            # The unquoted heredoc expands `$out` to this exact store path.
+            # The port is deliberately NOT exported here: `exec` passes the
+            # environment through untouched, and serve.mjs applies the 4017
+            # default itself (it reads GMW_FRONTEND_PORT). Putting a
+            # `${VAR:-default}` expression in this heredoc silently baked a
+            # literal 4017 into the script, because the BUILD shell expanded
+            # it at build time — so the systemd unit's override was ignored.
             cat > $out/bin/gmw-frontend << WRAPPER
 #!${pkgs.runtimeShell}
-cd $out/lib/gmw-frontend/standalone
-export PORT=''${GMW_FRONTEND_PORT:-4017}
-export HOSTNAME=127.0.0.1
-exec ${nodejs}/bin/node server.js
+cd $out/lib/gmw-frontend
+exec ${nodejs}/bin/node serve.mjs
 WRAPPER
             chmod +x $out/bin/gmw-frontend
           '';
 
           meta = {
-            description = "GMW Frontend — Next.js SSR dashboard";
+            description = "GMW Frontend — Vite SPA dashboard (static)";
             platforms = pkgs.lib.platforms.linux;
           };
         };
 
-        # ---- Proxy (nginx: / -> Next SSR, /api + /ws -> backend) ----
+        # ---- Proxy (nginx: / -> Vite SPA, /api + /ws + /trpc -> backend) ----
         proxy = pkgs.stdenv.mkDerivation {
           pname = "gmw-proxy";
           version = "1.0.0";
@@ -286,7 +285,7 @@ WRAPPER
           '';
 
           meta = {
-            description = "GMW Proxy — nginx -> Next.js + backend";
+            description = "GMW Proxy — nginx -> Vite SPA + backend";
             platforms = pkgs.lib.platforms.linux;
           };
         };
