@@ -1,6 +1,6 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
+  - package-ecosystem: "bun"
     directory: "/services/backend"
     schedule:
       interval: "daily"
@@ -12,7 +12,7 @@ updates:
       development:
         dependency-type: "development"
         update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
+  - package-ecosystem: "bun"
     directory: "/services/discord-gateway"
     schedule:
       interval: "daily"
@@ -24,7 +24,7 @@ updates:
       development:
         dependency-type: "development"
         update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
+  - package-ecosystem: "bun"
     directory: "/services/frontend"
     schedule:
       interval: "daily"
