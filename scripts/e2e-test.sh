@@ -8,7 +8,9 @@ set -euo pipefail
 # ═══════════════════════════════════════════════════════════════
 
 BASE_URL="${1:-https://imphnen.asepharyana.my.id}"
+# /api is the infra health router only; all data APIs are oRPC at /trpc.
 API="${BASE_URL}/api"
+TRPC="${BASE_URL}/trpc"
 
 PASS=0
 FAIL=0
@@ -100,32 +102,22 @@ blue "── API: Health Check ──"
 assert "GET /api/health → 200" GET "${API}/health" 200 ""
 assert_json_field "health.status == healthy" "${API}/health" "status"
 
-# ── 2. Dashboard ───────────────────────────────────────────────
-blue "── API: Dashboard ──"
-assert "GET /api/dashboard/stats → 200" GET "${API}/dashboard/stats" 200 ""
-assert_json_field "dashboard.total_messages" "${API}/dashboard/stats" "total_messages"
-assert_json_field "dashboard.total_flagged" "${API}/dashboard/stats" "total_flagged"
-assert_json_field "dashboard.active_users_24h" "${API}/dashboard/stats" "active_users_24h"
-
-# ── 3. Recordings ──────────────────────────────────────────────
-blue "── API: Recordings ──"
-assert "GET /api/recordings → 200" GET "${API}/recordings?limit=5" 200 ""
-assert_json_field "recordings.items array" "${API}/recordings?limit=5" "items"
-
-# ── 4. Messages ────────────────────────────────────────────────
-blue "── API: Messages ──"
-assert "GET /api/messages (no channelId) → 400" GET "${API}/messages?limit=3" 400 ""
-
-# ── 5. Config ──────────────────────────────────────────────────
-blue "── API: Config ──"
-assert "GET /api/config → 200" GET "${API}/config" 200 ""
-
-# ── 6. Auth ────────────────────────────────────────────────────
-blue "── API: Auth (POST) → 401" POST "${API}/auth" 401 '{"password": "wrong"}'
-
-# ── 7. Voice Guilds ────────────────────────────────────────────
-blue "── API: Voice ──"
-assert "GET /api/guilds → 200" GET "${API}/guilds" 200 ""
+# ── 2. Data APIs (oRPC at /trpc) ───────────────────────────────
+# There is NO REST /api/* data layer: the backend mounts only the infra
+# health router under /api, and everything else is an oRPC procedure at
+# /trpc (WebSocket for the browser, HTTP POST for scripts). The previous
+# /api/dashboard, /api/messages, /api/config, /api/guilds and /api/auth
+# assertions targeted a REST layer that no longer exists — they returned
+# 404 with the backend's own "data APIs are served over /trpc" body.
+# oRPC's HTTP wire format wraps the result: {"json": <value>}.
+blue "── API: oRPC (data) ──"
+assert "POST /trpc/dashboard/stats → 200" POST "${TRPC}/dashboard/stats" 200 '{"json":{}}'
+assert_json_field "dashboard.total_messages" "${TRPC}/dashboard/stats" "json.total_messages" '{"json":{}}'
+assert_json_field "dashboard.total_flagged" "${TRPC}/dashboard/stats" "json.total_flagged" '{"json":{}}'
+assert_json_field "dashboard.active_users_24h" "${TRPC}/dashboard/stats" "json.active_users_24h" '{"json":{}}'
+assert "POST /trpc/dashboard/activity → 200" POST "${TRPC}/dashboard/activity" 200 '{"json":{"days":7}}'
+assert "POST /trpc/messages/review → 200" POST "${TRPC}/messages/review" 200 '{"json":{"limit":3}}'
+assert "POST /trpc/config/get → 200" POST "${TRPC}/config/get" 200 '{"json":{}}'
 
 # ── 8. Frontend (Vite SPA shell) ─────────────────────────────────
 # The dashboard is a client-rendered SPA: every page returns the same
