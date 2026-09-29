@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge, type Tone } from "@/components/shared/tone";
 import {
   pipelineLabel,
@@ -10,6 +10,7 @@ import {
   verdictTone,
 } from "@/lib/ai-status";
 import { formatRelative } from "@/lib/format";
+import { pairLinksWithEmbeds, readEmbeds } from "@/lib/message-metadata";
 import type { Message, Severity, VerdictStatus } from "@/lib/types";
 
 /**
@@ -23,6 +24,99 @@ import type { Message, Severity, VerdictStatus } from "@/lib/types";
  *
  * An unjudged message is visually neutral, never green.
  */
+/**
+ * Render a message body, falling back to what the link-preview bot resolved.
+ *
+ * WHY THE FALLBACK EXISTS
+ * `getDisplayContent()` runs at `messageCreate`, when Discord has not yet
+ * produced the embed — so it returns `""` and the row is stored with an empty
+ * `content`. The `messageUpdate` handler later writes the embed into
+ * `metadata`, but it only ever rewrites `content` from the message's own text,
+ * which is still empty. The card therefore rendered "Pesan kosong tanpa
+ * konten apapun" for a post that plainly carried a Facebook photo, and the
+ * model was asked to judge the same nothing.
+ *
+ * So when the body is empty, show the evidence that DOES exist: the resolved
+ * embed's site, title and description, and the link itself. This is the same
+ * pairing the prompt is given, so the dashboard and the model read the message
+ * the same way.
+ */
+function EmbeddedPreview({ message }: { message: Message }) {
+  const content = message.content.trim();
+  const pairs = useMemo(
+    () => pairLinksWithEmbeds(message.content, message.metadata),
+    [message.content, message.metadata],
+  );
+  const embeds = readEmbeds(message.metadata);
+
+  if (content.length > 0) {
+    return (
+      <p className="mt-1.5 text-sm break-words whitespace-pre-wrap text-ink-soft">
+        {content}
+      </p>
+    );
+  }
+
+  // Nothing was posted, not even a link: a bare image/sticker/embed message.
+  if (pairs.length === 0 && embeds.length === 0) {
+    return (
+      <p className="mt-1.5 text-sm break-words whitespace-pre-wrap text-ink-soft">
+        —
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 space-y-1.5">
+      <p className="text-micro text-ink-faint italic">
+        {pairs.length > 0
+          ? "Link diposting tanpa teks — isi dari pratinjau bot:"
+          : "Pesan tanpa teks — isi dari embed:"}
+      </p>
+      {embeds.map((embed, index) => {
+        const pair = pairs[index];
+        return (
+          <div
+            key={`${embed.url ?? "embed"}-${index}`}
+            className="rounded-md border border-hairline bg-surface-2/40 px-2.5 py-2"
+          >
+            {pair && (
+              <a
+                href={pair.resolvedUrl ?? pair.postedUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="block truncate font-mono text-micro text-ink-muted hover:text-ink hover:underline"
+              >
+                {pair.resolvedUrl ?? pair.postedUrl}
+              </a>
+            )}
+            {embed.provider?.name && (
+              <p className="text-micro text-ink-faint">{embed.provider.name}</p>
+            )}
+            {embed.title && (
+              <p className="text-sm font-medium break-words text-ink">
+                {embed.title}
+              </p>
+            )}
+            {embed.description && (
+              <p className="mt-0.5 text-xs break-words text-ink-muted line-clamp-4">
+                {embed.description}
+              </p>
+            )}
+            {embed.image && (
+              <img
+                src={embed.image}
+                alt=""
+                className="mt-1.5 max-h-48 rounded border border-hairline object-cover"
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function MessageFeedCard({
   message,
   showPipeline = true,
@@ -56,9 +150,7 @@ export function MessageFeedCard({
         </span>
       </div>
 
-      <p className="mt-1.5 text-sm break-words whitespace-pre-wrap text-ink-soft">
-        {message.content.length > 0 ? message.content : "—"}
-      </p>
+      <EmbeddedPreview message={message} />
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <Badge tone={verdictTone(verdict)}>{verdictLabel(verdict)}</Badge>

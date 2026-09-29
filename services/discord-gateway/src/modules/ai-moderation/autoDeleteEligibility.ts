@@ -15,6 +15,9 @@
  */
 import { config } from "../../shared/config/index.js";
 import { createChildLogger } from "../../shared/logger/index.js";
+// `isLinkOnlyPost` reads messages.metadata's embed list, so it has to come
+// from the capture module that owns that shape rather than be reimplemented.
+import { isLinkOnlyPost } from "../message-capture/messageMetadata.js";
 
 const logger = createChildLogger("auto-delete-eligibility");
 
@@ -36,6 +39,10 @@ export interface MessageLike {
   channel_id: string;
   user_id: string;
   thread_id?: string | null;
+  /** Raw post body. Used to recognise a bare link post. */
+  content?: string | null;
+  /** Captured rich evidence as JSON. Used to read the resolved embed. */
+  metadata?: unknown;
   // Legacy columns, used only when no verdict row exists yet.
   ai_status?: string | null;
   ai_severity?: string | null;
@@ -65,6 +72,24 @@ export function parseStringList(value?: string | null): string[] {
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean);
+}
+
+/**
+ * `messages.metadata` is a `jsonb` column, so the driver can hand it back
+ * either as a string or as a parsed object. The capture-side helpers take the
+ * string form (that is what `parseRichMessageMetadata` reads), so normalise
+ * here instead of widening the helpers to accept `unknown`.
+ */
+function coerceMetadataJson(metadata: unknown): string | null {
+  if (typeof metadata === "string") return metadata;
+  if (metadata && typeof metadata === "object") {
+    try {
+      return JSON.stringify(metadata);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 /** Read a verdict's fields, falling back to the legacy columns. */
@@ -214,6 +239,27 @@ export function isEligibleForAutoDelete(
       "Message not eligible for auto-delete: severity not in allowed list",
     );
     return false;
+  }
+
+  // A bare link post is judged almost entirely on the page it points to. The
+  // pre-fix prompt never showed the model that page's preview, so an ordinary
+  // Facebook share came back `warn`/`spam` from the domain name alone and the
+  // message was deleted. The preview is in the prompt now, but this guard
+  // stays for the case where it genuinely could not be resolved
+  // (`link_preview_unavailable`): there the model is reasoning from nothing,
+  // and deleting on that is unrecoverable.
+  //
+  // Only high/critical passes, because there severity is the strongest
+  // signal available and is usually grounded in the author's own text — not
+  // in a domain the model guessed about.
+  if (isLinkOnlyPost(message.content, coerceMetadataJson(message.metadata))) {
+    if (severity !== "high" && severity !== "critical") {
+      logger.debug(
+        { messageId: message.id, severity },
+        "Message not eligible for auto-delete: bare link post below high severity",
+      );
+      return false;
+    }
   }
 
   // High/critical severity is ALWAYS eligible, whatever the model's

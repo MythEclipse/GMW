@@ -27,6 +27,14 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { createChildLogger } from "@/shared/logger/index";
+// Link/embed pairing lives with the other capture→prompt helpers, and the two
+// escaping helpers used to be duplicated here. Both are re-exported below so
+// existing importers of this module keep working.
+import {
+  escapeMessageBody,
+  escapeXmlAttr,
+  formatLinkEvidenceForPrompt,
+} from "../message-capture/messageMetadata.js";
 import type { LlmGateway } from "./llmGateway.js";
 import { buildSystemPrompt } from "./policy.js";
 import {
@@ -41,6 +49,8 @@ import {
 } from "./trace.js";
 import type { ParseBatchResult, ParsedVerdict } from "./verdictParser.js";
 import { parseVerdicts } from "./verdictParser.js";
+
+export { escapeMessageBody, escapeXmlAttr };
 
 const log = createChildLogger("ai-moderation");
 
@@ -75,6 +85,18 @@ export type ClaimedMessage = {
   /** Incremented by `claim_messages()` at claim time, so it counts this try. */
   attempts: number;
   username: string | null;
+  /**
+   * `messages.metadata` — the captured rich evidence (embeds, attachments,
+   * stickers, channel, member).
+   *
+   * THIS FIELD IS THE FIX. The prompt interpolated `content` and nothing
+   * else, so a link post reached the model as a bare `t.co` string with the
+   * resolved Facebook/Instagram preview sitting unread in this column, and an
+   * embedder message whose `content` was `""` was judged as literally empty.
+   * `formatLinkEvidenceForPrompt` consumes this to present the link and its
+   * preview as one unit.
+   */
+  metadata: string | null;
   /**
    * True when the channel is marked NSFW on Discord, read from the
    * metadata captured with the message. Such messages are never analysed.
@@ -160,39 +182,6 @@ export function assertLeaseCoversLlmTimeout(cfg: WorkerConfig): void {
         `otherwise a slow media batch outlives its lease and another worker re-processes the messages`,
     );
   }
-}
-
-/**
- * Escape a value for use inside an XML attribute.
- *
- * Author names are user-controlled, so they must be escaped — but not wrapped
- * in CDATA, which is only valid for element bodies and corrupts attributes.
- */
-export function escapeXmlAttr(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-/**
- * Escape a message body for inclusion in the prompt.
- *
- * A CDATA wrapper would be the wrong tool here: message content is
- * attacker-controlled and routinely contains the literal sequence `]]>`, which
- * closes a CDATA section early and lets the rest of the message escape into
- * the prompt as markup. Plain entity-escaping has no such terminator, so the
- * model always sees the text as text.
- */
-export function escapeMessageBody(value: string, maxLen = 3000): string {
-  const capped =
-    value.length > maxLen ? `${value.slice(0, maxLen)}…[truncated]` : value;
-  return capped
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 /**
@@ -488,6 +477,7 @@ export class ModerationWorker {
               m.content,
               m.created_at    AS "createdAt",
               m.username      AS "username",
+              m.metadata      AS metadata,
               c.attempts::int AS "attempts",
               (a.n IS NOT NULL) AS "hasMedia",
               (m.metadata::jsonb -> 'channel' ->> 'nsfw')::boolean AS "channelIsNsfw"
@@ -651,6 +641,11 @@ export class ModerationWorker {
       .map((m) => {
         const who = m.username ? `${m.username} (${m.authorId})` : m.authorId;
         const vision = visionById.get(m.id) ?? "";
+        // The link and its resolved preview, as ONE block. Without this the
+        // model saw the `t.co` wrapper and nothing else: it invented a
+        // verdict from the domain, and an embedder message (`content: ""`)
+        // was reported as an empty message.
+        const links = formatLinkEvidenceForPrompt(m.content, m.metadata);
         // NOTE: only the CONTENT is sanitised. The id/author/ts attributes are
         // structured data we generate, and passing the id through
         // sanitizeAiContent would wrap it in <![CDATA[…]]> — which breaks the
@@ -662,7 +657,7 @@ export class ModerationWorker {
         return (
           `<message id="${m.id}" author="${escapeXmlAttr(who)}" ` +
           `ts="${isoFromEpoch(m.createdAt)}">\n${vision}` +
-          `${escapeMessageBody(m.content)}\n</message>`
+          `${escapeMessageBody(m.content)}\n${links}\n</message>`
         );
       })
       .join("\n");

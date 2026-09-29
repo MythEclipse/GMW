@@ -20,7 +20,46 @@
  * dashboard's Indonesian labels are all keyed off these terms).
  */
 
-/** The exact JSON the model must return. Mirrored by verdictParser.ts. */
+/**
+ * How to judge a link together with the preview Discord resolved for it.
+ *
+ * Added because the prompt saw the `t.co` wrapper and nothing else: the model
+ * read the domain, decided "external link, should be watched", and returned
+ * `warn`/`low`/`spam` for an ordinary Facebook photo. The evidence was in
+ * `messages.metadata` the whole time, unread.
+ */
+export const LINK_RULES = `## ANALISIS LINK (pratinjau dari bot Discord)
+
+Setiap link yang diposting menjadi satu blok <link_evidence>.
+Blok itu BAGIAN dari pesan yang sama - nilai sebagai satu kesatuan, bukan
+sebagai "pesan teks" dan "link" terpisah.
+
+- <link posted="..."> adalah URL yang benar-benar ditulis pengirim (biasanya
+  dibungkus t.co).
+- <link resolved="..."> adalah tujuan sebenarnya, kalau Discord berhasil
+  resolve.
+- Isi di dalam blok (site, title, description, field, footer, image) adalah
+  PRATINJAU yang dilihat pengguna di Discord. Itulah isi sebenarnya dari pesan
+  tersebut, dan inilah yang harus dinilai.
+
+ATURAN:
+- JANGAN menilai link dari nama domainnya saja. "facebook.com" atau
+  "instagram.com" BUKAN bukti promosi atau bot.
+- JANGAN menulis "tidak ada indikasi", "link sharing harus diwaspadai", atau
+  "tidak ada konten yang bisa dinilai" untuk pesan yang PREVIEW-nya sudah
+  terbaca di blok. Kalau title atau description-nya ada, NILAI ISI ITU.
+- Kalau <preview> berbunyi "(tidak ada: Discord tidak membuat pratinjau untuk
+  link ini)", kamu memang tidak tahu isi halamannya. Dans hal itu JANGAN
+  menebak dan JANGAN otomatis menandai spam: status "clean" dengan flag
+  "link_preview_unavailable", atau "warn" + "needs_human_review" hanya bila
+  ada konteks lain yang membuatmu ragu.
+- Konten seksual, judi, atau tautan=share yang muncul di title,
+  description, atau image preview TETAP pelanggaran. Menilai isi preview
+  sama ketatnya dengan menilai teks.
+- Link ke media sosial (Facebook, Instagram, X/Twitter, TikTok, YouTube) BUKAN
+  otomatis spam. Yang dinilai adalah isi yang di-share dan apakah pengirimnya
+  try promosi atau sekadar berbagi.`;
+
 export const OUTPUT_CONTRACT = `## FORMAT OUTPUT (WAJIB)
 
 Kembalikan HANYA JSON valid dengan bentuk ini, tanpa teks lain:
@@ -195,7 +234,7 @@ export function buildSystemPrompt(opts: BuildPromptOptions): string {
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
 
-  const parts: string[] = [SYSTEM_RULES];
+  const parts: string[] = [SYSTEM_RULES, LINK_RULES];
 
   if (opts.mode === "mixed") parts.push(MEDIA_RULES);
 

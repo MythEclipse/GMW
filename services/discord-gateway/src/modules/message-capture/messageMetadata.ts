@@ -966,6 +966,227 @@ export function formatMediaEvidenceForPrompt(
   return parts.join(" ");
 }
 
+// ─── Prompt-safe escaping ─────────────────────────────────────────────────────
+//
+// These live here, not in the moderation worker, because this module is the
+// one that turns a captured message into prompt text. The worker re-exports
+// them so existing importers keep working.
+
+/**
+ * Escape a value for use inside an XML attribute.
+ *
+ * Author names are user-controlled, so they must be escaped — but not wrapped
+ * in CDATA, which is only valid for element bodies and corrupts attributes.
+ */
+export function escapeXmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/**
+ * Escape a message body for inclusion in the prompt.
+ *
+ * A CDATA wrapper would be the wrong tool here: message content is
+ * attacker-controlled and routinely contains the literal sequence `]]>`, which
+ * closes a CDATA section early and lets the rest of the message escape into
+ * the prompt as markup. Plain entity-escaping has no such terminator, so the
+ * model always sees the text as text.
+ */
+export function escapeMessageBody(value: string, maxLen = 3000): string {
+  const capped =
+    value.length > maxLen ? `${value.slice(0, maxLen)}…[truncated]` : value;
+  return capped
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// ─── Link ↔ embed pairing ─────────────────────────────────────────────────────
+
+/** Every `http(s)` URL in the text, in order, de-duplicated. */
+export function extractPostedUrls(
+  content: string | null | undefined,
+): string[] {
+  if (!content) return [];
+  const found = content.match(/https?:\/\/[^\s<>")\]]+/g) ?? [];
+  return [...new Set(found.map((u) => u.replace(/[.,;:!?]+$/, "")))];
+}
+
+/**
+ * Comparable form of a URL: no scheme, no `www.`, no trailing slash.
+ *
+ * Discord wraps every posted link in `t.co`, so the URL in the body is almost
+ * never the URL the embed resolved to — a raw string comparison pairs
+ * nothing, which is why this normalisation exists.
+ */
+function normalizeUrl(url: string): string {
+  return url
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/+$/, "");
+}
+
+export interface LinkEmbedPair {
+  /** The URL the author actually wrote, as it appears in the message. */
+  postedUrl: string;
+  /** The destination the link resolved to, when known. */
+  resolvedUrl: string | null;
+  /** The embed Discord produced for it — the actual content. */
+  embed: EmbedEvidence | null;
+}
+
+/**
+ * Pair each posted link with the embed that resolved it.
+ *
+ * The moderator must judge the link and its preview as ONE message, and it
+ * cannot do that from the two separately: the body carries a `t.co` wrapper
+ * and no information, and everything the user actually saw is in the embed.
+ *
+ * Pairing is best-effort in three steps, because the embed URL is not always
+ * the posted URL:
+ *   1. exact match on the URL,
+ *   2. match on the normalised form (scheme / `www.` / trailing slash),
+ *   3. links and embeds matched positionally, in order — the common case,
+ *      because the body holds a `t.co` wrapper that matches nothing.
+ */
+export function pairLinksWithEmbeds(
+  content: string | null | undefined,
+  metadata: string | null | undefined,
+): LinkEmbedPair[] {
+  const posted = extractPostedUrls(content);
+  const embeds = parseRichMessageMetadata(metadata)?.embeds ?? [];
+  if (posted.length === 0) return [];
+
+  const pairs: LinkEmbedPair[] = posted.map((postedUrl) => {
+    const normalized = normalizeUrl(postedUrl);
+    const match = embeds.find(
+      (e) =>
+        e.url != null &&
+        (e.url === postedUrl || normalizeUrl(e.url) === normalized),
+    );
+    return { postedUrl, resolvedUrl: null, embed: match ?? null };
+  });
+
+  // A URL match still leaves `resolvedUrl` unset: the posted URL is often a
+  // t.co wrapper, so the destination is the embed's own `url`.
+  for (const pair of pairs) {
+    if (pair.embed) pair.resolvedUrl = pair.embed.url ?? null;
+  }
+
+  const spare = embeds.filter((e) => !pairs.some((p) => p.embed === e));
+  let next = 0;
+  for (const pair of pairs) {
+    if (pair.embed) continue;
+    const leftover = spare[next];
+    if (!leftover) break;
+    pair.embed = leftover;
+    pair.resolvedUrl = leftover.url ?? null;
+    next += 1;
+  }
+  return pairs;
+}
+
+/**
+ * True when the message says nothing of its own — the body is only links.
+ *
+ * The judgement that matters is a bare link post: the body carries no words to
+ * weigh, so a verdict on it rests entirely on the linked content. That makes
+ * it the shape where a model guessing from the domain does the most damage,
+ * and it is why the auto-delete gate treats it specially.
+ */
+export function isLinkOnlyPost(
+  content: string | null | undefined,
+  metadata: string | null | undefined,
+): boolean {
+  const urls = extractPostedUrls(content);
+  if (urls.length === 0) return false;
+  const residue = (content ?? "")
+    .replace(/https?:\/\/[^\s<>")\]]+/g, " ")
+    .replace(/<a?:\w+:\d+>/g, " ")
+    .trim();
+  if (residue.length > 0) return false;
+  // A link post that also carries its own media is not a bare link: there is
+  // something else for the model to weigh.
+  const media = parseRichMessageMetadata(metadata);
+  if ((media?.attachments?.length ?? 0) > 0) return false;
+  if ((media?.stickers?.length ?? 0) > 0) return false;
+  return true;
+}
+
+/** The embed body as prompt elements, escaped. */
+function renderEmbedBody(embed: EmbedEvidence): string {
+  const rows: string[] = [];
+  const add = (tag: string, value: string, max: number): void => {
+    rows.push(`  <${tag}>${escapeMessageBody(value, max)}</${tag}>`);
+  };
+  if (embed.provider?.name) add("site", embed.provider.name, 200);
+  if (embed.title) add("title", embed.title, 400);
+  if (embed.description) add("description", embed.description, 1500);
+  for (const field of embed.fields.slice(0, 12)) {
+    const name = String(field.name ?? "").slice(0, 120);
+    rows.push(
+      `  <field name="${escapeXmlAttr(name)}">` +
+        `${escapeMessageBody(String(field.value ?? ""), 500)}</field>`,
+    );
+  }
+  if (embed.footer?.text) add("footer", embed.footer.text, 200);
+  // The image URL matters: a link whose preview is a picture carries all of
+  // its content in the picture, not in the text fields.
+  if (embed.image) add("image", embed.image, 600);
+  if (embed.video?.url) add("video", embed.video.url, 600);
+  if (rows.length === 0) {
+    return "  <preview>(embed ada tapi tidak ada field yang bisa dibaca)</preview>";
+  }
+  return rows.join("\n");
+}
+
+/**
+ * The unified link block for the prompt.
+ *
+ * WHY THIS EXISTS
+ * The moderation prompt interpolated only `message.content`, and the claim
+ * query did not even select `metadata`. Everything the author actually posted
+ * — the Facebook/Instagram title, description, image and site name that
+ * Discord's link-preview bot resolved — was captured, stored, and then never
+ * shown to the model. So it judged a bare `t.co` string and invented a verdict
+ * from the domain alone, and an empty-bodied message (content `""` because
+ * `getDisplayContent` ran before the embed resolved) came back as "empty
+ * message with no content".
+ *
+ * WHAT IT CHANGES
+ * One `<link>` element per posted link, carrying the posted URL, the resolved
+ * destination and the embed body together, so the model can only judge the
+ * combination. A link with no resolved embed says so explicitly, which is what
+ * stops it guessing page content from a domain name.
+ */
+export function formatLinkEvidenceForPrompt(
+  content: string | null | undefined,
+  metadata: string | null | undefined,
+): string {
+  const pairs = pairLinksWithEmbeds(content, metadata);
+  if (pairs.length === 0) return "";
+
+  const parts = pairs.map((pair) => {
+    const head =
+      ` posted="${escapeXmlAttr(pair.postedUrl)}"` +
+      (pair.resolvedUrl
+        ? ` resolved="${escapeXmlAttr(pair.resolvedUrl)}"`
+        : ' resolved=""');
+    const body = pair.embed
+      ? renderEmbedBody(pair.embed)
+      : "  <preview>(tidak ada: Discord tidak membuat pratinjau untuk link ini)</preview>";
+    return `<link${head}>\n${body}\n </link>`;
+  });
+
+  return `\n<link_evidence>\n${parts.join("\n")}\n</link_evidence>`;
+}
+
 export function getDisplayContent(message: Message): string {
   if (message.content.trim().length > 0) return message.content;
 
