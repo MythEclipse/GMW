@@ -17,7 +17,10 @@ import { config } from "../../shared/config/index.js";
 import { createChildLogger } from "../../shared/logger/index.js";
 // `isLinkOnlyPost` reads messages.metadata's embed list, so it has to come
 // from the capture module that owns that shape rather than be reimplemented.
-import { isLinkOnlyPost } from "../message-capture/messageMetadata.js";
+import {
+  hasSuppressedEmbeds,
+  isLinkOnlyPost,
+} from "../message-capture/messageMetadata.js";
 
 const logger = createChildLogger("auto-delete-eligibility");
 
@@ -241,6 +244,20 @@ export function isEligibleForAutoDelete(
     return false;
   }
 
+  // A message the sender deliberately hid is one we cannot judge. `SUPPRESS_EMBEDS`
+  // makes Discord omit the embed array, so there is nothing to read and nothing
+  // that will arrive later. A model handed a blank still emits a confident
+  // `warn`/`spam`, and deleting on that is unrecoverable — this is the guard that
+  // would have saved the 6 wrongly-deleted Facebook shares. No severity exempts it.
+  const metadata = coerceMetadataJson(message.metadata);
+  if (hasSuppressedEmbeds(metadata)) {
+    logger.debug(
+      { messageId: message.id, severity },
+      "Message not eligible for auto-delete: sender set SUPPRESS_EMBEDS, content is not judgeable",
+    );
+    return false;
+  }
+
   // A bare link post is judged almost entirely on the page it points to. The
   // pre-fix prompt never showed the model that page's preview, so an ordinary
   // Facebook share came back `warn`/`spam` from the domain name alone and the
@@ -252,7 +269,7 @@ export function isEligibleForAutoDelete(
   // Only high/critical passes, because there severity is the strongest
   // signal available and is usually grounded in the author's own text — not
   // in a domain the model guessed about.
-  if (isLinkOnlyPost(message.content, coerceMetadataJson(message.metadata))) {
+  if (isLinkOnlyPost(message.content, metadata)) {
     if (severity !== "high" && severity !== "critical") {
       logger.debug(
         { messageId: message.id, severity },

@@ -1061,7 +1061,20 @@ export function pairLinksWithEmbeds(
 ): LinkEmbedPair[] {
   const posted = extractPostedUrls(content);
   const embeds = parseRichMessageMetadata(metadata)?.embeds ?? [];
-  if (posted.length === 0) return [];
+
+  // An embed with no matching link in the body is still evidence. A bot that
+  // posts rich media (image + reactions + caption) sends a message whose
+  // `content` is empty and whose only link lives in `embed.url`, so pairing
+  // strictly on posted URLs dropped every such message on the floor — which is
+  // what produced "empty message with no content" for a message that plainly
+  // had a picture on it.
+  if (posted.length === 0) {
+    return embeds.map((embed) => ({
+      postedUrl: "",
+      resolvedUrl: embed.url ?? null,
+      embed,
+    }));
+  }
 
   const pairs: LinkEmbedPair[] = posted.map((postedUrl) => {
     const normalized = normalizeUrl(postedUrl);
@@ -1174,7 +1187,7 @@ export function formatLinkEvidenceForPrompt(
 
   const parts = pairs.map((pair) => {
     const head =
-      ` posted="${escapeXmlAttr(pair.postedUrl)}"` +
+      (pair.postedUrl ? ` posted="${escapeXmlAttr(pair.postedUrl)}"` : "") +
       (pair.resolvedUrl
         ? ` resolved="${escapeXmlAttr(pair.resolvedUrl)}"`
         : ' resolved=""');
@@ -1185,6 +1198,32 @@ export function formatLinkEvidenceForPrompt(
   });
 
   return `\n<link_evidence>\n${parts.join("\n")}\n</link_evidence>`;
+}
+
+/**
+ * True when the sender set `SUPPRESS_EMBEDS` on the message.
+ *
+ * Discord omits the embed array entirely for such a message, so there is
+ * nothing to read and nothing that will ever arrive later — a `messageUpdate`
+ * does not bring it back. It is NOT a capture failure: the same gateway
+ * captures embeds from other bots at 100% (Jockie Music 129/129), so the
+ * difference is this flag on the sender's side.
+ *
+ * The verdict for such a message has to be "cannot judge", not "empty" and
+ * never a delete. Judging from nothing is what deleted the Facebook shares.
+ */
+export function hasSuppressedEmbeds(
+  metadata: string | null | undefined,
+): boolean {
+  const parsed = parseRichMessageMetadata(metadata);
+  if (!parsed) return false;
+  const flags = (parsed as { flagNames?: unknown }).flagNames;
+  if (Array.isArray(flags)) {
+    return flags.some(
+      (f) => typeof f === "string" && f.toUpperCase() === "SUPPRESS_EMBEDS",
+    );
+  }
+  return false;
 }
 
 export function getDisplayContent(message: Message): string {

@@ -110,11 +110,22 @@ describe("link and embed are one unit of evidence", () => {
     expect(block).toContain(T_CO_WRAPPER);
   });
 
-  it("returns nothing for a message with no link", () => {
-    expect(formatLinkEvidenceForPrompt("halo dunia", metadataWithFbEmbed)).toBe(
-      "",
-    );
+  it("returns nothing only when there is no evidence at all", () => {
+    // No metadata, no embed, no link: genuinely nothing to say.
     expect(formatLinkEvidenceForPrompt("", null)).toBe("");
+    expect(
+      formatLinkEvidenceForPrompt("", JSON.stringify({ embeds: [] })),
+    ).toBe("");
+  });
+
+  it("still shows the embed for a text message that carries one", () => {
+    // A message with words AND an embed is not a link post, but the embed is
+    // still evidence the model needs — it is the only description of whatever
+    // the words are pointing at. This used to return "" because pairing was
+    // gated on finding a URL in the body, which silently discarded it.
+    const out = formatLinkEvidenceForPrompt("halo dunia", metadataWithFbEmbed);
+    expect(out).toContain("<link_evidence>");
+    expect(out).not.toContain("tidak ada: Discord tidak membuat pratinjau");
   });
 
   it("escapes an embed that tries to break out of its element", () => {

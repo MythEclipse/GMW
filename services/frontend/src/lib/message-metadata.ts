@@ -206,7 +206,17 @@ export function pairLinksWithEmbeds(
 ): LinkEmbedPair[] {
   const posted = extractPostedUrls(content);
   const embeds = readEmbeds(metadata);
-  if (posted.length === 0) return [];
+
+  // Embed-only message (a bot posting rich media): the body is empty and the
+  // only link lives in `embed.url`. Mirrors the gateway fix — returning `[]`
+  // here is what made the dashboard say "empty message".
+  if (posted.length === 0) {
+    return embeds.map((embed) => ({
+      postedUrl: "",
+      resolvedUrl: embed.url ?? null,
+      embed,
+    }));
+  }
 
   const pairs: LinkEmbedPair[] = posted.map((postedUrl) => {
     const normalized = normalizeUrl(postedUrl);

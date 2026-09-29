@@ -142,8 +142,11 @@ export function MessageFeedCard({
         <span className="truncate text-sm font-medium text-ink">
           {message.server_nick ?? message.username}
         </span>
-        <span className="truncate font-mono text-micro-lg text-ink-faint">
-          {message.user_id}
+        <span
+          className="truncate font-mono text-micro-lg text-ink-faint"
+          title="Discord user ID of the author (not the message ID)"
+        >
+          user {message.user_id}
         </span>
         <span className="ml-auto shrink-0 text-micro-lg text-ink-faint">
           {formatRelative(message.created_at, now)}
@@ -153,7 +156,13 @@ export function MessageFeedCard({
       <EmbeddedPreview message={message} />
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <Badge tone={verdictTone(verdict)}>{verdictLabel(verdict)}</Badge>
+        {/* The verdict pill is only meaningful once a verdict row exists. A
+            message that was skipped, or is still queued, has no verdict at
+            all — showing "Unjudged" there claimed the worker had looked and
+            found nothing, which is a different statement from "never ran". */}
+        {verdict !== "unjudged" && (
+          <Badge tone={verdictTone(verdict)}>{verdictLabel(verdict)}</Badge>
+        )}
 
         {showPipeline && (
           <Badge tone={pipelineTone(message.ai_status)}>
