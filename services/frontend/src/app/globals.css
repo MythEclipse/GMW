@@ -637,6 +637,15 @@
     width: var(--avatar-size, 1.5rem);
     height: var(--avatar-size, 1.5rem);
   }
+  /* An attached image's frame. The aspect ratio is a per-instance custom
+   * property for the same reason as `--avatar-size`: Discord reports real pixel
+   * dimensions per attachment, so a 9:16 phone screenshot and a 4:3 desktop
+   * capture cannot both be served by one Tailwind class, and inline
+   * `style="aspect-ratio"` is rejected by the design gate. Declared here so
+   * `message-media.tsx` carries no layout CSS of its own. */
+  .media-frame {
+    aspect-ratio: var(--media-ratio, 4 / 3);
+  }
   /* A table row whose data is being revalidated. Driven by `data-loading` so
    * the dimming lives here rather than as a className on the primitive, which
    * the design gate would reject. */

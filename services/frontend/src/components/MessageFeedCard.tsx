@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { MessageMedia } from "@/components/shared/message-media";
 import { Badge, type Tone } from "@/components/shared/tone";
 import {
   pipelineLabel,
@@ -10,7 +11,12 @@ import {
   verdictTone,
 } from "@/lib/ai-status";
 import { formatRelative, messageBody } from "@/lib/format";
-import { pairLinksWithEmbeds, readEmbeds } from "@/lib/message-metadata";
+import {
+  pairLinksWithEmbeds,
+  readAttachments,
+  readEmbeds,
+  readStickers,
+} from "@/lib/message-metadata";
 import type { Message, Severity, VerdictStatus } from "@/lib/types";
 
 /**
@@ -48,31 +54,58 @@ function EmbeddedPreview({ message }: { message: Message }) {
     [message.content, message.metadata],
   );
   const embeds = readEmbeds(message.metadata);
+  const attachments = readAttachments(message.metadata);
+  const stickers = readStickers(message.metadata);
 
-  if (content.length > 0) {
-    /*
-      `messageBody`, not the raw string. A moderator scanning the queue is
-      reading what someone WROTE, and Discord's own UI renders `**bold**`,
-      `[label](url)` and `<https://…>` as formatting — so showing the source
-      syntax makes the dashboard disagree with the app the message came from,
-      and pushes real content behind noise.
+  // What the card must show when the author wrote nothing readable. A bare
+  // screenshot is the most common form this takes.
+  const hasMedia = attachments.length > 0 || stickers.length > 0;
 
-      The check stays on the RAW `content` above, deliberately: cleanup can
-      legitimately reduce a body to nothing (a message that is only a mention,
-      say), and that must still fall through to the embed evidence below rather
-      than render as blank. Cleanup never decides whether a message exists.
+  /*
+    `messageBody`, not the raw string. A moderator scanning the queue is
+    reading what someone WROTE, and Discord's own UI renders `**bold**`,
+    `[label](url)` and `<https://…>` as formatting — so showing the source
+    syntax makes the dashboard disagree with the app the message came from,
+    and pushes real content behind noise.
 
-      It is a string transform, not HTML — React escapes the result and the
-      links stay plain text, because this renders untrusted author content.
-    */
+    THE CHECK IS ON THE CLEANED BODY, NOT ON THE RAW `content`. That inversion
+    is the media-only-post bug, and the previous comment here got it backwards.
+    `getDisplayContent()` substitutes `[Attachment: file.png]` for a post whose
+    only payload is a picture, so `content` is NON-EMPTY even though the author
+    typed nothing. `messageBody()` strips that placeholder — correctly, it is a
+    gateway stand-in rather than author text — leaving `""`. Gating on the raw
+    string therefore took the body branch and rendered an empty paragraph for a
+    message that plainly carried a screenshot.
+
+    So: gate on what the READER would actually see. If the body cleans to
+    nothing, the media is the message. Cleanup never decides whether a message
+    exists, only whether there is text to show — and media and embeds render
+    alongside the body regardless, because a caption and its screenshot are one
+    message, not two.
+  */
+  const body = messageBody(content);
+
+  if (body.length > 0) {
     return (
-      <p className="mt-1.5 text-sm break-words whitespace-pre-wrap text-ink-soft">
-        {messageBody(content)}
-      </p>
+      <>
+        <p className="mt-1.5 text-sm break-words whitespace-pre-wrap text-ink-soft">
+          {body}
+        </p>
+        {hasMedia && (
+          <MessageMedia attachments={attachments} stickers={stickers} />
+        )}
+      </>
     );
   }
 
-  // Nothing was posted, not even a link: a bare image/sticker/embed message.
+  // Media-only post, or one whose only text was the gateway's own placeholder.
+  // The picture IS the message — render it, and say nothing about the absence
+  // of a body.
+  if (hasMedia) {
+    return <MessageMedia attachments={attachments} stickers={stickers} />;
+  }
+
+  // Nothing was posted, not even a link: a bare embed message.
   if (pairs.length === 0 && embeds.length === 0) {
     return (
       <p className="mt-1.5 text-sm break-words whitespace-pre-wrap text-ink-soft">

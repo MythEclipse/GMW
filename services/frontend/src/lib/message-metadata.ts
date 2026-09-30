@@ -42,6 +42,13 @@ export interface AttachmentEvidence {
   width?: number | null;
   height?: number | null;
   description?: string | null;
+  /**
+   * Discord's spoiler marker. The gateway captures it, so the FE mirrors it:
+   * a spoiler attachment is one of the things a moderator most needs to see
+   * (the author flagged it as sensitive), and the gateway's own vision pass is
+   * handed those images.
+   */
+  spoiler?: boolean;
 }
 
 export interface StickerEvidence {
@@ -135,6 +142,11 @@ export function parseMessageMetadata(
           width: typeof a.width === "number" ? a.width : null,
           height: typeof a.height === "number" ? a.height : null,
           description: asString(a.description),
+          // Absent on rows captured before the gateway started recording it,
+          // which is not the same as "not a spoiler" — hence the undefined
+          // rather than a false, so the card only ever hides an image the
+          // author actually marked.
+          spoiler: typeof a.spoiler === "boolean" ? a.spoiler : undefined,
         }))
     : [];
 
@@ -157,6 +169,83 @@ export function readEmbeds(
   metadata: string | null | undefined,
 ): EmbedEvidence[] {
   return parseMessageMetadata(metadata).embeds;
+}
+
+export function readAttachments(
+  metadata: string | null | undefined,
+): AttachmentEvidence[] {
+  return parseMessageMetadata(metadata).attachments;
+}
+
+export function readStickers(
+  metadata: string | null | undefined,
+): StickerEvidence[] {
+  return parseMessageMetadata(metadata).stickers;
+}
+
+// ─── Attachment classification ──────────────────────────────────────────────
+
+/**
+ * Whether an attachment can be handed to an `<img>`.
+ *
+ * The gateway records `contentType` straight from Discord, so the MIME type is
+ * the discriminator. A `video/mp4` must stay OUT: rendered as an `<img>` it is
+ * a broken glyph, and an inline player on every feed row is bandwidth spent on
+ * a surface whose job is deciding whether to escalate, not playback.
+ */
+export function isRenderableAttachment(
+  attachment: AttachmentEvidence,
+): boolean {
+  const type = (attachment.contentType ?? "")
+    .toLowerCase()
+    .split(";")[0]
+    .trim();
+  if (type.startsWith("image/")) {
+    // SVG and AVIF/HEIC are not universally decodable; an honest file chip is
+    // better than a browser's broken-image placeholder.
+    return !type.includes("svg") && !type.includes("avif");
+  }
+  if (type) return false;
+  // No MIME recorded — a row captured before the column existed, or a bot that
+  // sent none. Fall back to the extension, using the same list the gateway's
+  // vision pass accepts.
+  const ext = attachment.url
+    .split("?")[0]
+    .split("#")[0]
+    .split(".")
+    .pop()
+    ?.toLowerCase();
+  return ext
+    ? ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)
+    : false;
+}
+
+const VIDEO_EXTENSIONS = [
+  "mp4",
+  "webm",
+  "mov",
+  "m4v",
+  "mkv",
+  "avi",
+  "mpg",
+  "mpeg",
+];
+
+/** How a non-renderable attachment is labelled on the card. */
+export function attachmentKindLabel(
+  attachment: AttachmentEvidence,
+): "video" | "audio" | "file" {
+  const type = (attachment.contentType ?? "").toLowerCase();
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("audio/")) return "audio";
+  const ext = attachment.url
+    .split("?")[0]
+    .split("#")[0]
+    .split(".")
+    .pop()
+    ?.toLowerCase();
+  if (ext && VIDEO_EXTENSIONS.includes(ext)) return "video";
+  return "file";
 }
 
 /** Every `http(s)` URL in the text, in order, de-duplicated. */
