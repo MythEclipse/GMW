@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { ErrorState, LoadingState } from "@/components/shared/states";
+import { qk } from "@/hooks/use-data";
 import { useRouteSeed } from "@/hooks/use-route-seed";
 import { browserApi } from "@/lib/api/browser";
 import type {
@@ -41,7 +42,25 @@ export function DashboardPage() {
     };
   }, []);
 
-  const seed = useRouteSeed(fetcher);
+  // Prime the cache under the exact keys `useStats` / `useActivity` /
+  // `useTopReactions` / `useTopReactors` read, so those hooks mount onto this
+  // data instead of firing four identical requests one frame later.
+  const prime = useCallback(
+    (r: {
+      stats: DashboardStats;
+      activity: DashboardActivity;
+      reactions: TopReaction[];
+      reactors: TopReactor[];
+    }) => [
+      { key: qk.stats, data: r.stats },
+      { key: qk.activity(DAYS), data: r.activity },
+      { key: qk.reactions(10), data: r.reactions },
+      { key: qk.reactors(10), data: r.reactors },
+    ],
+    [],
+  );
+
+  const seed = useRouteSeed(fetcher, prime);
 
   if (seed.error) {
     return <ErrorState error={seed.error} onRetry={seed.retry} />;
@@ -51,13 +70,5 @@ export function DashboardPage() {
     return <LoadingState label="Loading overview" />;
   }
 
-  return (
-    <DashboardView
-      initialStats={seed.data.stats}
-      initialActivity={seed.data.activity}
-      initialReactions={seed.data.reactions}
-      initialReactors={seed.data.reactors}
-      days={DAYS}
-    />
-  );
+  return <DashboardView days={DAYS} />;
 }

@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { ErrorState, LoadingState } from "@/components/shared/states";
+import { qk } from "@/hooks/use-data";
 import { useRouteSeed } from "@/hooks/use-route-seed";
 import { browserApi } from "@/lib/api/browser";
 import type { ChannelPage, Guild } from "@/lib/types";
@@ -37,10 +38,23 @@ export function ChannelsPage() {
       ...(scopedGuildId ? { guildId: scopedGuildId } : {}),
     })) as unknown as ChannelPage;
 
-    return { channels: channels?.data ?? [], scopedGuildId };
+    // The whole `ChannelPage` is seeded, not just `.data`: the hook reads
+    // `nextCursor` too, and handing it a page-shaped object with no cursor
+    // would silently read as "this is the last page".
+    return { channels, scopedGuildId };
   }, []);
 
-  const seed = useRouteSeed(fetcher);
+  const prime = useCallback(
+    (r: { channels: ChannelPage; scopedGuildId: string | null }) => [
+      {
+        key: [...qk.channels(""), r.scopedGuildId ?? "*"],
+        data: r.channels,
+      },
+    ],
+    [],
+  );
+
+  const seed = useRouteSeed(fetcher, prime);
 
   if (seed.error) {
     return <ErrorState error={seed.error} onRetry={seed.retry} />;
@@ -50,10 +64,5 @@ export function ChannelsPage() {
     return <LoadingState label="Loading channels" />;
   }
 
-  return (
-    <ChannelsView
-      initialChannels={seed.data.channels}
-      scopedGuildId={seed.data.scopedGuildId}
-    />
-  );
+  return <ChannelsView scopedGuildId={seed.data.scopedGuildId} />;
 }

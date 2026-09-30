@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { MessageFeedCard } from "@/components/MessageFeedCard";
+import {
+  InfiniteScrollSentinel,
+  LoadMoreFallback,
+  usePagedCount,
+  useScrollReset,
+} from "@/components/shared/infinite-scroll";
 import { ChannelPicker, GuildPicker } from "@/components/shared/pickers";
 import {
   EmptyState,
@@ -20,10 +26,11 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  flattenPages,
+  useEditFeed,
   useGuilds,
-  useMessages,
-  useRecentEdits,
-  useReviewMessages,
+  useMessageFeed,
+  useReviewFeed,
   useTextChannels,
 } from "@/hooks/use-data";
 import {
@@ -32,7 +39,7 @@ import {
   VERDICT_STATUSES,
 } from "@/lib/ai-status";
 import { formatRelative, humanize } from "@/lib/format";
-import type { Guild, Message, MessageEdit, TextChannel } from "@/lib/types";
+import type { Message, MessageEdit } from "@/lib/types";
 import { useWsEvent } from "@/lib/ws/context";
 
 /**
@@ -45,6 +52,10 @@ import { useWsEvent } from "@/lib/ws/context";
 const ANY = "__any__";
 const FEED_LIMIT = 50;
 const REVIEW_LIMIT = 20;
+// The edit log is the densest of the three (one row per edit, often several per
+// message in a cleanup spree), so a smaller page keeps the first paint fast
+// while the sentinel keeps making more reachable.
+const EDIT_LIMIT = 25;
 
 /**
  * Label maps for the two filter Selects.
@@ -69,18 +80,8 @@ const VERDICT_ITEMS: Record<string, string> = {
 };
 
 export function MessagesView({
-  initialGuilds,
-  initialChannels,
-  initialMessages,
-  initialReview,
-  initialEdits,
   defaultGuildId,
 }: {
-  initialGuilds: Guild[];
-  initialChannels: TextChannel[];
-  initialMessages: Message[];
-  initialReview: Message[];
-  initialEdits: MessageEdit[];
   defaultGuildId: string | null;
 }) {
   // Drill-down filters arrive in the URL (W2). Every stat tile on the
@@ -113,8 +114,8 @@ export function MessagesView({
     setParams(next, { replace: true });
   }, [pipelineFilter, verdictFilter, urlStatus, urlVerdict, setParams]);
 
-  const guilds = useGuilds(initialGuilds);
-  const channels = useTextChannels(guildId, initialChannels);
+  const guilds = useGuilds();
+  const channels = useTextChannels(guildId);
 
   const messageQuery = useMemo(
     () => ({
@@ -129,31 +130,38 @@ export function MessagesView({
     [channelId, guildId, pipelineFilter, verdictFilter],
   );
 
-  const messages = useMessages(messageQuery, {
-    data: initialMessages,
-    nextCursor: null,
-  });
-  const review = useReviewMessages(channelId ?? undefined, {
-    results: initialReview,
-    limit: REVIEW_LIMIT,
-    cursor: null,
-  });
-  const edits = useRecentEdits(channelId ?? undefined, initialEdits);
+  // `initial*` seeds come from the route, which blocked its own render on them.
+  // They are handed to Query as the first page's data rather than as SWR
+  // `fallbackData`, so the cache and the rendered list cannot disagree about
+  // whether page one exists.
+  const messages = useMessageFeed(messageQuery, Boolean(guildId));
+  const review = useReviewFeed(channelId ?? undefined, REVIEW_LIMIT);
+  const edits = useEditFeed(channelId ?? undefined, EDIT_LIMIT);
+
+  // Switching scope changes what every tab is showing, and paging appends to the
+  // bottom — without this the viewport stays parked at the end of the previous,
+  // much longer list, which reads as "the new filter loaded nothing".
+  useScrollReset(`${guildId ?? ""}:${channelId ?? ""}`);
 
   // A new message arrives: revalidate the feed. A verdict arriving changes a
   // row in place, so refresh that too rather than showing a stale "unjudged".
+  //
+  // `refetch` and not a cache write: the WS payload is a notification, not the
+  // row. Trusting it as data would mean reimplementing the mapping the backend
+  // already does, and any drift would show as a permanently wrong row instead
+  // of a momentarily stale one.
   useWsEvent("message_created", () => {
-    void messages.mutate();
+    void messages.refetch();
   });
   useWsEvent("message_analyzed", () => {
-    void messages.mutate();
-    void review.mutate();
+    void messages.refetch();
+    void review.refetch();
   });
   useWsEvent("message_deleted", () => {
-    void messages.mutate();
+    void messages.refetch();
   });
   useWsEvent("message_updated", () => {
-    void edits.mutate();
+    void edits.refetch();
   });
 
   const onGuildChange = useCallback((next: string) => {
@@ -161,19 +169,41 @@ export function MessagesView({
     setChannelId(null);
   }, []);
 
-  const reviewCount = review.data?.results.length ?? 0;
-  const editCount = edits.data?.length ?? 0;
+  // A page reports "there is more" by handing back a cursor; a null cursor on
+  // the LAST page is the only end-of-list signal, so `hasNextPage` is derived
+  // rather than counted.
+  const feedRows = useMemo(
+    () => flattenPages<Message>(messages.data?.pages, "data"),
+    [messages.data?.pages],
+  );
+  const reviewRows = useMemo(
+    () => flattenPages<Message>(review.data?.pages, "results"),
+    [review.data?.pages],
+  );
+  const editRows = useMemo(
+    () => flattenPages<MessageEdit>(edits.data?.pages, "results"),
+    [edits.data?.pages],
+  );
+
+  // The tab badges count what is LOADED, not what the backend holds — a badge
+  // reading 400 on a 12-row list was the tell that this data used to be
+  // unpaginated. Labelled with the count so it is honest about that.
+  const reviewCount = reviewRows.length;
+  const editCount = editRows.length;
 
   const feed = useMemo(() => {
-    const rows = messages.data?.data ?? [];
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
+    if (!q) return feedRows;
+    // Client-side over LOADED rows only. The backend has no text search on this
+    // endpoint, so filtering everything here would silently lie about the total;
+    // filtering the loaded window keeps the visible list honest and the
+    // placeholder says "loaded messages".
+    return feedRows.filter(
       (m) =>
         m.content.toLowerCase().includes(q) ||
         m.username.toLowerCase().includes(q),
     );
-  }, [messages.data?.data, search]);
+  }, [feedRows, search]);
 
   return (
     <div className="space-y-4">
@@ -282,7 +312,7 @@ export function MessagesView({
             {messages.error && !messages.data ? (
               <ErrorState
                 error={messages.error}
-                onRetry={() => void messages.mutate()}
+                onRetry={() => void messages.refetch()}
               />
             ) : !guildId ? (
               <EmptyState
@@ -296,35 +326,57 @@ export function MessagesView({
                 <EmptyState title="No messages match these filters" />
               )
             ) : (
-              <ul
-                className="space-y-2"
-                aria-busy={messages.isValidating || undefined}
-              >
-                {feed.map((message) => (
-                  <li key={message.id}>
-                    <MessageFeedCard message={message} />
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul
+                  className="space-y-2"
+                  aria-busy={messages.isFetching || undefined}
+                >
+                  {feed.map((message) => (
+                    <li key={message.id}>
+                      <MessageFeedCard message={message} />
+                    </li>
+                  ))}
+                </ul>
+                {/* The sentinel only renders while another page exists, so
+                    there is nothing to scroll past the last page. */}
+                <InfiniteScrollSentinel
+                  onLoadMore={() => void messages.fetchNextPage()}
+                  hasMore={messages.hasNextPage}
+                  isFetching={messages.isFetchingNextPage}
+                  label="feed"
+                />
+                <LoadMoreFallback
+                  onLoadMore={() => void messages.fetchNextPage()}
+                  hasMore={messages.hasNextPage}
+                  isFetching={messages.isFetchingNextPage}
+                  label="messages"
+                />
+              </>
             )}
           </div>
         </TabsContent>
 
         <TabsContent value="review" className="mt-4">
           <ReviewQueue
-            messages={review.data?.results ?? []}
-            loading={review.isValidating}
+            messages={reviewRows}
+            loading={review.isFetching}
             error={review.error}
-            onRetry={() => void review.mutate()}
+            onRetry={() => void review.refetch()}
+            hasMore={review.hasNextPage}
+            onLoadMore={() => void review.fetchNextPage()}
+            isLoadingMore={review.isFetchingNextPage}
           />
         </TabsContent>
 
         <TabsContent value="edits" className="mt-4">
           <EditHistory
-            edits={edits.data ?? []}
-            loading={edits.isValidating}
+            edits={editRows}
+            loading={edits.isFetching}
             error={edits.error}
-            onRetry={() => void edits.mutate()}
+            onRetry={() => void edits.refetch()}
+            hasMore={edits.hasNextPage}
+            onLoadMore={() => void edits.fetchNextPage()}
+            isLoadingMore={edits.isFetchingNextPage}
           />
         </TabsContent>
       </Tabs>
@@ -339,18 +391,29 @@ export function MessagesView({
  * earlier version filtered `ai_status IN ('warn','flagged')` — values the
  * database CHECK constraint forbids, so the query matched nothing and this
  * panel was permanently empty while moderation was working fine.
+ *
+ * Paged because the queue is unbounded in principle: it is every unacknowledged
+ * verdict, and a busy week accumulates more than any fixed page can hold.
  */
 function ReviewQueue({
   messages,
   loading,
   error,
   onRetry,
+  hasMore,
+  onLoadMore,
+  isLoadingMore,
 }: {
   messages: Message[];
   loading: boolean;
   error: unknown;
   onRetry: () => void;
+  hasMore: boolean;
+  onLoadMore: () => void;
+  isLoadingMore: boolean;
 }) {
+  const progress = usePagedCount(messages, hasMore);
+
   if (error && messages.length === 0) {
     return <ErrorState error={error} onRetry={onRetry} />;
   }
@@ -364,13 +427,30 @@ function ReviewQueue({
   }
 
   return (
-    <ul className="space-y-2" aria-busy={loading || undefined}>
-      {messages.map((message) => (
-        <li key={message.id}>
-          <MessageFeedCard message={message} />
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="space-y-2" aria-busy={loading || undefined}>
+        {messages.map((message) => (
+          <li key={message.id}>
+            <MessageFeedCard message={message} />
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-center text-xs text-ink-muted">
+        {progress.label}
+      </p>
+      <InfiniteScrollSentinel
+        onLoadMore={onLoadMore}
+        hasMore={hasMore}
+        isFetching={isLoadingMore}
+        label="review"
+      />
+      <LoadMoreFallback
+        onLoadMore={onLoadMore}
+        hasMore={hasMore}
+        isFetching={isLoadingMore}
+        label="review queue entries"
+      />
+    </>
   );
 }
 
@@ -385,12 +465,20 @@ function EditHistory({
   loading,
   error,
   onRetry,
+  hasMore,
+  onLoadMore,
+  isLoadingMore,
 }: {
   edits: MessageEdit[];
   loading: boolean;
   error: unknown;
   onRetry: () => void;
+  hasMore: boolean;
+  onLoadMore: () => void;
+  isLoadingMore: boolean;
 }) {
+  const progress = usePagedCount(edits, hasMore);
+
   if (error && edits.length === 0) {
     return <ErrorState error={error} onRetry={onRetry} />;
   }
@@ -399,26 +487,45 @@ function EditHistory({
   }
 
   return (
-    <ul className="space-y-2" aria-busy={loading || undefined}>
-      {edits.map((edit) => (
-        <li key={edit.id} className="hud-card px-3 py-2.5 text-sm">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-            <span className="text-ink-soft">{edit.username ?? "unknown"}</span>
-            <span>in {edit.channel_name ?? `#${edit.channel_id}`}</span>
-            <span className="ml-auto font-mono">
-              {formatRelative(edit.edited_at)}
-            </span>
-          </div>
-          <div className="mt-1.5 space-y-1">
-            <p className="text-xs text-vermilion break-words line-through">
-              {edit.old_content}
-            </p>
-            <p className="text-xs text-ink-soft break-words">
-              {edit.new_content}
-            </p>
-          </div>
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="space-y-2" aria-busy={loading || undefined}>
+        {edits.map((edit) => (
+          <li key={edit.id} className="hud-card px-3 py-2.5 text-sm">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+              <span className="text-ink-soft">
+                {edit.username ?? "unknown"}
+              </span>
+              <span>in {edit.channel_name ?? `#${edit.channel_id}`}</span>
+              <span className="ml-auto font-mono">
+                {formatRelative(edit.edited_at)}
+              </span>
+            </div>
+            <div className="mt-1.5 space-y-1">
+              <p className="text-xs text-vermilion break-words line-through">
+                {edit.old_content}
+              </p>
+              <p className="text-xs text-ink-soft break-words">
+                {edit.new_content}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-center text-xs text-ink-muted">
+        {progress.label}
+      </p>
+      <InfiniteScrollSentinel
+        onLoadMore={onLoadMore}
+        hasMore={hasMore}
+        isFetching={isLoadingMore}
+        label="edits"
+      />
+      <LoadMoreFallback
+        onLoadMore={onLoadMore}
+        hasMore={hasMore}
+        isFetching={isLoadingMore}
+        label="edit history entries"
+      />
+    </>
   );
 }

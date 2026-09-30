@@ -13,16 +13,9 @@ import { Input } from "@/components/ui/input";
 import { useAnalysisSearch } from "@/hooks/use-data";
 import { useDebounced } from "@/hooks/use-debounced";
 import { formatRelative, truncate } from "@/lib/format";
-import type { Message } from "@/lib/types";
 import type { AnalysisSearchResult } from "@/lib/types/rpc";
 
-export function AnalysisView({
-  initialResults,
-  guildId,
-}: {
-  initialResults: Message[];
-  guildId: string | null;
-}) {
+export function AnalysisView({ guildId }: { guildId: string | null }) {
   const [input, setInput] = useState("");
   const [committed, setCommitted] = useState("");
   // Debounced so typing does not fire a request per keystroke; the input stays
@@ -36,7 +29,6 @@ export function AnalysisView({
   const search = useAnalysisSearch<AnalysisSearchResult>(
     debounced,
     guildId ?? undefined,
-    { results: initialResults },
   );
 
   const results = search.data?.results ?? [];
@@ -83,7 +75,10 @@ export function AnalysisView({
       </form>
 
       {search.error && !search.data ? (
-        <ErrorState error={search.error} onRetry={() => void search.mutate()} />
+        <ErrorState
+          error={search.error}
+          onRetry={() => void search.refetch()}
+        />
       ) : results.length === 0 ? (
         debounced ? (
           <NoResultsState query={debounced} />
@@ -104,7 +99,7 @@ export function AnalysisView({
         >
           <ul
             className="divide-y divide-hairline"
-            aria-busy={search.isValidating || isSearching || undefined}
+            aria-busy={search.isFetching || isSearching || undefined}
           >
             {results.map((message) => (
               <li key={message.id} className="px-3 py-2.5">

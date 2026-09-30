@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { ErrorState, LoadingState } from "@/components/shared/states";
+import { qk } from "@/hooks/use-data";
 import { useRouteSeed } from "@/hooks/use-route-seed";
 import { browserApi } from "@/lib/api/browser";
 import type { UserPage } from "@/lib/types";
@@ -17,10 +18,15 @@ export function UsersPage() {
     const users = (await browserApi.dashboard.users({
       limit: 30,
     })) as unknown as UserPage;
-    return { users: users?.data ?? [] };
+    return { users };
   }, []);
 
-  const seed = useRouteSeed(fetcher);
+  const prime = useCallback(
+    (r: { users: UserPage }) => [{ key: qk.users(""), data: r.users }],
+    [],
+  );
+
+  const seed = useRouteSeed(fetcher, prime);
 
   if (seed.error) {
     return <ErrorState error={seed.error} onRetry={seed.retry} />;
@@ -30,5 +36,5 @@ export function UsersPage() {
     return <LoadingState label="Loading members" />;
   }
 
-  return <UsersView initialUsers={seed.data.users} />;
+  return <UsersView />;
 }

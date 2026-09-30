@@ -37,7 +37,21 @@ export function AnalysisPage() {
     };
   }, []);
 
-  const seed = useRouteSeed(fetcher);
+  // `useAnalysisSearch` refuses to issue a request for an empty query, so this
+  // seed is the ONLY thing that fills the first view. It has to land under the
+  // empty-query key the hook reads, not under some seed-only key, or the view
+  // would still render its empty state until the user typed something.
+  const prime = useCallback(
+    (r: { results: Message[]; guildId: string | null }) => [
+      {
+        key: ["analysis", "search", "", "*"],
+        data: { results: r.results },
+      },
+    ],
+    [],
+  );
+
+  const seed = useRouteSeed(fetcher, prime);
 
   if (seed.error) {
     return <ErrorState error={seed.error} onRetry={seed.retry} />;
@@ -47,10 +61,5 @@ export function AnalysisPage() {
     return <LoadingState label="Loading analysis" />;
   }
 
-  return (
-    <AnalysisView
-      initialResults={seed.data.results}
-      guildId={seed.data.guildId}
-    />
-  );
+  return <AnalysisView guildId={seed.data.guildId} />;
 }

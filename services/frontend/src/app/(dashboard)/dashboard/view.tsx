@@ -20,40 +20,23 @@ import {
   formatPercent,
   messageLabel,
 } from "@/lib/format";
-import type {
-  DashboardActivity,
-  DashboardStats,
-  TopReaction,
-  TopReactor,
-} from "@/lib/types";
+import type { DashboardStats } from "@/lib/types";
 import { useWsEvent } from "@/lib/ws/context";
 
-export function DashboardView({
-  initialStats,
-  initialActivity,
-  initialReactions,
-  initialReactors,
-  days,
-}: {
-  initialStats: DashboardStats;
-  initialActivity: DashboardActivity;
-  initialReactions: TopReaction[];
-  initialReactors: TopReactor[];
-  days: number;
-}) {
-  const stats = useStats(initialStats);
-  const activity = useActivity(days, initialActivity);
-  const reactions = useTopReactions(10, initialReactions);
-  const reactors = useTopReactors(10, initialReactors);
+export function DashboardView({ days }: { days: number }) {
+  const stats = useStats();
+  const activity = useActivity(days);
+  const reactions = useTopReactions(10);
+  const reactors = useTopReactors(10);
 
   // A verdict landing invalidates the headline numbers; revalidate rather than
   // poll, so a quiet system costs nothing and a busy one stays honest.
   useWsEvent("message_analyzed", () => {
-    void stats.mutate();
-    void activity.mutate();
+    void stats.refetch();
+    void activity.refetch();
   });
   useWsEvent("moderation_action", () => {
-    void stats.mutate();
+    void stats.refetch();
   });
 
   const daily = activity.data?.daily ?? [];
@@ -93,7 +76,7 @@ export function DashboardView({
 
   if (stats.error && !stats.data) {
     return (
-      <ErrorState error={stats.error} onRetry={() => void stats.mutate()} />
+      <ErrorState error={stats.error} onRetry={() => void stats.refetch()} />
     );
   }
 
@@ -156,7 +139,7 @@ export function DashboardView({
           {activity.error && !activity.data ? (
             <ErrorState
               error={activity.error}
-              onRetry={() => void activity.mutate()}
+              onRetry={() => void activity.refetch()}
             />
           ) : (
             <AreaChart data={chartData} />

@@ -2,13 +2,14 @@
 
 import { useCallback } from "react";
 import { ErrorState, LoadingState } from "@/components/shared/states";
-import { useRouteSeed } from "@/hooks/use-route-seed";
+import { type CursorPage, qk } from "@/hooks/use-data";
+import { type SeedEntry, useRouteSeed } from "@/hooks/use-route-seed";
 import { browserApi } from "@/lib/api/browser";
 import type {
   Guild,
-  Message,
   MessageEdit,
   MessagePage,
+  ReviewResult,
   TextChannel,
 } from "@/lib/types";
 import { MessagesView } from "./view";
@@ -31,6 +32,10 @@ import { MessagesView } from "./view";
  */
 const REVIEW_LIMIT = 20;
 const FEED_LIMIT = 50;
+// Must match `EDIT_LIMIT` in `./view`, or the seed would fetch a different page
+// size than the hook's infinite query asks for and the first render would show
+// a list the very next fetch immediately replaces.
+const EDIT_LIMIT = 25;
 
 export function MessagesPage() {
   const fetcher = useCallback(async () => {
@@ -46,10 +51,10 @@ export function MessagesPage() {
         : Promise.resolve([] as TextChannel[]),
       browserApi.messages.review({
         limit: REVIEW_LIMIT,
-      }) as unknown as Promise<{ results: Message[] }>,
+      }) as unknown as Promise<ReviewResult>,
       browserApi.messages.editHistory({
-        limit: 25,
-      }) as unknown as Promise<MessageEdit[]>,
+        limit: EDIT_LIMIT,
+      }) as unknown as Promise<CursorPage<MessageEdit> | MessageEdit[]>,
     ]);
 
     // Same guard as the server version: never call messages.list without a
@@ -62,17 +67,75 @@ export function MessagesPage() {
         })) as unknown as MessagePage)
       : EMPTY_PAGE;
 
+    // The PAGES are returned whole, cursor included — not `.data` / `.results`.
+    // `prime` below writes each one as page 0 of an infinite query, and a page
+    // stripped of its cursor reads as "this is the last page", which would
+    // silently disable the very scrolling this route exists for.
     return {
       guilds: guilds ?? [],
       channels: channels ?? [],
-      messages: messages?.data ?? [],
-      review: review?.results ?? [],
-      edits: edits ?? [],
+      messages,
+      review,
+      edits,
       defaultGuildId: guildId ?? null,
     };
   }, []);
 
-  const seed = useRouteSeed(fetcher);
+  // Prime all three paged queries with the seed, so the view's infinite
+  // queries mount onto page one instead of re-requesting it.
+  //
+  // THE KEY SHAPES MATTER AND ARE NOT INTERCHANGEABLE. An infinite query's
+  // cache entry is `{ pages: [page0], pageParams: [undefined] }`, not the bare
+  // page — seeding `MessagePage` directly would render `data.pages` as
+  // `undefined` and crash the list. And the cursor must be carried through, or
+  // `getNextPageParam` sees `nextCursor: null`, concludes there is no page 2,
+  // and the scroll the user came here for silently does nothing.
+  const prime = useCallback(
+    (r: {
+      guilds: Guild[];
+      channels: TextChannel[];
+      messages: MessagePage;
+      review: ReviewResult;
+      edits: CursorPage<MessageEdit> | MessageEdit[];
+      defaultGuildId: string | null;
+    }) => {
+      const scope = r.messages;
+      const first: SeedEntry<unknown>[] = [
+        {
+          key: qk.guilds,
+          data: r.guilds,
+        },
+        {
+          key: qk.textChannels(r.defaultGuildId ?? ""),
+          data: r.channels,
+        },
+        {
+          key: [
+            ...qk.messagePage({
+              guildId: r.defaultGuildId ?? undefined,
+              limit: FEED_LIMIT,
+            }),
+          ],
+          data: {
+            pages: [scope],
+            pageParams: [undefined],
+          },
+        },
+        {
+          key: [...qk.review(undefined), REVIEW_LIMIT],
+          data: { pages: [r.review], pageParams: [undefined] },
+        },
+        {
+          key: [...qk.edits(undefined), EDIT_LIMIT],
+          data: { pages: [r.edits], pageParams: [undefined] },
+        },
+      ];
+      return first;
+    },
+    [],
+  );
+
+  const seed = useRouteSeed(fetcher, prime);
 
   if (seed.error) {
     return <ErrorState error={seed.error} onRetry={seed.retry} />;
@@ -82,14 +145,5 @@ export function MessagesPage() {
     return <LoadingState label="Loading messages" />;
   }
 
-  return (
-    <MessagesView
-      initialGuilds={seed.data.guilds}
-      initialChannels={seed.data.channels}
-      initialMessages={seed.data.messages}
-      initialReview={seed.data.review}
-      initialEdits={seed.data.edits}
-      defaultGuildId={seed.data.defaultGuildId}
-    />
-  );
+  return <MessagesView defaultGuildId={seed.data.defaultGuildId} />;
 }

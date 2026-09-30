@@ -14,13 +14,10 @@ import { useUsers } from "@/hooks/use-data";
 import { formatNumber, formatRelative } from "@/lib/format";
 import type { UserSummary } from "@/lib/types";
 
-export function UsersView({ initialUsers }: { initialUsers: UserSummary[] }) {
+export function UsersView() {
   const [search, setSearch] = useState("");
 
-  const users = useUsers(search, {
-    data: initialUsers,
-    nextCursor: null,
-  });
+  const users = useUsers(search);
 
   const rows = useMemo(() => {
     const data = users.data?.data ?? [];
@@ -49,7 +46,7 @@ export function UsersView({ initialUsers }: { initialUsers: UserSummary[] }) {
       />
 
       {users.error && !users.data ? (
-        <ErrorState error={users.error} onRetry={() => void users.mutate()} />
+        <ErrorState error={users.error} onRetry={() => void users.refetch()} />
       ) : rows.length === 0 ? (
         search ? (
           <NoResultsState query={search} />
@@ -63,7 +60,7 @@ export function UsersView({ initialUsers }: { initialUsers: UserSummary[] }) {
         >
           <ul
             className="divide-y divide-hairline"
-            aria-busy={users.isValidating || undefined}
+            aria-busy={users.isFetching || undefined}
           >
             {rows.map((user) => (
               <li key={user.user_id}>

@@ -94,15 +94,16 @@ try {
   );
 
   // ── messages.getReviewMessages (returned 0 rows before) ─────────────────
+  // Now cursor-paged: it returns `{ results, nextCursor }`, not a bare array.
   const review = await messagesRepository.getReviewMessages(undefined, 10);
-  check("getReviewMessages returns rows", review.length > 0, `${review.length} rows`);
+  check("getReviewMessages returns rows", review.results.length > 0, `${review.results.length} rows`);
   check(
     "every review row has a verdict_status or is dead",
-    review.every((r) => r.verdict_status !== null || r.ai_status === "dead"),
+    review.results.every((r) => r.verdict_status !== null || r.ai_status === "dead"),
   );
   check(
     "review rows carry the joined verdict detail",
-    review.some((r) => r.verdict_severity !== null || r.verdict_status !== null),
+    review.results.some((r) => r.verdict_severity !== null || r.verdict_status !== null),
   );
 
   // ── messages.findById: verdict joined, plus attempt history ─────────────

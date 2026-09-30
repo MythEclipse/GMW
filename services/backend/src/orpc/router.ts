@@ -110,14 +110,18 @@ const messagesRouter = {
       z.object({
         limit: z.coerce.number().int().positive().default(20),
         channelId: z.string().optional(),
+        // Opaque resume token. Absent = first page; the client treats a null
+        // `cursor` in the response as "no more pages" and stops asking.
+        cursor: z.string().optional(),
       }),
     )
     .handler(async ({ input }) => {
-      const rows = await messagesService.getReviewMessages(
+      const { results, nextCursor } = await messagesService.getReviewMessages(
         input.channelId,
         input.limit,
+        input.cursor,
       );
-      return { results: rows, limit: input.limit, cursor: null };
+      return { results, limit: input.limit, cursor: nextCursor };
     }),
   // Public, read-only activity heatmap data (per-hour volume by channel).
   activity: os
@@ -127,17 +131,25 @@ const messagesRouter = {
       }),
     )
     .handler(({ input }) => messagesService.getActivity(input.days)),
-  // Public, read-only recent message edits (evasion tracker).
+  // Public, read-only recent message edits (evasion tracker). Cursor-paged like
+  // `review`: the response is now `{ results, nextCursor }` rather than a bare
+  // array, so the Edits tab can scroll the same way the other two tabs do.
   editHistory: os
     .input(
       z.object({
         limit: z.coerce.number().int().positive().default(50),
         channelId: z.string().optional(),
+        cursor: z.string().optional(),
       }),
     )
-    .handler(({ input }) =>
-      messagesService.getRecentEdits(input.limit, input.channelId),
-    ),
+    .handler(async ({ input }) => {
+      const { results, nextCursor } = await messagesService.getRecentEdits(
+        input.limit,
+        input.channelId,
+        input.cursor,
+      );
+      return { results, nextCursor };
+    }),
 };
 
 // ── Moderation ───────────────────────────────────────────────────

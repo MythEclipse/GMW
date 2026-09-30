@@ -19,22 +19,13 @@ import {
 import type { ChannelSummary } from "@/lib/types";
 
 export function ChannelsView({
-  initialChannels,
   scopedGuildId,
 }: {
-  initialChannels: ChannelSummary[];
   scopedGuildId: string | null;
 }) {
   const [search, setSearch] = useState("");
 
-  const channels = useChannels(
-    search,
-    {
-      data: initialChannels,
-      nextCursor: null,
-    },
-    scopedGuildId ?? undefined,
-  );
+  const channels = useChannels(search, scopedGuildId ?? undefined);
 
   const rows = useMemo(() => {
     const data = channels.data?.data ?? [];
@@ -65,7 +56,7 @@ export function ChannelsView({
       {channels.error && !channels.data ? (
         <ErrorState
           error={channels.error}
-          onRetry={() => void channels.mutate()}
+          onRetry={() => void channels.refetch()}
         />
       ) : rows.length === 0 ? (
         search ? (
@@ -74,10 +65,7 @@ export function ChannelsView({
           <EmptyState title="No channels captured yet" />
         )
       ) : (
-        <ul
-          className="space-y-2"
-          aria-busy={channels.isValidating || undefined}
-        >
+        <ul className="space-y-2" aria-busy={channels.isFetching || undefined}>
           {rows.map((channel) => (
             <li key={channel.channel_id}>
               <ChannelRow channel={channel} />

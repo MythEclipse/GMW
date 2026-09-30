@@ -122,6 +122,208 @@ function cursorLimit(limit: number): number {
   return limit + 1;
 }
 
+/**
+ * The resume token for a page fetched with `limit + 1` rows.
+ *
+ * THE INDEX IS `limit - 1`, NOT `limit`, AND THAT IS THE WHOLE POINT
+ *
+ * `cursorLimit()` fetches one row MORE than it returns: the overflow row is
+ * proof that another page exists. So the last row actually shown to the caller
+ * sits at `rows[limit - 1]`, and the cursor must be built from THAT row — it is
+ * the position the next page has to resume strictly after.
+ *
+ * Using `rows[limit]` instead (the overflow row itself) is off by one and loses
+ * a row at every page boundary: the cursor points at a row the client never
+ * received, the next page filters strictly `< cursor`, and that row is
+ * therefore skipped forever. It is a silent data-loss bug, not a visible
+ * error — the page still looks plausible.
+ *
+ * This was the bug in all four cursor-paginated queries in this file
+ * (`findMany`, `findByChannel`, `getImageMessages`, `getAttachmentsByChannel`)
+ * before `getReviewMessages`/`getRecentEdits` were added; the index is spelled
+ * once here so the next one cannot repeat it.
+ *
+ * Stringified because `PageResult.nextCursor` is `string | null` and the queries
+ * compare it with `Number(query.cursor)` on the way back in — one canonical
+ * representation at the boundary, not two.
+ *
+ * Returns null when the fetched row count does not exceed `limit`, i.e. this
+ * was the final page.
+ */
+function nextCursorAt<T extends { created_at: unknown }>(
+  rows: T[],
+  limit: number,
+): string | null {
+  if (rows.length <= limit) return null;
+  return String(rows[limit - 1].created_at);
+}
+
+/**
+ * The review queue's sort key, defined ONCE in JS and once in SQL — and the two
+ * pairs must agree.
+ *
+ * WHY THEY ARE DUPLICATED AT ALL
+ *
+ * `getReviewMessages` uses this key twice: once in ORDER BY, once inside the
+ * cursor comparison. Writing it as a single SQL expression and reusing that
+ * expression in both places is what makes drift impossible. It still has to
+ * exist twice overall — once as SQL text for the query, once as a JS function
+ * for encoding a returned row into the next cursor — so the pairing is
+ * asserted by the tests rather than by the compiler.
+ *
+ * `actionRankOf` mirrors `reviewActionRank()`: ranking rather than sorting the
+ * raw string is what puts `delete` above `escalate` above `review`, because
+ * those are the tiers a moderator acts on. `none`/NULL lands in bucket 0 and
+ * therefore sorts last.
+ */
+const ACTION_RANKS: Record<string, number> = {
+  delete: 3,
+  escalate: 2,
+  review: 1,
+};
+
+const SEVERITY_RANKS: Record<string, number> = {
+  critical: 5,
+  high: 4,
+  medium: 3,
+  low: 2,
+  none: 1,
+};
+
+function actionRankOf(recommendedAction: unknown): number {
+  if (typeof recommendedAction !== "string") return 0;
+  return ACTION_RANKS[recommendedAction] ?? 0;
+}
+
+function severityRankOf(severity: unknown): number {
+  if (typeof severity !== "string") return 1;
+  return SEVERITY_RANKS[severity] ?? 1;
+}
+
+function reviewActionRank(): SQL {
+  return sql`CASE ${pgVerdictsTable.recommended_action}
+    WHEN 'delete' THEN 3
+    WHEN 'escalate' THEN 2
+    WHEN 'review' THEN 1
+    ELSE 0 END`;
+}
+
+/**
+ * Severity as a comparable number. The column is a text enum, so `desc()` on it
+ * would sort lexically ("none" > "low" > "critical" > "high"), which is why the
+ * frontend re-sorts severity for display too.
+ */
+function reviewSeverityKey(): SQL {
+  return sql`CASE ${pgVerdictsTable.severity}
+    WHEN 'critical' THEN 5
+    WHEN 'high' THEN 4
+    WHEN 'medium' THEN 3
+    WHEN 'low' THEN 2
+    ELSE 1 END`;
+}
+
+/** The full review-queue sort key, ordered most-important first. */
+function reviewOrderBy(): SQL[] {
+  return [
+    desc(reviewActionRank()),
+    desc(reviewSeverityKey()),
+    desc(pgMessagesTable.created_at),
+    desc(pgMessagesTable.id),
+  ];
+}
+
+/**
+ * A position in the review queue, resolved to the raw column values a row
+ * comparison needs.
+ *
+ * Deliberately stores the RANK (`3` for delete), not the string, so the decode
+ * side needs no CASE of its own — the same numbering is used on both sides of
+ * the comparison, which is the whole point of the encoding.
+ */
+interface ReviewCursor {
+  action: number;
+  severity: number;
+  created_at: number;
+  id: string;
+}
+
+/** Encode/decode are lenient on purpose: a malformed cursor means "first page". */
+function decodeReviewCursor(cursor?: string): ReviewCursor | null {
+  if (!cursor) return null;
+  try {
+    const raw = JSON.parse(
+      Buffer.from(cursor, "base64").toString("utf-8"),
+    ) as Partial<ReviewCursor>;
+    if (
+      typeof raw.action !== "number" ||
+      typeof raw.severity !== "number" ||
+      typeof raw.created_at !== "number" ||
+      typeof raw.id !== "string"
+    ) {
+      return null;
+    }
+    return {
+      action: raw.action,
+      severity: raw.severity,
+      created_at: raw.created_at,
+      id: raw.id,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function encodeReviewCursor(cursor: ReviewCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64");
+}
+
+/** A page of review-queue rows plus the position to resume from. */
+export interface ReviewPageResult {
+  results: Record<string, unknown>[];
+  nextCursor: string | null;
+}
+
+/** A position in the edit log: `(edited_at, id)`, both needed for a total order. */
+interface EditCursor {
+  edited_at: number;
+  id: string;
+}
+
+/** A page of edit rows plus the position to resume from. */
+export interface EditPageResult {
+  results: {
+    id: string;
+    message_id: string;
+    old_content: string;
+    new_content: string;
+    edited_at: number;
+    channel_id: string | null;
+    channel_name: string | null;
+    username: string | null;
+  }[];
+  nextCursor: string | null;
+}
+
+/** A malformed cursor degrades to "no cursor" — the first page — never to a throw. */
+function decodeEditCursor(cursor?: string): EditCursor | null {
+  if (!cursor) return null;
+  try {
+    const raw = JSON.parse(
+      Buffer.from(cursor, "base64").toString("utf-8"),
+    ) as Partial<EditCursor>;
+    if (typeof raw.edited_at !== "number" || typeof raw.id !== "string") {
+      return null;
+    }
+    return { edited_at: raw.edited_at, id: raw.id };
+  } catch {
+    return null;
+  }
+}
+
+function encodeEditCursor(cursor: EditCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64");
+}
+
 export class MessagesRepository {
   async findMany(query: MessageQuery): Promise<PageResult<MessageRow>> {
     const db = getDatabase();
@@ -172,8 +374,7 @@ export class MessagesRepository {
     const data = rows
       .slice(0, limit)
       .map((r) => mapMessageRow(r as Record<string, unknown>));
-    const nextCursor =
-      rows.length > limit ? String(rows[limit].created_at) : null;
+    const nextCursor = nextCursorAt(rows, limit);
 
     logger.debug({ count: data.length, nextCursor }, "Found messages");
     return { data, nextCursor };
@@ -290,8 +491,7 @@ export class MessagesRepository {
     const data = rows
       .slice(0, limit)
       .map((r) => mapMessageRow(r as Record<string, unknown>));
-    const nextCursor =
-      rows.length > limit ? String(rows[limit].created_at) : null;
+    const nextCursor = nextCursorAt(rows, limit);
 
     return { data, nextCursor };
   }
@@ -431,13 +631,31 @@ export class MessagesRepository {
    * ran out of attempts (`dead`).
    *
    * This used to be `messages.ai_status IN ('warn','flagged')`, which returned
-   * an empty list forever once the new worker started writing only `analyzed`
-   * to that column. The judgement lives in `verdicts.status` now.
+   * an empty list forever once the new worker started writing only `analyzed` to
+   * that column. The judgement lives in `verdicts.status` now.
+   *
+   * CURSOR PAGINATION MUST MATCH THE ORDER BY
+   *
+   * This query does not sort by recency — it sorts actionable-first, then
+   * severity, then newest, which is the order a moderator works the queue in. A
+   * `created_at`-only cursor would therefore be wrong here: every page re-sorts
+   * independently, so the same row reappears on page 2 while rows from page 1
+   * that fell below the cut are silently lost.
+   *
+   * So the cursor carries the WHOLE sort key (action rank, severity, created_at,
+   * id) and the WHERE clause replays it as a nested lexicographic comparison
+   * against the same key expressions the ORDER BY uses. Both sides read
+   * `reviewActionRank()` / `reviewSeverityKey()` — one definition each — so the
+   * comparison cannot drift from the sort. `id` is the final tiebreak in the
+   * ORDER BY precisely so that a cursor has a total order to resume from: two
+   * rows sharing (action, severity, created_at) would otherwise be returned in
+   * an arbitrary order and could be duplicated or skipped across pages.
    */
   async getReviewMessages(
     channelId?: string,
     limit: number = 20,
-  ): Promise<Record<string, unknown>[]> {
+    cursor?: string,
+  ): Promise<ReviewPageResult> {
     const db = getDatabase();
     const needsReview = or(
       inArray(pgVerdictsTable.status, ["warn", "flagged"]),
@@ -450,6 +668,24 @@ export class MessagesRepository {
     if (channelId) {
       conditions.push(eq(pgMessagesTable.channel_id, channelId));
     }
+
+    const at = decodeReviewCursor(cursor);
+    if (at) {
+      conditions.push(
+        sql`(${reviewActionRank()} < ${at.action}
+             or (${reviewActionRank()} = ${at.action} and (
+               ${reviewSeverityKey()} < ${at.severity}
+               or (${reviewSeverityKey()} = ${at.severity} and (
+                 ${pgMessagesTable.created_at} < ${at.created_at}
+                 or (${pgMessagesTable.created_at} = ${at.created_at}
+                     and ${pgMessagesTable.id} < ${at.id})
+               ))
+             )))`,
+      );
+    }
+
+    const excludeThreads = excludeSpamThreads();
+    if (excludeThreads) conditions.push(excludeThreads);
 
     const rows = await db
       .select({
@@ -497,19 +733,28 @@ export class MessagesRepository {
         eq(pgVerdictsTable.message_id, pgMessagesTable.id),
       )
       .where(and(...conditions))
-      // Actionable first, then most severe, then newest.
-      .orderBy(
-        desc(sql`CASE ${pgVerdictsTable.recommended_action}
-                   WHEN 'delete' THEN 3
-                   WHEN 'escalate' THEN 2
-                   WHEN 'review' THEN 1
-                   ELSE 0 END`),
-        desc(pgVerdictsTable.severity),
-        desc(pgMessagesTable.created_at),
-      )
-      .limit(limit);
+      // Actionable first, then most severe, then newest. Read from
+      // `reviewOrderBy()` so the sort and the cursor comparison cannot drift.
+      .orderBy(...reviewOrderBy())
+      .limit(cursorLimit(limit));
 
-    return rows as unknown as Record<string, unknown>[];
+    // `limit + 1` fetched: the overflow row only proves another page exists.
+    const results = (rows.slice(0, limit) ?? []) as Record<string, unknown>[];
+    // Cursor comes from the LAST RETURNED row (index `limit - 1`), not the
+    // overflow row at index `limit` — see `nextCursorAt` for why that
+    // distinction costs a row per page boundary if you get it backwards.
+    const last = rows.length > limit ? rows[limit - 1] : null;
+    const nextCursor =
+      last && results.length === limit
+        ? encodeReviewCursor({
+            action: actionRankOf(last.verdict_recommended_action),
+            severity: severityRankOf(last.verdict_severity),
+            created_at: Number(last.created_at),
+            id: String(last.id),
+          })
+        : null;
+
+    return { results, nextCursor };
   }
 
   async delete(id: string): Promise<boolean> {
@@ -560,8 +805,7 @@ export class MessagesRepository {
     const data = rows
       .slice(0, limit)
       .map((r) => mapMessageRow(r as Record<string, unknown>));
-    const nextCursor =
-      rows.length > limit ? String(rows[limit].created_at) : null;
+    const nextCursor = nextCursorAt(rows, limit);
 
     logger.debug({ count: data.length, nextCursor }, "Found image messages");
     return { data, nextCursor };
@@ -596,10 +840,12 @@ export class MessagesRepository {
       mapAttachmentRow(r as Record<string, unknown>),
     );
 
-    // nextCursor derives from the fetched-but-untrimmed overflow row (index
-    // `limit`), matching the other cursor-paginated queries.
-    const nextCursor =
-      rows.length > limit ? String(rows[limit].created_at) : null;
+    // `nextCursorAt` reads the LAST RETURNED row (index `limit - 1`), not the
+    // overflow row at index `limit`. An earlier comment here claimed index
+    // `limit` "matches the other cursor-paginated queries" — it did, and that
+    // was the bug in all of them: it skipped one row per page boundary. See
+    // `nextCursorAt` for the full explanation.
+    const nextCursor = nextCursorAt(rows, limit);
     const trimmed = data.slice(0, limit);
 
     return { data: trimmed, nextCursor };
@@ -636,9 +882,30 @@ export class MessagesRepository {
   /**
    * Recent message edits across the server (evasion-signal tracker).
    * Public, read-only. Joins message_edits → messages for context.
+   *
+   * Cursor-paged on `(edited_at, id)`. Unlike the review queue this one really
+   * does sort by recency, so a single timestamp cursor would almost be enough —
+   * but `id` is the tiebreak for the same reason as everywhere else: two edits
+   * in the same millisecond would otherwise be returned in an arbitrary order
+   * and could be duplicated or dropped across a page boundary.
    */
-  async getRecentEdits(limit = 50, channelId?: string) {
+  async getRecentEdits(
+    limit = 50,
+    channelId?: string,
+    cursor?: string,
+  ): Promise<EditPageResult> {
     const db = getDatabase();
+
+    const filters: SQL[] = [];
+    if (channelId) filters.push(sql`m.channel_id = ${channelId}`);
+
+    const at = decodeEditCursor(cursor);
+    if (at) {
+      filters.push(
+        sql`(e.edited_at < ${at.edited_at} or (e.edited_at = ${at.edited_at} and e.id < ${at.id}))`,
+      );
+    }
+
     const result = await db.execute(sql`
       SELECT
         e.id,
@@ -651,12 +918,17 @@ export class MessagesRepository {
         COALESCE(m.edited_content, m.content) AS new_content
       FROM message_edits e
       JOIN messages m ON m.id = e.message_id
-      ${channelId ? sql`WHERE m.channel_id = ${channelId}` : sql``}
-      ORDER BY e.edited_at DESC
-      LIMIT ${limit}
+      ${filters.length > 0 ? sql`WHERE ${and(...filters)}` : sql``}
+      ORDER BY e.edited_at DESC, e.id DESC
+      LIMIT ${cursorLimit(limit)}
     `);
     const rows = (result.rows as Record<string, unknown>[]) || [];
-    return rows.map((r) => ({
+
+    // The `limit + 1`-th row is fetched purely to detect "there is more"; it is
+    // not part of `results`. The cursor is built from the last RETURNED row
+    // (index `limit - 1`) — see `nextCursorAt` for why index `limit` loses a
+    // row per page boundary.
+    const results = rows.slice(0, limit).map((r) => ({
       id: String(r.id),
       message_id: String(r.message_id),
       old_content: r.old_content ? String(r.old_content) : "",
@@ -666,6 +938,16 @@ export class MessagesRepository {
       channel_name: r.channel_name ? String(r.channel_name) : null,
       username: r.username ? String(r.username) : null,
     }));
+
+    const last = rows.length > limit ? rows[limit - 1] : undefined;
+    const nextCursor = last
+      ? encodeEditCursor({
+          edited_at: Number(last.edited_at ?? 0),
+          id: String(last.id),
+        })
+      : null;
+
+    return { results, nextCursor };
   }
 
   /**

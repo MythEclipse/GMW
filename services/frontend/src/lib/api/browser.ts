@@ -43,11 +43,14 @@ export const browserApi = {
       query: Parameters<RpcClient["messages"]["byChannel"]>[0]["query"],
     ) => client().messages.byChannel({ channelId, query }),
     detail: (id: string) => client().messages.detail({ id }),
-    review: (input: { limit?: number; channelId?: string }) =>
+    review: (input: { limit?: number; channelId?: string; cursor?: string }) =>
       client().messages.review(input),
     activity: (days: number) => client().messages.activity({ days }),
-    editHistory: (input: { limit?: number; channelId?: string }) =>
-      client().messages.editHistory(input),
+    editHistory: (input: {
+      limit?: number;
+      channelId?: string;
+      cursor?: string;
+    }) => client().messages.editHistory(input),
     images: (guildId: string, limit: number) =>
       client().messages.images({ guildId, limit }),
   },

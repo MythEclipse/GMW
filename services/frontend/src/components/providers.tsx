@@ -1,5 +1,6 @@
 "use client";
 
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Outlet } from "react-router";
 import { Chatbot } from "@/components/chatbot/chatbot";
 import {
@@ -11,6 +12,7 @@ import { MobileNav } from "@/components/shell/mobile-nav";
 import { NavRail } from "@/components/shell/nav-rail";
 import { QueueRibbon } from "@/components/shell/queue-ribbon";
 import { Topbar } from "@/components/shell/topbar";
+import { getQueryClient } from "@/lib/query-client";
 import { WsProvider } from "@/lib/ws/context";
 
 /**
@@ -21,16 +23,28 @@ import { WsProvider } from "@/lib/ws/context";
  * route elements, the chrome never remounts on navigation and the `/ws` socket
  * stays open — which is what the App Router's root layout did.
  *
+ * `QueryClientProvider` sits here rather than in `main.tsx` for the same
+ * reason: it must be ABOVE `<Outlet />` so a route element mounted through the
+ * outlet can read the cache. This is also where the "everything the dashboard
+ * needs is provided here" boundary already is — one place to look when a hook
+ * reports a missing provider.
+ *
  * The old doc comment claimed "the SSR payload arrives as already-rendered
  * markup, so the first paint has real data and only the interactive parts
  * hydrate". There is no SSR and no hydration any more; each route now blocks
  * its own render on `useRouteSeed` until its data arrives.
  */
 export function Providers() {
+  // `getQueryClient()` returns the browser singleton, so calling it on every
+  // render of this component is free — it does not construct a second cache.
+  const queryClient = getQueryClient();
+
   return (
-    <WsProvider>
-      <Shell />
-    </WsProvider>
+    <QueryClientProvider client={queryClient}>
+      <WsProvider>
+        <Shell />
+      </WsProvider>
+    </QueryClientProvider>
   );
 }
 

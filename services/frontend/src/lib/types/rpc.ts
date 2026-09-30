@@ -69,9 +69,17 @@ export interface MessagesClient {
     channelId: string;
     query: MessageQuery;
   }): Promise<unknown>;
-  review(input: { limit?: number; channelId?: string }): Promise<unknown>;
+  review(input: {
+    limit?: number;
+    channelId?: string;
+    cursor?: string;
+  }): Promise<unknown>;
   activity(input: { days?: number }): Promise<unknown>;
-  editHistory(input: { limit?: number; channelId?: string }): Promise<unknown>;
+  editHistory(input: {
+    limit?: number;
+    channelId?: string;
+    cursor?: string;
+  }): Promise<unknown>;
 }
 
 export interface ModerationClient {

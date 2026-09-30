@@ -43,12 +43,8 @@ import {
 } from "@/lib/format";
 import type {
   Coverage,
-  FlaggedChannel,
-  FlaggedDomain,
   HourBucket,
   ModerationActionPage,
-  ModerationStats,
-  ModerationTrends,
   Severity,
 } from "@/lib/types";
 import { useWsEvent } from "@/lib/ws/context";
@@ -93,25 +89,7 @@ const ACTION_ITEMS: Record<string, string> = {
   ...Object.fromEntries(ACTION_TYPES.map((t) => [t, humanize(t)])),
 };
 
-export function ModerationView({
-  initialStats,
-  initialActions,
-  initialTrends,
-  initialDomains,
-  initialFlaggedChannels,
-  initialHourly,
-  initialCoverage,
-  days,
-}: {
-  initialStats: ModerationStats;
-  initialActions: ModerationActionPage;
-  initialTrends: ModerationTrends;
-  initialDomains: FlaggedDomain[];
-  initialFlaggedChannels: FlaggedChannel[];
-  initialHourly: HourBucket[];
-  initialCoverage: Coverage;
-  days: number;
-}) {
+export function ModerationView({ days }: { days: number }) {
   // Seed the enforcement-log filters from the URL (W2) so the "Model errors"
   // stat tile can deep-link into `?status=failed` and land on the failed
   // actions rather than on the unfiltered table.
@@ -156,24 +134,26 @@ export function ModerationView({
     setParams(next, { replace: true });
   }, [status, actionType, urlStatus, urlAction, setParams]);
 
-  const stats = useModerationStats(initialStats);
-  const actions = useModerationActions(status, actionType, initialActions);
-  const trends = useModerationTrends(days, initialTrends);
-  const domains = useFlaggedDomains(days, initialDomains);
-  const flaggedChannels = useFlaggedChannels(days, initialFlaggedChannels);
-  const hourly = useHourlyModeration(days, initialHourly);
-  const coverage = useCoverage(days, initialCoverage);
+  const stats = useModerationStats();
+  const actions = useModerationActions(status, actionType);
+  const trends = useModerationTrends(days);
+  const domains = useFlaggedDomains(days);
+  const flaggedChannels = useFlaggedChannels(days);
+  // `HourBucket` is the ELEMENT type; the hook returns the array of them,
+  // so the generic takes `HourBucket[]`.
+  const hourly = useHourlyModeration<HourBucket[]>(days);
+  const coverage = useCoverage<Coverage>(days);
 
   // An enforcement action is the terminal event for a message: refresh the
   // counters, the trends, and the action log together so the page never shows
   // a delete that the tiles have not counted yet.
   useWsEvent("moderation_action", () => {
-    void stats.mutate();
-    void actions.mutate();
-    void trends.mutate();
+    void stats.refetch();
+    void actions.refetch();
+    void trends.refetch();
   });
   useWsEvent("message_analyzed", () => {
-    void coverage.mutate();
+    void coverage.refetch();
   });
 
   const categoryBars = useMemo(
@@ -231,7 +211,7 @@ export function ModerationView({
 
   if (stats.error && !stats.data) {
     return (
-      <ErrorState error={stats.error} onRetry={() => void stats.mutate()} />
+      <ErrorState error={stats.error} onRetry={() => void stats.refetch()} />
     );
   }
 
@@ -284,7 +264,7 @@ export function ModerationView({
           {trends.error && !trends.data ? (
             <ErrorState
               error={trends.error}
-              onRetry={() => void trends.mutate()}
+              onRetry={() => void trends.refetch()}
             />
           ) : (
             <RankedBars data={categoryBars} showRank />
@@ -306,7 +286,7 @@ export function ModerationView({
         {hourly.error && !hourly.data ? (
           <ErrorState
             error={hourly.error}
-            onRetry={() => void hourly.mutate()}
+            onRetry={() => void hourly.refetch()}
           />
         ) : (
           <HourHeatmap values={hourly.data ?? []} />
@@ -321,7 +301,7 @@ export function ModerationView({
           {domains.error && !domains.data ? (
             <ErrorState
               error={domains.error}
-              onRetry={() => void domains.mutate()}
+              onRetry={() => void domains.refetch()}
             />
           ) : (
             <RankedBars
@@ -402,9 +382,9 @@ export function ModerationView({
       >
         <ActionsTable
           page={actions.data}
-          loading={actions.isValidating}
+          loading={actions.isFetching}
           error={actions.error}
-          onRetry={() => void actions.mutate()}
+          onRetry={() => void actions.refetch()}
         />
       </Section>
     </div>

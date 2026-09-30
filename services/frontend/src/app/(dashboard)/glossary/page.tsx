@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { ErrorState, LoadingState } from "@/components/shared/states";
+import { qk } from "@/hooks/use-data";
 import { useRouteSeed } from "@/hooks/use-route-seed";
 import { browserApi } from "@/lib/api/browser";
 import type { ChannelCulture, FlaggedDomain, GlossaryTerm } from "@/lib/types";
@@ -34,7 +35,20 @@ export function GlossaryPage() {
     };
   }, []);
 
-  const seed = useRouteSeed(fetcher);
+  const prime = useCallback(
+    (r: {
+      cultures: ChannelCulture[];
+      glossary: GlossaryTerm[];
+      domains: FlaggedDomain[];
+    }) => [
+      { key: qk.cultures(""), data: r.cultures },
+      { key: qk.glossary(""), data: r.glossary },
+      { key: qk.domains(DAYS), data: r.domains },
+    ],
+    [],
+  );
+
+  const seed = useRouteSeed(fetcher, prime);
 
   if (seed.error) {
     return <ErrorState error={seed.error} onRetry={seed.retry} />;
@@ -44,11 +58,5 @@ export function GlossaryPage() {
     return <LoadingState label="Loading glossary" />;
   }
 
-  return (
-    <GlossaryView
-      initialCultures={seed.data.cultures}
-      initialGlossary={seed.data.glossary}
-      initialDomains={seed.data.domains}
-    />
-  );
+  return <GlossaryView />;
 }

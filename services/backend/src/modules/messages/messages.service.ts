@@ -1,5 +1,9 @@
 import { NotFoundError, ValidationError } from "@/shared/errors/index";
 import { createChildLogger } from "@/shared/logger/index";
+import type {
+  EditPageResult,
+  ReviewPageResult,
+} from "./messages.repository.js";
 import { messagesRepository } from "./messages.repository.js";
 import type { MessageQuery } from "./messages.schema.js";
 
@@ -104,9 +108,10 @@ export class MessagesService {
   async getReviewMessages(
     channelId?: string,
     limit?: number,
-  ): Promise<Record<string, unknown>[]> {
-    logger.debug({ channelId, limit }, "Getting review messages");
-    return messagesRepository.getReviewMessages(channelId, limit);
+    cursor?: string,
+  ): Promise<ReviewPageResult> {
+    logger.debug({ channelId, limit, cursor }, "Getting review messages");
+    return messagesRepository.getReviewMessages(channelId, limit, cursor);
   }
 
   async getActivity(
@@ -118,9 +123,10 @@ export class MessagesService {
   async getRecentEdits(
     limit = 50,
     channelId?: string,
-  ): Promise<Awaited<ReturnType<typeof messagesRepository.getRecentEdits>>> {
-    logger.debug({ limit, channelId }, "Getting recent message edits");
-    return messagesRepository.getRecentEdits(limit, channelId);
+    cursor?: string,
+  ): Promise<EditPageResult> {
+    logger.debug({ limit, channelId, cursor }, "Getting recent message edits");
+    return messagesRepository.getRecentEdits(limit, channelId, cursor);
   }
 
   /** Distinct guilds present in the message archive (guild picker). */

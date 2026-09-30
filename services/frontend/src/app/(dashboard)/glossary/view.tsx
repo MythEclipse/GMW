@@ -18,7 +18,7 @@ import {
   useGlossary,
 } from "@/hooks/use-data";
 import { formatNumber, formatRelative, humanize } from "@/lib/format";
-import type { ChannelCulture, FlaggedDomain, GlossaryTerm } from "@/lib/types";
+import type { ChannelCulture, GlossaryTerm } from "@/lib/types";
 
 const DAYS = 30;
 
@@ -27,20 +27,12 @@ const DAYS = 30;
  * cultures, the term glossary, and the domains that show up in flagged
  * messages. All three are read-only reference data, so they share one page.
  */
-export function GlossaryView({
-  initialCultures,
-  initialGlossary,
-  initialDomains,
-}: {
-  initialCultures: ChannelCulture[];
-  initialGlossary: GlossaryTerm[];
-  initialDomains: FlaggedDomain[];
-}) {
+export function GlossaryView() {
   const [search, setSearch] = useState("");
 
-  const cultures = useChannelCultures(search, initialCultures);
-  const glossary = useGlossary(search, initialGlossary);
-  const domains = useFlaggedDomains(DAYS, initialDomains);
+  const cultures = useChannelCultures(search);
+  const glossary = useGlossary(search);
+  const domains = useFlaggedDomains(DAYS);
 
   return (
     <div className="space-y-4">
@@ -71,9 +63,9 @@ export function GlossaryView({
         <TabsContent value="culture" className="mt-4">
           <CultureList
             cultures={cultures.data ?? []}
-            loading={cultures.isValidating}
+            loading={cultures.isFetching}
             error={cultures.error}
-            onRetry={() => void cultures.mutate()}
+            onRetry={() => void cultures.refetch()}
             search={search}
           />
         </TabsContent>
@@ -81,9 +73,9 @@ export function GlossaryView({
         <TabsContent value="terms" className="mt-4">
           <TermList
             terms={glossary.data ?? []}
-            loading={glossary.isValidating}
+            loading={glossary.isFetching}
             error={glossary.error}
-            onRetry={() => void glossary.mutate()}
+            onRetry={() => void glossary.refetch()}
             search={search}
           />
         </TabsContent>
@@ -97,7 +89,7 @@ export function GlossaryView({
               {domains.error && !domains.data ? (
                 <ErrorState
                   error={domains.error}
-                  onRetry={() => void domains.mutate()}
+                  onRetry={() => void domains.refetch()}
                 />
               ) : (
                 <RankedBars

@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { ErrorState, LoadingState } from "@/components/shared/states";
+import { qk } from "@/hooks/use-data";
 import { useRouteSeed } from "@/hooks/use-route-seed";
 import { browserApi } from "@/lib/api/browser";
 import type {
@@ -53,7 +54,33 @@ export function ModerationPage() {
     };
   }, []);
 
-  const seed = useRouteSeed(fetcher);
+  // Seven hooks read seven keys; all seven are primed here so the view mounts
+  // onto the seed instead of re-issuing the whole batch a frame later.
+  // `actions` is keyed with the unfiltered (empty-string) status/actionType the
+  // view starts on — anything else and the first render would fetch the
+  // filtered table while the seed sits unused in the cache.
+  const prime = useCallback(
+    (r: {
+      stats: ModerationStats;
+      actions: ModerationActionPage;
+      trends: ModerationTrends;
+      domains: FlaggedDomain[];
+      flaggedChannels: FlaggedChannel[];
+      hourly: HourBucket[];
+      coverage: Coverage;
+    }) => [
+      { key: qk.modStats, data: r.stats },
+      { key: qk.modActions("", ""), data: r.actions },
+      { key: qk.modTrends(DAYS), data: r.trends },
+      { key: qk.domains(DAYS), data: r.domains },
+      { key: qk.flaggedChannels(DAYS), data: r.flaggedChannels },
+      { key: qk.hourly(DAYS), data: r.hourly },
+      { key: qk.coverage(DAYS), data: r.coverage },
+    ],
+    [],
+  );
+
+  const seed = useRouteSeed(fetcher, prime);
 
   if (seed.error) {
     return <ErrorState error={seed.error} onRetry={seed.retry} />;
@@ -63,16 +90,5 @@ export function ModerationPage() {
     return <LoadingState label="Loading moderation" />;
   }
 
-  return (
-    <ModerationView
-      initialStats={seed.data.stats}
-      initialActions={seed.data.actions}
-      initialTrends={seed.data.trends}
-      initialDomains={seed.data.domains}
-      initialFlaggedChannels={seed.data.flaggedChannels}
-      initialHourly={seed.data.hourly}
-      initialCoverage={seed.data.coverage}
-      days={DAYS}
-    />
-  );
+  return <ModerationView days={DAYS} />;
 }
