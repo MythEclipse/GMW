@@ -17,6 +17,7 @@
 
 import { ModerationWorker } from "@/modules/ai-moderation/index.js";
 import { createDefaultGateway } from "@/modules/ai-moderation/llmGateway.js";
+import { ModerationMemoryBank } from "@/modules/ai-moderation/memoryBank.js";
 import { config } from "@/shared/config/index";
 import { closeDatabase, getPool } from "@/shared/database/drizzle";
 import { initializeDatabase } from "@/shared/database/init";
@@ -46,22 +47,40 @@ async function main(): Promise<void> {
 
   const pool = getPool();
   const gateway = createDefaultGateway();
-  const worker = new ModerationWorker(pool, gateway, {
-    claimBatchSize: config.AI_ANALYSIS_MAX_BATCH_SIZE,
-    leaseMs: config.AI_ANALYSIS_PROCESSING_TIMEOUT_MS,
-    llmTimeoutMs: config.AI_ANALYSIS_LLM_TIMEOUT_MS,
-    // The vision pre-pass runs before the moderation call and holds the same
-    // lease, so the lease assertion is against this + llmTimeoutMs.
-    visionTimeoutMs: config.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS,
-    idlePollMs: config.AI_ANALYSIS_POLL_INTERVAL_MS,
-    maxAttempts: config.AI_ANALYSIS_MAX_ATTEMPTS,
-    retryBackoffBaseMs: config.AI_ANALYSIS_RETRY_BACKOFF_MS,
-    // Channels deliberately outside moderation. Still captured, never judged.
-    skipChannelIds: config.AI_SKIP_ANALYSIS_CHANNEL_IDS,
-    // Same, for individual threads. Needed because a thread's messages carry
-    // the PARENT id in channel_id, so the channel list cannot name a thread.
-    skipThreadIds: config.AI_SKIP_ANALYSIS_THREAD_IDS,
-  });
+  // Hindsight supplies what the guild already knows about these channels.
+  // Off unless AI_MEMORY_ENABLED=true, and every failure inside it degrades to
+  // an ordinary batch — so an unreachable instance costs context, not verdicts.
+  const memory = config.AI_MEMORY_ENABLED
+    ? ModerationMemoryBank.fromConfig()
+    : undefined;
+  if (memory) {
+    log.info(
+      { bank: config.AI_MEMORY_BANK_ID, baseUrl: config.AI_MEMORY_BASE_URL },
+      "hindsight memory enabled for moderation context",
+    );
+  }
+  const worker = new ModerationWorker(
+    pool,
+    gateway,
+    {
+      claimBatchSize: config.AI_ANALYSIS_MAX_BATCH_SIZE,
+      leaseMs: config.AI_ANALYSIS_PROCESSING_TIMEOUT_MS,
+      llmTimeoutMs: config.AI_ANALYSIS_LLM_TIMEOUT_MS,
+      // The vision pre-pass runs before the moderation call and holds the same
+      // lease, so the lease assertion is against this + llmTimeoutMs.
+      visionTimeoutMs: config.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS,
+      idlePollMs: config.AI_ANALYSIS_POLL_INTERVAL_MS,
+      maxAttempts: config.AI_ANALYSIS_MAX_ATTEMPTS,
+      retryBackoffBaseMs: config.AI_ANALYSIS_RETRY_BACKOFF_MS,
+      // Channels deliberately outside moderation. Still captured, never judged.
+      skipChannelIds: config.AI_SKIP_ANALYSIS_CHANNEL_IDS,
+      // Same, for individual threads. Needed because a thread's messages carry
+      // the PARENT id in channel_id, so the channel list cannot name a thread.
+      skipThreadIds: config.AI_SKIP_ANALYSIS_THREAD_IDS,
+    },
+    undefined,
+    memory,
+  );
 
   let shuttingDown = false;
   const stop = async (signal: string) => {

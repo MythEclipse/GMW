@@ -5,6 +5,7 @@
     "": {
       "name": "@bete/discord-gateway",
       "dependencies": {
+        "@vectorize-io/hindsight-client": "0.10.2",
         "axios": "^1.20.0",
         "discord.js-selfbot-v13": "^3.7.1",
         "dotenv": "^18.0.4",
@@ -285,6 +286,8 @@
     "@typescript/typescript-win32-arm64": ["@typescript/typescript-win32-arm64@7.0.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-Gyl1Vy6OsWesLzmq+EP0Fb7b4Nid5232AvcA2SFcdYreldpNtYFFofPjnt62y9hQy7VTaZp65ICJjuAQRaVcIQ=="],
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
+
+    "@vectorize-io/hindsight-client": ["@vectorize-io/hindsight-client@0.10.2", "", {}, "sha512-mhGK4xCWYPWi/odk4xmxhgWfFnG+4pKugPBrGZtx/aJN7qGa1wJZm/WWlxX8D6kuVlOny9yp8l0tzHFlx+Vsew=="],
 
     "abbrev": ["abbrev@1.1.1", "", {}, "sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q=="],
 

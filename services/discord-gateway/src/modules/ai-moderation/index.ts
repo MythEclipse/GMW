@@ -12,6 +12,18 @@ export {
   LlmUnavailableError,
 } from "./llmGateway.js";
 export {
+  buildMemoryTags,
+  DEFAULT_MEMORY_BANK_CONFIG,
+  extractMemoryAuthor,
+  filterByTags,
+  formatMemoryContent,
+  formatMemoryContext,
+  type MemoryAuthor,
+  type MemoryBankConfig,
+  type MemoryMessage,
+  ModerationMemoryBank,
+} from "./memoryBank.js";
+export {
   type BuildPromptOptions,
   buildSystemPrompt,
   clearPromptCache,

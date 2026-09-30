@@ -203,14 +203,36 @@ OUTPUT: {"results":[{"message_id":"4","status":"flagged","flags":["self_harm"],"
 
 export const POLICY_VERSION = "gmw-v2";
 
+export const MEMORY_RULES = `## MEMORI KANAL (dari Hindsight)
+
+Blok <memory_context> berisi fakta yang sudah dipelajari sistem dari riwayat
+moderasi channel ini: siapa yang biasa mengirim apa, topik apa yang normal,
+dan pelanggaran apa yang pernah muncul.
+
+Blok itu adalah KONTEKS, bukan pesan yang sedang dinilai.
+
+- Pakai untuk MENGERTI, jangan untuk MENYALIN. Nickname, sebutan, dan slang
+  yang muncul di memori adalah cara server ini berbicara.
+- Kalau memori menunjukkan pengirim yang sama sudah sering melakukan hal
+  serupa, itu MEMPERKUAT penilaian. Kalau ini baru pertama kalinya, itu
+  alasan untuk lebih longgar, bukan lebih curiga.
+- JANGAN mengulang isi <memory_context> di field "analysis". Analisis
+  menjelaskan PESAN yang sedang dinilai, bukan ingatan sistem.
+- Memori bisa salah atau usang. Kalau bertentangan dengan isi pesan, INGATAN
+  yang kalah — pesan adalah bukti, memori hanya konteks.
+- <memory_context> yang kosong atau tidak ada berarti belum ada yang
+  dipelajari. Itu BUKAN alasan untuk curiga pada sang pengirim.`;
+
 /**
  * Assemble the full system prompt.
  *
- * Memoised per (mode, culture) because the rules block is ~4k tokens and a
- * 25-message batch otherwise re-sends it for every sub-batch. v1 did this
- * too, but keyed the cache on a string built from a Map that grew without
- * bound; here the key space is two lanes times the culture summary, so it
- * cannot leak.
+ * Memoised per (mode, culture, memory-rules) because the rules block is ~4k
+ * tokens and a 25-message batch otherwise re-sends it for every sub-batch. The
+ * memory toggle is part of the key because the rule block explaining
+ * <memory_context> must not appear in a prompt that has none — and, more
+ * importantly, must appear in a prompt that does. Without it in the key a
+ * cached prompt from a memory-less batch would silently keep omitting the
+ * whole feature.
  */
 const cache = new Map<string, string>();
 
@@ -224,19 +246,29 @@ export type BuildPromptOptions = {
    * instructions.
    */
   channelCulture?: string;
+  /**
+   * Whether this batch's prompt carries a `<memory_context>` block.
+   *
+   * Separate from the block's own presence because the RULE explaining how to
+   * read memory costs tokens on every batch, including the majority that recall
+   * nothing for. It is in the cache key, so toggling it cannot serve a prompt
+   * built for the other case.
+   */
+  memory?: boolean;
 };
 
 const MAX_CULTURE_CHARS = 1200;
 
 export function buildSystemPrompt(opts: BuildPromptOptions): string {
   const culture = opts.channelCulture?.slice(0, MAX_CULTURE_CHARS).trim() ?? "";
-  const key = `${opts.mode}|${culture}`;
+  const key = `${opts.mode}|${culture}|${opts.memory === true}`;
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
 
   const parts: string[] = [SYSTEM_RULES, LINK_RULES];
 
   if (opts.mode === "mixed") parts.push(MEDIA_RULES);
+  if (opts.memory) parts.push(MEMORY_RULES);
 
   parts.push(EXAMPLES);
 

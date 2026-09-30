@@ -21,6 +21,7 @@
     "test:e2e": "bun test tests/llmE2e.test.ts"
   },
   "dependencies": {
+    "@vectorize-io/hindsight-client": "0.10.2",
     "axios": "^1.20.0",
     "discord.js-selfbot-v13": "^3.7.1",
     "dotenv": "^18.0.4",
