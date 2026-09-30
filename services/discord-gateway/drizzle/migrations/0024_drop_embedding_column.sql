@@ -1,0 +1,27 @@
+-- Drop the leftover embedding column from the analysis cache.
+--
+-- WHY
+-- Commit 2b6ec592 (2026-06, "remove semantic embedding cache + Qdrant vector
+-- store") deleted the semantic-similarity cache: no code computed an embedding,
+-- none read one back, and the Qdrant collection it was paired with is no longer
+-- referenced by anything in this repository. Hindsight (bank `gmw-moderation`)
+-- now supplies cross-message context instead.
+--
+-- What survived that commit is this column. `text_analysis_cache` is still a
+-- live table — `text`, `flags`, `source`, `analyzed_at`, `expires_at`,
+-- `hit_count` and `model_version` are all still meaningful — but `embedding`
+-- had no reader left and no writer, so it was pure cost: a text column holding a
+-- ~3072-dimension float array per row, growing with the cache.
+--
+-- It is `text`, not a vector type, so the storage cost is the serialized float
+-- string rather than a compact vector index — the worst of both: large on disk
+-- and never queried.
+--
+-- IF EXISTS, because a database created after 2b6ec592 never had it, and a
+-- migration that fails on a fresh install would block every deploy after it.
+--
+-- NOT dropping the Qdrant collections themselves: those hold data (the
+-- `gmw_message_archive` collection has entries with an expiry in 2031) and this
+-- migration is about the schema, not about someone else's vector store.
+
+ALTER TABLE text_analysis_cache DROP COLUMN IF EXISTS embedding;

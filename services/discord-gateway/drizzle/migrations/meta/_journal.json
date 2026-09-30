@@ -162,6 +162,13 @@
       "when": 1788090000000,
       "tag": "0023_skipped_state",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790765100000,
+      "tag": "0024_drop_embedding_column",
+      "breakpoints": true
     }
   ]
 }

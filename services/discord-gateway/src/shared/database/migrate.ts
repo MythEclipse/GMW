@@ -183,6 +183,20 @@ export async function seedDrizzleHistory(client: PoolClient): Promise<void> {
         WHERE conname = 'messages_ai_status_check'
           AND pg_get_constraintdef(oid) LIKE '%skipped%'
       )
+      -- 0024: the embedding column is GONE, so the sentinel tests for its
+      -- ABSENCE — the inverse of every check above. Without this, a database
+      -- still carrying the embedding column reports "at latest"
+      -- here, 0024 gets stamped as applied without running, and the column is
+      -- never dropped.
+      --
+      -- Vacuously true on a database that never had the column (created after
+      -- 2b6ec592), and vacuously true where text_analysis_cache itself is
+      -- absent — both are the correct answer, the same reasoning 0021 uses for
+      -- its own data-only effect.
+      AND NOT EXISTS (
+        SELECT FROM information_schema.columns
+        WHERE table_name = 'text_analysis_cache' AND column_name = 'embedding'
+      )
       -- 0021 is DATA-ONLY: it creates no object, so nothing above can detect
       -- it. Its sentinel is the absence of the state it was written to fix —
       -- a judged message with no verdict row. Vacuously true where there is
