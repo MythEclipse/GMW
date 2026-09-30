@@ -73,6 +73,13 @@ export type ClaimedMessage = {
   id: string;
   guildId: string;
   channelId: string;
+  /**
+   * The thread's OWN id, or null for a plain channel message.
+   *
+   * Distinct from `channelId`, which holds the PARENT id when the message
+   * came from a thread (getMessageLocation writes parentId into channel_id).
+   */
+  threadId: string | null;
   authorId: string;
   content: string;
   /**
@@ -142,6 +149,15 @@ export type WorkerConfig = {
    * channel.
    */
   skipChannelIds?: readonly string[];
+  /**
+   * Same terminal `skipped` treatment, keyed on `messages.thread_id`.
+   *
+   * Separate from `skipChannelIds` because `messages.channel_id` holds the
+   * PARENT id for a thread, so a thread id can never appear in the channel
+   * list — it would match nothing and the thread would stay moderated with no
+   * error anywhere.
+   */
+  skipThreadIds?: readonly string[];
   /** Stop after this many batches (0 = run forever). Used by tests. */
   maxBatches?: number;
 };
@@ -473,6 +489,7 @@ export class ModerationWorker {
       `SELECT m.id,
               m.guild_id      AS "guildId",
               m.channel_id    AS "channelId",
+              m.thread_id     AS "threadId",
               m.user_id       AS "authorId",
               m.content,
               m.created_at    AS "createdAt",
@@ -524,28 +541,37 @@ export class ModerationWorker {
       rows = safe;
     }
 
-    // A channel on the skip list is never analysed, and — unlike NSFW — never
-    // re-offered. NSFW is a poll, because an admin can toggle the channel at
-    // any time and the rule should follow them; the skip list is a decision
-    // that does not change on its own, so a re-claim loop is pure waste:
-    // 12 claims an hour per message forever, `attempts` climbing past the cap
-    // so the row eventually parks as `dead` — reported as a human-needing-a-
-    // look message that was in fact never broken — and a backlog gauge that
-    // never drains.
+    // A channel or thread on the skip list is never analysed, and — unlike
+    // NSFW — never re-offered. NSFW is a poll, because an admin can toggle the
+    // channel at any time and the rule should follow them; the skip list is a
+    // decision that does not change on its own, so a re-claim loop is pure
+    // waste: 12 claims an hour per message forever, `attempts` climbing past
+    // the cap so the row eventually parks as `dead` — reported as a
+    // human-needing-a-look message that was in fact never broken — and a
+    // backlog gauge that never drains.
     //
     // So it goes to the terminal `skipped` state (migration 0023): no verdict
     // (nothing was judged, so nothing to delete), no retry budget consumed,
     // and `claim_messages` never selects it again.
     //
-    // `messages.channel_id` holds the PARENT id for a thread, so one entry
-    // exempts every thread under the channel — the same rule
-    // EXCLUDED_CHANNEL_IDS applies at capture time.
-    const skip = new Set(this.config.skipChannelIds ?? []);
-    const inSkipped = skip.size
-      ? rows.filter((r) => skip.has(r.channelId))
-      : [];
+    // `messages.channel_id` holds the PARENT id for a thread, so the channel
+    // list covers threads under an exempt channel for free — the same rule
+    // EXCLUDED_CHANNEL_IDS applies at capture time. A single exempt THREAD
+    // cannot be expressed that way, which is what skipThreadIds is for.
+    const skipChannels = new Set(this.config.skipChannelIds ?? []);
+    const skipThreads = new Set(this.config.skipThreadIds ?? []);
+    const skipReason = (r: ClaimedMessage): string | null => {
+      if (skipChannels.has(r.channelId)) {
+        return `channel ${r.channelId} is on AI_SKIP_ANALYSIS_CHANNEL_IDS`;
+      }
+      if (r.threadId && skipThreads.has(r.threadId)) {
+        return `thread ${r.threadId} is on AI_SKIP_ANALYSIS_THREAD_IDS`;
+      }
+      return null;
+    };
+    const inSkipped = rows.filter((r) => skipReason(r) !== null);
     if (inSkipped.length > 0) {
-      const keep = rows.filter((r) => !skip.has(r.channelId));
+      const keep = rows.filter((r) => skipReason(r) === null);
       await this.pool.query(
         `UPDATE messages
             SET ai_status = 'skipped',
@@ -556,8 +582,13 @@ export class ModerationWorker {
       );
       this.stats.skipped += inSkipped.length;
       log.info(
-        { skipped: inSkipped.length, kept: keep.length, channels: [...skip] },
-        "channel is on the skip list — captured, never analysed",
+        {
+          skipped: inSkipped.length,
+          kept: keep.length,
+          channels: [...skipChannels],
+          threads: [...skipThreads],
+        },
+        "channel or thread is on the skip list — captured, never analysed",
       );
       for (const m of inSkipped) {
         logMessageRequeued({
@@ -566,7 +597,7 @@ export class ModerationWorker {
           // Not a requeue: the terminal reason, kept on the same event so one
           // grep on the trace id explains the message's whole life.
           reason: "skipped_by_channel_config",
-          detail: `channel ${m.channelId} is on AI_SKIP_ANALYSIS_CHANNEL_IDS`,
+          detail: skipReason(m) ?? "",
           attempts: m.attempts,
           createdAt: m.createdAt,
         });

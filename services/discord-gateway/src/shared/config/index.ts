@@ -77,6 +77,30 @@ export const configSchema = z
         "Channel IDs to skip AI analysis for (captured, never analyzed)",
       ),
 
+    // Thread IDs exempt from AI analysis, with the same terminal `skipped`
+    // treatment as the channel list above.
+    //
+    // This list exists because the channel list CANNOT express it:
+    // `messages.channel_id` stores the PARENT for a thread
+    // (getMessageLocation writes parentId), so a thread id added to
+    // AI_SKIP_ANALYSIS_CHANNEL_IDS matches nothing and the thread stays
+    // moderated with no error anywhere. `messages.thread_id` carries the
+    // thread's own id, and the worker matches on that here.
+    //
+    // Trimmed for the same reason as the list above: hand-edited CI secret.
+    AI_SKIP_ANALYSIS_THREAD_IDS: z
+      .string()
+      .default("")
+      .transform((v) =>
+        v
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean),
+      )
+      .describe(
+        "Thread IDs to skip AI analysis for (captured, never analyzed)",
+      ),
+
     AVATAR_SIZE: z.coerce.number().positive().default(64),
 
     // ── Server ───────────────────────────────────────────────────────────

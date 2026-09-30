@@ -24,7 +24,14 @@
  *
  * Run: bun test tests/
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import pg from "pg";
 import type {
   LlmGateway,
@@ -38,13 +45,15 @@ const DB_URL =
 
 /** The bot-dedicated channel this feature exists for. */
 const SKIP_CHANNEL = "1308392257975488593";
+/** A single thread inside an otherwise fully moderated channel. */
+const SKIP_THREAD = "1305418007345893480";
 const NORMAL_CHANNEL = "chan-normal";
 
 let pool: pg.Pool;
 let reachable = false;
 
 async function seed(
-  rows: { id: string; channel: string; user?: string }[],
+  rows: { id: string; channel: string; user?: string; thread?: string }[],
 ): Promise<void> {
   await pool.query(
     "TRUNCATE messages, verdicts, analysis_attempts, attachments",
@@ -52,10 +61,10 @@ async function seed(
   for (const r of rows) {
     await pool.query(
       `INSERT INTO messages
-         (id, guild_id, channel_id, user_id, username, content,
+         (id, guild_id, channel_id, thread_id, user_id, username, content,
           created_at, ai_status, ready_for_work_at, metadata)
-       VALUES ($1, 'g1', $2, $3, 'user', $4, 1, 'pending', 0, NULL)`,
-      [r.id, r.channel, r.user ?? "u1", `body ${r.id}`],
+       VALUES ($1, 'g1', $2, $3, $4, 'user', $5, 1, 'pending', 0, NULL)`,
+      [r.id, r.channel, r.thread ?? null, r.user ?? "u1", `body ${r.id}`],
     );
   }
 }
@@ -104,6 +113,7 @@ const TEST_WORKER_CONFIG = {
   visionTimeoutMs: 10_000,
   idlePollMs: 10,
   skipChannelIds: [SKIP_CHANNEL],
+  skipThreadIds: [SKIP_THREAD],
 } as const;
 
 beforeAll(async () => {
@@ -303,6 +313,7 @@ describe("a skipped channel is never analysed", () => {
     const worker = new ModerationWorker(pool, llm, {
       ...TEST_WORKER_CONFIG,
       skipChannelIds: [],
+      skipThreadIds: [],
     });
     await worker.runOnce();
 
@@ -311,6 +322,124 @@ describe("a skipped channel is never analysed", () => {
       "SELECT ai_status FROM messages WHERE id = 'noskip-1'",
     );
     expect(rows[0].ai_status).toBe("analyzed");
+  });
+});
+
+describe("a single exempt thread inside a moderated channel", () => {
+  // This block is the last one before the migration sentinel, which rebuilds
+  // `messages_ai_status_check` WITHOUT 'skipped' to simulate a database stuck
+  // at 0022. Postgres validates existing rows on that ALTER, so a single row
+  // left behind as `skipped` here fails the sentinel with a constraint
+  // violation that looks nothing like a migration bug. Leave no rows.
+  afterEach(async () => {
+    if (!reachable) return;
+    await pool.query(
+      "TRUNCATE messages, verdicts, analysis_attempts, attachments",
+    );
+  });
+
+  test("its messages are never analysed", async () => {
+    if (!reachable) return;
+    // The channel here is NORMAL_CHANNEL — fully moderated — and only the
+    // thread is exempt. This is the case the channel list cannot express:
+    // `messages.channel_id` holds the parent id, so a thread id added to
+    // skipChannelIds matches nothing and the thread stays moderated.
+    await seed([
+      { id: "thr-in", channel: NORMAL_CHANNEL, thread: SKIP_THREAD },
+      { id: "thr-out", channel: NORMAL_CHANNEL, thread: "other-thread" },
+      { id: "thr-none", channel: NORMAL_CHANNEL },
+    ]);
+
+    const llm = scriptedGateway((req) => {
+      const ids = [...req.user.matchAll(/<message id="([^"]+)"/g)].map(
+        (m) => m[1],
+      );
+      return verdictFor(ids);
+    });
+    const worker = new ModerationWorker(pool, llm, TEST_WORKER_CONFIG);
+    await worker.runOnce();
+
+    expect(llm.seenIds).not.toContain("thr-in");
+    expect(llm.seenIds).toContain("thr-out");
+    expect(llm.seenIds).toContain("thr-none");
+  });
+
+  test("it lands in the terminal 'skipped' state, not back in the queue", async () => {
+    if (!reachable) return;
+    await seed([
+      { id: "thr-term", channel: NORMAL_CHANNEL, thread: SKIP_THREAD },
+    ]);
+    const llm = scriptedGateway(() => "never called");
+    const worker = new ModerationWorker(pool, llm, TEST_WORKER_CONFIG);
+    await worker.runOnce();
+
+    const { rows } = await pool.query<{
+      ai_status: string;
+      worker_id: string | null;
+      lease_until: string | null;
+      attempts: number;
+    }>(
+      `SELECT ai_status, worker_id, lease_until, attempts
+         FROM messages WHERE id = 'thr-term'`,
+    );
+    expect(rows[0].ai_status).toBe("skipped");
+    expect(rows[0].worker_id ?? null).toBeNull();
+    expect(rows[0].lease_until ?? null).toBeNull();
+    // One claim, one attempt — the skip consumes no retry budget.
+    expect(rows[0].attempts).toBe(1);
+  });
+
+  test("neither list matches the other's column", async () => {
+    if (!reachable) return;
+    // Guards the reason this list exists, in both directions. A thread id typed
+    // into AI_SKIP_ANALYSIS_CHANNEL_IDS must match nothing (it never appears in
+    // channel_id), and a channel id typed into AI_SKIP_ANALYSIS_THREAD_IDS
+    // must match nothing either (it never appears in thread_id). Crossing the
+    // two columns would let a typo exempt a whole channel instead of one
+    // thread — far worse than the bug being fixed.
+    await seed([
+      // Parent exempt, own thread is not on any list → skipped via channel.
+      { id: "thr-wrongchan", channel: SKIP_CHANNEL, thread: "t-xyz" },
+      // Parent is normal, but thread_id carries the CHANNEL id → still judged.
+      { id: "thr-wrongchan2", channel: NORMAL_CHANNEL, thread: SKIP_CHANNEL },
+    ]);
+    const llm = scriptedGateway((req) => {
+      const ids = [...req.user.matchAll(/<message id="([^"]+)"/g)].map(
+        (m) => m[1],
+      );
+      return verdictFor(ids);
+    });
+    const worker = new ModerationWorker(pool, llm, TEST_WORKER_CONFIG);
+    await worker.runOnce();
+
+    const { rows } = await pool.query<{ id: string; ai_status: string }>(
+      "SELECT id, ai_status FROM messages WHERE id IN ('thr-wrongchan','thr-wrongchan2')",
+    );
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r.ai_status]));
+    expect(byId["thr-wrongchan"]).toBe("skipped");
+    expect(llm.seenIds).not.toContain("thr-wrongchan");
+    // thr-wrongchan2's channel is not exempt and its thread_id is not on the
+    // thread list, so it is analysed — a channel id in the thread list does
+    // not exempt a whole channel.
+    expect(byId["thr-wrongchan2"]).toBe("analyzed");
+    expect(llm.seenIds).toContain("thr-wrongchan2");
+  });
+
+  test("an exempt thread under an exempt channel still lands in skipped", async () => {
+    if (!reachable) return;
+    // Both lists apply; the channel wins the label because it is the broader
+    // rule, and one `skipped` write is all it takes either way.
+    await seed([
+      { id: "thr-both", channel: SKIP_CHANNEL, thread: SKIP_THREAD },
+    ]);
+    const llm = scriptedGateway(() => "never called");
+    const worker = new ModerationWorker(pool, llm, TEST_WORKER_CONFIG);
+    await worker.runOnce();
+
+    const { rows } = await pool.query<{ ai_status: string }>(
+      "SELECT ai_status FROM messages WHERE id = 'thr-both'",
+    );
+    expect(rows[0].ai_status).toBe("skipped");
   });
 });
 

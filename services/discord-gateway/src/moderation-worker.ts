@@ -58,6 +58,9 @@ async function main(): Promise<void> {
     retryBackoffBaseMs: config.AI_ANALYSIS_RETRY_BACKOFF_MS,
     // Channels deliberately outside moderation. Still captured, never judged.
     skipChannelIds: config.AI_SKIP_ANALYSIS_CHANNEL_IDS,
+    // Same, for individual threads. Needed because a thread's messages carry
+    // the PARENT id in channel_id, so the channel list cannot name a thread.
+    skipThreadIds: config.AI_SKIP_ANALYSIS_THREAD_IDS,
   });
 
   let shuttingDown = false;

@@ -19,6 +19,9 @@
  */
 import pg from "pg";
 
+/** The thread that must be exempt from analysis inside its (moderated) parent. */
+const THREAD_UNDER_TEST = "1305418007345893480";
+
 const DSN = process.env.DSN;
 if (!DSN) {
   console.error("DSN is required");
@@ -71,6 +74,33 @@ try {
     list.join(","),
   );
 
+  // ── 1b. The per-thread list ────────────────────────────────────────────
+  // Separate from the channel list because a thread's messages store the
+  // PARENT id in channel_id, so a thread id cannot be expressed there. This
+  // is what makes one exempt thread possible inside a moderated channel.
+  const threadList = (process.env.AI_SKIP_ANALYSIS_THREAD_IDS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (threadList.length > 0) {
+    check(
+      "AI_SKIP_ANALYSIS_THREAD_IDS is set in the worker env",
+      threadList.includes(THREAD_UNDER_TEST),
+      threadList.join(","),
+    );
+    // An untrimmed entry matches nothing — the list is hand-edited.
+    check(
+      "thread entries are trimmed",
+      threadList.every((s) => s === s.trim()),
+      threadList.join(","),
+    );
+  } else {
+    console.log(
+      "AI_SKIP_ANALYSIS_THREAD_IDS is empty — no individual thread is exempt " +
+        "(channel-level skips still apply)",
+    );
+  }
+
   // ── 3. What the queue actually looks like ──────────────────────────────
   // A non-zero skipped count is the direct evidence the path is executing.
   const q = await pool.query(`
@@ -86,18 +116,36 @@ try {
   if (skipped > 0) {
     console.log("evidence the skip is live:");
     const s = await pool.query(`
-      SELECT m.channel_id, count(*)::int n,
+      SELECT m.channel_id, m.thread_id, count(*)::int n,
              count(v.message_id)::int AS with_verdict
         FROM messages m LEFT JOIN verdicts v ON v.message_id = m.id
        WHERE m.ai_status = 'skipped'
-       GROUP BY 1 ORDER BY 2 DESC LIMIT 5`);
+       GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 5`);
     for (const r of s.rows) {
-      console.log(`  channel ${r.channel_id}: ${r.n} skipped, ${r.with_verdict} with a verdict`);
+      const where = r.thread_id ? `channel ${r.channel_id} / thread ${r.thread_id}` : `channel ${r.channel_id}`;
+      console.log(`  ${where}: ${r.n} skipped, ${r.with_verdict} with a verdict`);
     }
     check(
       "skipped messages carry NO verdict (nothing to delete)",
       s.rows.every((r) => r.with_verdict === 0),
     );
+    // Per-thread skips must not spill onto the rest of the parent channel.
+    // If a thread id somehow matched channel_id, this would show up as every
+    // message in that channel landing in `skipped` with no traffic reason.
+    if (threadList.length > 0) {
+      const spill = await pool.query(`
+        SELECT count(*)::int n
+          FROM messages
+         WHERE thread_id IS NOT DISTINCT FROM $1
+           AND channel_id = $2
+           AND ai_status <> 'skipped'`,
+        [THREAD_UNDER_TEST, s.rows.find((r) => r.thread_id === THREAD_UNDER_TEST)?.channel_id ?? ""]);
+      check(
+        "the exempt thread's parent channel is still moderated",
+        spill.rows[0].n === 0 || s.rows.every((r) => r.thread_id !== THREAD_UNDER_TEST),
+        "the parent channel has no analysed traffic yet — expected on a quiet channel",
+      );
+    }
   } else {
     console.log(
       "no skipped rows yet — expected if the channel has had no traffic " +
