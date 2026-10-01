@@ -20,12 +20,13 @@ No monorepo-level scripts exist. Run each command from inside the service direct
 
 ```
 services/
-├── discord-gateway/   Event-driven selfbot. No HTTP (except :4016 metrics).
+├── discord-gateway/   Event-driven selfbot. No HTTP (except :9090 metrics by
+│   │                 default — override with METRICS_PORT).
 │   ├── src/
 │   │   ├── app/            Bootstrap, shutdown, retention
 │   │   ├── modules/        Feature modules — each self-contained
 │   │   └── shared/         Config, DB (Drizzle), logger, errors, utils
-│   ├── tests/              Vitest tests (colocated, not inside src/)
+│   ├── tests/              bun tests (`bun test tests/`; colocated, not inside src/)
 │   ├── drizzle/migrations/ DB migrations
 │   └── scripts/fix-imports.mjs  Post-build: rewrites @/ aliases → relative .js
 │
