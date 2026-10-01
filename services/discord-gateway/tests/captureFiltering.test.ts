@@ -18,7 +18,7 @@ describe("attachment download is bounded", () => {
     // then rejected. The service runs under MemoryMax=1G shared with the
     // Discord client.
     const originalFetch = globalThis.fetch;
-    let bodyWasRead = false;
+    const bodyWasRead = false;
     globalThis.fetch = (async () =>
       new Response("not-really-a-huge-body", {
         headers: {
