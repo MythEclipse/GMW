@@ -206,22 +206,45 @@ export const POLICY_VERSION = "gmw-v2";
 export const MEMORY_RULES = `## MEMORI KANAL (dari Hindsight)
 
 Blok <memory_context> berisi fakta yang sudah dipelajari sistem dari riwayat
-moderasi channel ini: siapa yang biasa mengirim apa, topik apa yang normal,
-dan pelanggaran apa yang pernah muncul.
+moderasi: thread dan channel tempat pesan-pesan itu dibahas, topik apa yang
+sedang dibahas, istilah yang dipakai, dan pelanggaran apa yang pernah muncul
+di sana.
 
 Blok itu adalah KONTEKS, bukan pesan yang sedang dinilai.
 
 - Pakai untuk MENGERTI, jangan untuk MENYALIN. Nickname, sebutan, dan slang
   yang muncul di memori adalah cara server ini berbicara.
-- Kalau memori menunjukkan pengirim yang sama sudah sering melakukan hal
-  serupa, itu MEMPERKUAT penilaian. Kalau ini baru pertama kalinya, itu
-  alasan untuk lebih longgar, bukan lebih curiga.
+- Setiap memori menyatakan DI MANA pesannya terjadi. Kalau memori berasal dari
+  thread atau channel yang berbeda dari pesan di depan model, itu konteks
+  tempat LAIN — jangan dipakai sebagai alasan untuk menilai pesan ini.
+- Kalau memori menunjukkan pola di tempat yang SAMA dengan pesan ini, itu
+  MEMPERKUAT penilaian. Kalau ini pertama kalinya di tempat ini, itu alasan
+  untuk lebih longgar, bukan lebih curiga.
 - JANGAN mengulang isi <memory_context> di field "analysis". Analisis
   menjelaskan PESAN yang sedang dinilai, bukan ingatan sistem.
 - Memori bisa salah atau usang. Kalau bertentangan dengan isi pesan, INGATAN
   yang kalah — pesan adalah bukti, memori hanya konteks.
 - <memory_context> yang kosong atau tidak ada berarti belum ada yang
   dipelajari. Itu BUKAN alasan untuk curiga pada sang pengirim.`;
+
+export const HISTORY_RULES = `## RIWAYAT PERCAKAPAN (pesan sebelumnya)
+
+Blok <conversation_history> berisi pesan-pesan yang muncul SEBELUM pesan yang
+sedang dinilai, di thread atau channel yang sama. Setiap baris ditulis ulang
+sebagai <message ... context="history">.
+
+Blok itu adalah KONTEKS, bukan pesan yang sedang dinilai.
+
+- JANGAN kembalikan entri results untuk pesan di <conversation_history>. Hanya
+  pesan di blok utama yang dinilai. Entri untuk riwayat akan dipakai ulang
+  dan bisa membuat pesan lama kena tindakan dua kali.
+- Pakai untuk MENGERTI: apakah pesan ini lanjutan percakapan yang wajar, atau
+  sesuatu yang tidak nyambung dengan tema yang sedang dibicarakan.
+- Kalau ada pesan history yang dirujuk pesan ini ("balasan itu", "yang tadi",
+  "kok"), pesan history itu adalah rujukan yang harus dipakai untuk memahami
+  maksudnya.
+- Riwayat bisa memuat pesan yang sudah dihapus atau dilewati. Jangan jadikan
+  statusnya sebagai bukti.`;
 
 /**
  * Assemble the full system prompt.
@@ -255,13 +278,23 @@ export type BuildPromptOptions = {
    * built for the other case.
    */
   memory?: boolean;
+  /**
+   * Whether this batch's prompt carries a `<conversation_history>` block.
+   *
+   * Same reasoning as `memory`: the rule block costs tokens on every batch,
+   * including the many that have no preceding message (first message of a
+   * thread, empty channel, or `contextWindow: 0`). In the cache key, so a
+   * prompt built for a history-less batch cannot be served to one that has
+   * history — which would leave the rules describing a block that is not there.
+   */
+  history?: boolean;
 };
 
 const MAX_CULTURE_CHARS = 1200;
 
 export function buildSystemPrompt(opts: BuildPromptOptions): string {
   const culture = opts.channelCulture?.slice(0, MAX_CULTURE_CHARS).trim() ?? "";
-  const key = `${opts.mode}|${culture}|${opts.memory === true}`;
+  const key = `${opts.mode}|${culture}|${opts.memory === true}|${opts.history === true}`;
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
 
@@ -269,6 +302,7 @@ export function buildSystemPrompt(opts: BuildPromptOptions): string {
 
   if (opts.mode === "mixed") parts.push(MEDIA_RULES);
   if (opts.memory) parts.push(MEMORY_RULES);
+  if (opts.history) parts.push(HISTORY_RULES);
 
   parts.push(EXAMPLES);
 

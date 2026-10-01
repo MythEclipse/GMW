@@ -39,6 +39,7 @@ import type { LlmGateway } from "./llmGateway.js";
 import type { ModerationMemoryBank } from "./memoryBank.js";
 import {
   extractMemoryAuthor,
+  extractMemoryContext,
   formatAuthorForPrompt,
   type MemoryMessage,
 } from "./memoryBank.js";
@@ -142,9 +143,14 @@ export type WorkerConfig = {
    * cover their sum.
    */
   visionTimeoutMs: number;
-  /** Include recent conversation history in the prompt. */
-  includeContext: boolean;
-  /** Max history messages included per analysed message. */
+  /**
+   * How many PRECEDING messages to put in the prompt per analysed message.
+   *
+   * 0 disables the history block. Was declared as `includeContext: boolean`
+   * plus `contextWindow: number` and never read by anything — the pair let a
+   * deployment set a window of 10 with the flag off and get silence, which is
+   * indistinguishable from "no history exists". One number now.
+   */
   contextWindow: number;
   /**
    * Channels deliberately excluded from moderation. Their messages are still
@@ -180,7 +186,6 @@ export const DEFAULT_WORKER_CONFIG: WorkerConfig = {
   retryBackoffBaseMs: 15_000,
   llmTimeoutMs: 90_000,
   visionTimeoutMs: 120_000,
-  includeContext: true,
   contextWindow: 10,
 };
 
@@ -381,6 +386,186 @@ export function isVisionCapable(
     : false;
 }
 
+/** One message from the recent past, as the prompt's history block. */
+type HistoryMessage = {
+  id: string;
+  channelId: string;
+  threadId: string | null;
+  createdAt: number;
+  authorId: string;
+  username: string | null;
+  content: string;
+  /** Whether this row is itself in the batch being judged, not history. */
+  inBatch: boolean;
+};
+
+/**
+ * Load the messages immediately preceding each analysed message.
+ *
+ * `includeContext`/`contextWindow` existed in `WorkerConfig` with a default of
+ * 10 and zero call sites — the feature was declared and never built, so the
+ * model judged every message in isolation while the config claimed otherwise.
+ * This is that feature.
+ *
+ * The window is per THREAD, not per channel. `messages.channel_id` holds the
+ * parent channel for a thread message, so a channel-wide window would splice
+ * an unrelated thread's discussion into the middle of another one — the exact
+ * confusion the 2026-10-01 memory rebuild was done to remove. A root-channel
+ * message (no `thread_id`) gets its channel-root predecessors instead.
+ *
+ * One query for the whole batch, not one per message: a 40-message batch would
+ * otherwise be 40 round trips inside the moderation call's own lease. It walks
+ * each target backwards and stops at `contextWindow` per target, deduplicating
+ * as it goes, so the whole window costs one round trip regardless of size.
+ *
+ * `ORDER BY created_at, id` matches the `(channel_id, created_at, id)` and
+ * `(thread_id, created_at, id)` indexes, and `id` breaks ties because Discord
+ * snowflakes are monotonic — two messages can share a millisecond.
+ *
+ * History rows are read from the same table the batch came from, so a message
+ * still being processed by another worker can appear. That is harmless: it is
+ * text the model would have seen anyway, and it is capped.
+ */
+async function loadContextHistory(
+  pool: Pool,
+  batch: readonly ClaimedMessage[],
+  window: number,
+): Promise<HistoryMessage[]> {
+  if (window <= 0 || batch.length === 0) return [];
+
+  // Each target carries its own scope, so a batch spanning a thread and a
+  // channel root does not collapse into one of them.
+  const targets = batch.map((m) => ({
+    id: m.id,
+    channelId: m.channelId,
+    threadId: m.threadId ?? null,
+    createdAt: m.createdAt,
+  }));
+
+  // `id` leads the ORDER BY because DISTINCT ON requires it — Postgres keeps
+  // whichever row it saw first per id, and every target reaches the same message
+  // with the same columns, so which one wins is irrelevant. The result is
+  // re-sorted chronologically below rather than trusted from SQL, because
+  // `id`-order is chronological only by the accident that Discord snowflakes
+  // grow with time.
+  const { rows } = await pool.query<HistoryMessage>(
+    `WITH targets AS (
+       SELECT * FROM unnest(
+         $1::text[], $2::text[], $3::text[], $4::bigint[]
+       ) AS t(id, "channelId", "threadId", "createdAt")
+     ),
+     reachable AS (
+       SELECT t.id AS target_id,
+              h.id, h.channel_id, h.thread_id, h.created_at,
+              h.user_id, h.username, h.content,
+              row_number() OVER (
+                PARTITION BY t.id
+                ORDER BY h.created_at DESC, h.id DESC
+              ) AS depth
+         FROM targets t
+         JOIN messages h
+           ON (
+             h.created_at < t."createdAt"
+             OR (h.created_at = t."createdAt" AND h.id < t.id)
+           )
+          AND h.channel_id = t."channelId"
+          AND h.thread_id IS NOT DISTINCT FROM t."threadId"
+     ),
+     capped AS (
+       SELECT * FROM reachable WHERE depth <= $5
+     )
+     SELECT DISTINCT ON (id)
+            id, channel_id AS "channelId", thread_id AS "threadId",
+            created_at AS "createdAt", user_id AS "authorId",
+            username, content, false AS "inBatch"
+       FROM capped
+      ORDER BY id, created_at, id`,
+    [
+      targets.map((t) => t.id),
+      targets.map((t) => t.channelId),
+      targets.map((t) => t.threadId),
+      targets.map((t) => t.createdAt),
+      window,
+    ],
+  );
+
+  const inBatch = new Set(batch.map((m) => m.id));
+  // Re-sorted here, in the type's terms, so the guarantee does not depend on
+  // how the query happened to be written. Chronological, and `id` breaks the
+  // tie because two messages can share a millisecond.
+  return rows
+    .map((r) => ({ ...r, inBatch: inBatch.has(r.id) }))
+    .sort((a, b) =>
+      a.createdAt === b.createdAt
+        ? a.id.localeCompare(b.id)
+        : a.createdAt - b.createdAt,
+    );
+}
+
+/**
+ * `loadContextHistory` that cannot fail the batch.
+ *
+ * Context is an enhancement. A query timeout, a missing index, a bad window —
+ * none of those are a reason to leave `attempts` unspent or to park a message
+ * as `failed`, because the moderation call itself has everything it needs.
+ * Returns "" and lets the prompt be what it was before this feature existed.
+ */
+async function loadContextHistorySafely(
+  pool: Pool,
+  batch: readonly ClaimedMessage[],
+  window: number,
+): Promise<string> {
+  if (window <= 0 || batch.length === 0) return "";
+  try {
+    const history = await loadContextHistory(pool, batch, window);
+    if (history.length === 0) return "";
+    return formatConversationHistory(history);
+  } catch (e) {
+    log.warn(
+      {
+        err: e instanceof Error ? e.message : String(e),
+        batchSize: batch.length,
+        window,
+      },
+      "conversation history unavailable — analysing without it",
+    );
+    return "";
+  }
+}
+
+/**
+ * Render recent messages that PRECEDED the batch, as one closed block.
+ *
+ * Labelled `<conversation_history>` and deliberately distinct from
+ * `<memory_context>`. They answer different questions: memory is what the guild
+ * already knows about this place over weeks, history is the ten messages
+ * before this one. Collapsing them would make the model unable to tell a
+ * precedent from a general norm — and the history rows are the ones it must
+ * NOT produce verdicts for.
+ *
+ * Every row is marked `context="history"`, so the policy can tell the model
+ * that these are already judged (or not) and only the `<message>` blocks are
+ * up for review. Empty string when there is no history, so the prompt is
+ * exactly what it was before this feature existed.
+ */
+function formatConversationHistory(history: readonly HistoryMessage[]): string {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const h of history) {
+    if (h.inBatch || seen.has(h.id)) continue;
+    seen.add(h.id);
+    // Only the CONTENT is sanitised; the attributes are ours and a snowflake id
+    // carries no injection risk. Usernames are user-controlled and escaped.
+    const who = h.username ? escapeXmlAttr(h.username) : "unknown";
+    lines.push(
+      `<message id="${h.id}" author="${who}" ts="${isoFromEpoch(h.createdAt)}" context="history">` +
+        `\n${escapeMessageBody(h.content)}\n</message>`,
+    );
+  }
+  if (lines.length === 0) return "";
+  return `<conversation_history>\n${lines.join("\n")}\n</conversation_history>`;
+}
+
 /**
  * Project claimed messages into the shape the memory bank stores.
  *
@@ -389,6 +574,12 @@ export function isVisionCapable(
  * NAME will ever match. `author.username` (global), `author.globalName` and
  * `member.nickname` (server-scoped) all come from the metadata already
  * selected by the claim query.
+ *
+ * The conversation context rides along from the same metadata blob. Before the
+ * 2026-10-01 rebuild it was dropped here, which is why every memory in the bank
+ * was "who sent what" with no thread, no channel name and no topic — see the
+ * module docblock in `memoryBank.ts`. `extractMemoryContext` reads exactly the
+ * keys capture already wrote, so no extra query or column is needed.
  *
  * `verdicts` are absent before analysis, so recall (which runs pre-analysis)
  * passes empty strings and retain (which runs post-persist) passes the real
@@ -408,6 +599,7 @@ function toMemoryMessages(
       content: m.content,
       createdAt: isoFromEpoch(m.createdAt),
       author: extractMemoryAuthor(m.authorId, m.metadata),
+      context: extractMemoryContext(m.metadata),
       analysis: v?.analysis ?? "",
       status: v?.status ?? "pending",
       severity: v?.severity ?? "none",
@@ -747,11 +939,21 @@ export class ModerationWorker {
       });
     }
 
+    // Recent predecessors, loaded before the prompt is built so the block can
+    // be part of it. One query for the batch; a failure here must not park the
+    // messages, so it degrades to no history rather than throwing.
+    const historyBlock = await loadContextHistorySafely(
+      this.pool,
+      messages,
+      this.config.contextWindow,
+    );
+
     // Built AFTER recall so `memory` reflects reality. See the note at the top
     // of this method for why the obvious earlier spot is the wrong one.
     const system = buildSystemPrompt({
       mode: hasMedia ? "mixed" : "text",
       memory: memoryContext.length > 0,
+      history: historyBlock.length > 0,
     });
 
     const body = messages
@@ -793,6 +995,11 @@ export class ModerationWorker {
       // off, unreachable, or has nothing — then the prompt is exactly what it
       // was before this feature existed.
       (memoryContext ? `${memoryContext}\n\n` : "") +
+      // History sits BELOW memory and ABOVE the batch, for the same reason: it
+      // is background, and every row in it is explicitly marked `context="history"`
+      // so the model does not return a verdict for one. Empty when the window is
+      // 0 or there is no preceding message.
+      (historyBlock ? `${historyBlock}\n\n` : "") +
       `${body}`;
 
     const llmStart = Date.now();
