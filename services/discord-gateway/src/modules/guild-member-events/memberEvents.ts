@@ -4,20 +4,11 @@ import type {
   PartialGuildMember,
 } from "discord.js-selfbot-v13";
 import { createChildLogger } from "@/shared/logger/index";
+import { isMonitoredGuild } from "../../shared/config/guildScope.js";
 import { config } from "../../shared/config/index.js";
 import type { EventBroadcaster } from "../event-broadcaster/eventBroadcaster.js";
 
 const logger = createChildLogger("guild-member-events");
-
-function isMonitoredGuild(guildId: string | null | undefined): boolean {
-  if (!guildId) return false;
-  const guildIds = (config as any).EFFECTIVE_MONITOR_GUILD_IDS as
-    | string[]
-    | undefined;
-  if (!guildIds || guildIds.length === 0)
-    return config.MONITOR_GUILD_ID === guildId;
-  return guildIds.includes(guildId);
-}
 
 export function registerGuildMemberEvents(
   client: Client,
@@ -26,7 +17,7 @@ export function registerGuildMemberEvents(
   logger.info("Registering guild member events");
 
   client.on("guildMemberAdd", async (member: GuildMember) => {
-    if (!isMonitoredGuild(member.guild.id)) return;
+    if (!isMonitoredGuild(config, member.guild.id)) return;
 
     const data = {
       user_id: member.id,
@@ -48,7 +39,7 @@ export function registerGuildMemberEvents(
   client.on(
     "guildMemberRemove",
     async (member: GuildMember | PartialGuildMember) => {
-      if (!isMonitoredGuild(member.guild.id)) return;
+      if (!isMonitoredGuild(config, member.guild.id)) return;
 
       const data = {
         user_id: member.id,

@@ -1,19 +1,10 @@
 import type { Client, ThreadChannel } from "discord.js-selfbot-v13";
 import { createChildLogger } from "@/shared/logger/index";
+import { isMonitoredGuild } from "../../shared/config/guildScope.js";
 import { config } from "../../shared/config/index.js";
 import type { EventBroadcaster } from "../event-broadcaster/eventBroadcaster.js";
 
 const logger = createChildLogger("thread-tracking");
-
-function isMonitoredGuild(guildId: string | null | undefined): boolean {
-  if (!guildId) return false;
-  const guildIds = (config as any).EFFECTIVE_MONITOR_GUILD_IDS as
-    | string[]
-    | undefined;
-  if (!guildIds || guildIds.length === 0)
-    return config.MONITOR_GUILD_ID === guildId;
-  return guildIds.includes(guildId);
-}
 
 export function registerThreadCapture(
   client: Client,
@@ -22,7 +13,7 @@ export function registerThreadCapture(
   logger.info("Registering thread capture");
 
   client.on("threadCreate", async (thread: ThreadChannel) => {
-    if (!isMonitoredGuild(thread.guildId)) return;
+    if (!isMonitoredGuild(config, thread.guildId)) return;
 
     const data = {
       id: thread.id,
@@ -40,7 +31,7 @@ export function registerThreadCapture(
   });
 
   client.on("threadDelete", async (thread: ThreadChannel) => {
-    if (!isMonitoredGuild(thread.guildId)) return;
+    if (!isMonitoredGuild(config, thread.guildId)) return;
 
     const data = {
       id: thread.id,
@@ -57,7 +48,7 @@ export function registerThreadCapture(
   client.on(
     "threadUpdate",
     async (_oldThread: ThreadChannel, newThread: ThreadChannel) => {
-      if (!isMonitoredGuild(newThread.guildId)) return;
+      if (!isMonitoredGuild(config, newThread.guildId)) return;
 
       const data = {
         id: newThread.id,

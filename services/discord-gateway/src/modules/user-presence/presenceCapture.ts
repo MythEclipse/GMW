@@ -1,5 +1,6 @@
 import type { Client, Presence } from "discord.js-selfbot-v13";
 import { createChildLogger } from "@/shared/logger/index";
+import { isMonitoredGuild } from "../../shared/config/guildScope.js";
 import { config } from "../../shared/config/index.js";
 import type { EventBroadcaster } from "../event-broadcaster/eventBroadcaster.js";
 
@@ -8,16 +9,6 @@ const logger = createChildLogger("presence-tracking");
 // ─── Cooldown per user (30s) ─────────────────────────────────────────────
 const presenceCooldowns = new Map<string, number>();
 const PRESENCE_COOLDOWN_MS = 30_000;
-
-function isMonitoredGuild(guildId: string | null | undefined): boolean {
-  if (!guildId) return false;
-  const guildIds = (config as any).EFFECTIVE_MONITOR_GUILD_IDS as
-    | string[]
-    | undefined;
-  if (!guildIds || guildIds.length === 0)
-    return config.MONITOR_GUILD_ID === guildId;
-  return guildIds.includes(guildId);
-}
 
 function getStatus(presence: Presence): string {
   if (!presence) return "offline";
@@ -58,7 +49,7 @@ export function registerPresenceCapture(
     async (_oldPresence: Presence | null, newPresence: Presence) => {
       const guildId = newPresence.guild?.id ?? null;
       if (!guildId) return;
-      if (!isMonitoredGuild(guildId)) return;
+      if (!isMonitoredGuild(config, guildId)) return;
 
       const userId = newPresence.userId ?? newPresence.user?.id;
       if (!userId) return;

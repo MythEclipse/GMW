@@ -119,7 +119,7 @@ function formatMetrics(): string {
 export function startMetricsServer(): void {
   if (server) return;
 
-  const port = (config as any).METRICS_PORT ?? 9090;
+  const port = config.METRICS_PORT;
   logger.info({ port }, "Starting metrics HTTP server");
 
   server = http.createServer((req, res) => {

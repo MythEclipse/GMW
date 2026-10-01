@@ -6,6 +6,7 @@ import type {
   User,
 } from "discord.js-selfbot-v13";
 import { createChildLogger } from "@/shared/logger/index";
+import { isMonitoredGuild } from "../../shared/config/guildScope.js";
 import { config } from "../../shared/config/index.js";
 import { getDatabase } from "../../shared/database/drizzle.js";
 import { reactionsTable } from "../../shared/database/schema.js";
@@ -14,16 +15,6 @@ import type { EventBroadcaster } from "../event-broadcaster/eventBroadcaster.js"
 const logger = createChildLogger("reaction-tracking");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
-
-function isMonitoredGuild(guildId: string | null | undefined): boolean {
-  if (!guildId) return false;
-  const guildIds = (config as any).EFFECTIVE_MONITOR_GUILD_IDS as
-    | string[]
-    | undefined;
-  if (!guildIds || guildIds.length === 0)
-    return config.MONITOR_GUILD_ID === guildId;
-  return guildIds.includes(guildId);
-}
 
 function getEmojiIdentifier(
   reaction: MessageReaction | PartialMessageReaction,
@@ -54,7 +45,7 @@ async function handleReactionAdd(
   user: User | PartialUser,
 ): Promise<void> {
   const guildId = reaction.message.guildId;
-  if (!isMonitoredGuild(guildId)) return;
+  if (!isMonitoredGuild(config, guildId)) return;
   if (user.bot) return;
 
   const { emoji, emojiId, animated } = getEmojiIdentifier(reaction);
@@ -97,7 +88,7 @@ async function handleReactionRemove(
   user: User | PartialUser,
 ): Promise<void> {
   const guildId = reaction.message.guildId;
-  if (!isMonitoredGuild(guildId)) return;
+  if (!isMonitoredGuild(config, guildId)) return;
   if (user.bot) return;
 
   const { emoji, emojiId, animated } = getEmojiIdentifier(reaction);
@@ -152,7 +143,7 @@ export function registerReactionCapture(
       await handleReactionAdd(reaction, user);
 
       const guildId = reaction.message.guildId;
-      if (!isMonitoredGuild(guildId)) return;
+      if (!isMonitoredGuild(config, guildId)) return;
 
       const { emoji, emojiId, animated } = getEmojiIdentifier(reaction);
 
@@ -181,7 +172,7 @@ export function registerReactionCapture(
       await handleReactionRemove(reaction, user);
 
       const guildId = reaction.message.guildId;
-      if (!isMonitoredGuild(guildId)) return;
+      if (!isMonitoredGuild(config, guildId)) return;
 
       const { emoji, emojiId, animated } = getEmojiIdentifier(reaction);
 

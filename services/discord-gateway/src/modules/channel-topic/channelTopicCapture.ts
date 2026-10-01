@@ -1,19 +1,10 @@
 import type { Client, TextChannel } from "discord.js-selfbot-v13";
 import { createChildLogger } from "@/shared/logger/index";
+import { isMonitoredGuild } from "../../shared/config/guildScope.js";
 import { config } from "../../shared/config/index.js";
 import type { EventBroadcaster } from "../event-broadcaster/eventBroadcaster.js";
 
 const logger = createChildLogger("channel-topic");
-
-function isMonitoredGuild(guildId: string | null | undefined): boolean {
-  if (!guildId) return false;
-  const guildIds = (config as any).EFFECTIVE_MONITOR_GUILD_IDS as
-    | string[]
-    | undefined;
-  if (!guildIds || guildIds.length === 0)
-    return config.MONITOR_GUILD_ID === guildId;
-  return guildIds.includes(guildId);
-}
 
 export function registerChannelTopicCapture(
   client: Client,
@@ -24,7 +15,7 @@ export function registerChannelTopicCapture(
   client.on("channelUpdate", async (oldChannel, newChannel) => {
     // Only care about text channels
     if (newChannel.type !== "GUILD_TEXT") return;
-    if (!isMonitoredGuild(newChannel.guildId)) return;
+    if (!isMonitoredGuild(config, newChannel.guildId)) return;
 
     const oldText = oldChannel as TextChannel;
     const newText = newChannel as TextChannel;
