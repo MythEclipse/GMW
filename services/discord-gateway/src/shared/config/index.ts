@@ -392,6 +392,20 @@ export const configSchema = z
       .positive()
       .default(15000),
 
+    // ── Prompt context ──────────────────────────────────────────────────
+    // How many PRECEDING messages are put in the prompt per analysed message.
+    // `WorkerConfig` carried a `contextWindow` that nothing read, so the feature
+    // was off in production while the config claimed 10 — this env is what
+    // makes it real and tunable. 0 is valid (feature off), hence not
+    // `.positive()`. Capped at 50: each row is a whole message of prompt, and
+    // past roughly that the context costs more than it informs.
+    AI_MODERATION_CONTEXT_WINDOW: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(50)
+      .default(10),
+
     // ── Auto Delete ─────────────────────────────────────────────────────
     AUTO_DELETE_FLAGGED_ENABLED: z
       .string()

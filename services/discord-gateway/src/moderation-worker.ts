@@ -72,6 +72,9 @@ async function main(): Promise<void> {
       idlePollMs: config.AI_ANALYSIS_POLL_INTERVAL_MS,
       maxAttempts: config.AI_ANALYSIS_MAX_ATTEMPTS,
       retryBackoffBaseMs: config.AI_ANALYSIS_RETRY_BACKOFF_MS,
+      // Preceding messages shown alongside each judged one, so "balasan itu"
+      // has a referent. 0 turns the block off; it is not a quality dial.
+      contextWindow: config.AI_MODERATION_CONTEXT_WINDOW,
       // Channels deliberately outside moderation. Still captured, never judged.
       skipChannelIds: config.AI_SKIP_ANALYSIS_CHANNEL_IDS,
       // Same, for individual threads. Needed because a thread's messages carry
