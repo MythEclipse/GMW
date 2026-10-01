@@ -10,7 +10,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/fix-imports.mjs",
     "dev": "tsx watch src/index.ts",
     "format": "biome format --write .",
     "lint": "biome check --diagnostic-level=error .",
