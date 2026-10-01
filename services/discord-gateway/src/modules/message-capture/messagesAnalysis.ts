@@ -269,8 +269,9 @@ export class MessagesAnalysis {
 
       // UPDATE..RETURNING has no guaranteed row order (Postgres returns rows
       // in physical update order). Consumers rely on chronological order:
-      // batchScheduler/pickBatchWithinBudget treat the array as a created_at
-      // ASC prefix, and the context anchor uses messages[0].created_at.
+      // the moderation worker's batch context treats the array as a
+      // created_at ASC prefix, and the context anchor uses
+      // messages[0].created_at.
       rows.sort(
         (a, b) =>
           (a as MessageRecord).created_at - (b as MessageRecord).created_at,

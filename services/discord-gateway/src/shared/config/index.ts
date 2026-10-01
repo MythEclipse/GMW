@@ -134,15 +134,15 @@ export const configSchema = z
     POSTGRES_USER: z.string().optional(),
     POSTGRES_PASSWORD: z.string().optional(),
     POSTGRES_DB: z.string().optional(),
-    // Idle-pool floor. Kept at 0 so the gateway (main + 4 Piscina worker
-    // threads, each owning its own pg Pool) does not hold ~10 permanently
-    // open idle connections to PgBouncer. The pool still grows on demand up
-    // to POSTGRES_POOL_MAX; min:0 only drops idle clients after
-    // idleTimeoutMillis. This both trims RSS and frees PgBouncer slots.
+    // Idle-pool floor. Kept at 0 so the long-lived gateway processes (the
+    // selfbot and the moderation worker, each owning its own pg Pool) do not
+    // hold ~10 permanently open idle connections to PgBouncer. The pool still
+    // grows on demand up to POSTGRES_POOL_MAX; min:0 only drops idle clients
+    // after idleTimeoutMillis. This both trims RSS and frees PgBouncer slots.
     POSTGRES_POOL_MIN: z.coerce.number().int().min(0).default(0),
-    // Ceiling for the gateway's per-process pg Pool. Each Piscina worker
-    // thread owns its own pool (main + 4 workers = 5 pools), so this value
-    // is the per-thread cap. Kept at 10 (2026-09-09 audit): the real
+    // Ceiling for the gateway's per-process pg Pool. Each process owns its own
+    // pool (the selfbot and the moderation worker), so this value is the
+    // per-process cap. Kept at 10 (2026-09-09 audit): the real
     // bottleneck is PgBouncer's per-(user,db) default_pool_size on imrnes —
     // raising this ceiling without raising the Bouncer pool just makes more
     // clients queue at the same 20 slots. pool_mode=session means each pg
