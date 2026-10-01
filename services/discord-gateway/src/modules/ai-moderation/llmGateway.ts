@@ -191,7 +191,11 @@ export class HttpLlmGateway implements LlmGateway {
         { role: "user" as const, content: userContent },
       ],
       temperature: 0.2,
-      max_tokens: 8192,
+      // Was hardcoded to 8192 while AI_LLM_MAX_COMPLETION_TOKENS defaulted to
+      // 16384: the knob did nothing and the real ceiling was half the documented
+      // one. A batch of 40 verdicts is a long JSON object, and truncating it
+      // mid-array is what makes a batch come back unparseable.
+      max_tokens: config.AI_LLM_MAX_COMPLETION_TOKENS,
       ...(config.AI_LLM_DISABLE_THINKING
         ? {
             reasoning_effort: "none" as const,
