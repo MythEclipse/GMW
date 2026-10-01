@@ -38,6 +38,12 @@ const logger = createChildLogger("auto-delete-enforcer");
 const POLL_INTERVAL_MS = 5_000;
 /** Never touch more than this per tick, so a backlog cannot stall capture. */
 const BATCH_LIMIT = 10;
+/**
+ * Floor on how long a claim is honoured before it counts as abandoned. A crash
+ * mid-batch leaves rows in `claimed` forever otherwise, since nothing else
+ * transitions them.
+ */
+const STALE_CLAIM_MS = 60_000;
 
 // The marker columns live on `verdicts` but are not part of the Drizzle
 // schema for that table (it is declared read-only, since the gateway only ever
@@ -69,6 +75,13 @@ interface Row {
 /** Verdicts awaiting a decision, oldest first. */
 async function claimUnenforced(limit: number): Promise<Row[]> {
   const db = getDatabase();
+  // AUTO_DELETE_FLAGGED_DELAY_MS is a grace period between "the model flagged
+  // this" and "we delete it". It was declared in the schema and documented in
+  // .env.example from the start, and read nowhere: setting it to 60000 to buy
+  // time to appeal a deletion did nothing at all, and the only way to notice
+  // was to watch a message vanish. A delay of 0 keeps the previous behaviour
+  // exactly — the predicate is on created_at, so nothing else moves.
+  const notBefore = Date.now() - config.AUTO_DELETE_FLAGGED_DELAY_MS;
   // Two things this has to get right:
   //
   // 1. The candidate set is a CTE, and `messages` is joined in the UPDATE's own
@@ -88,6 +101,7 @@ async function claimUnenforced(limit: number): Promise<Row[]> {
       JOIN messages m ON m.id = v.message_id
       WHERE v.status IN ('flagged', 'warn')
         AND m.deleted_at IS NULL
+        AND v.created_at <= ${notBefore}
         AND (v.${sql.raw("auto_delete_state")} IS NULL
              OR v.${sql.raw("auto_delete_state")} = 'pending')
         -- Never delete inside a channel Discord marks NSFW. The flag lives in
@@ -129,7 +143,15 @@ async function markState(messageId: string, state: string): Promise<void> {
  * Re-queue rows stuck in `claimed` (gateway died mid-batch) so they are retried.
  */
 async function releaseStaleClaims(): Promise<number> {
-  const cutoff = Date.now() - 60_000;
+  // A claim older than the configured delay has outlived any plausible single
+  // attempt, so the gateway holding it is gone. Tying the two constants to one
+  // knob keeps the queue from stalling on a delay longer than the recovery
+  // window: with a 5-minute grace period and a 60s recovery window, a message
+  // claimed just before a crash is re-queued before it was ever eligible, which
+  // is harmless, but the reverse pairing — a 0s delay — would re-queue a live
+  // claim out from under a gateway that is merely slow.
+  const cutoff =
+    Date.now() - Math.max(config.AUTO_DELETE_FLAGGED_DELAY_MS, STALE_CLAIM_MS);
   const db = getDatabase();
   const res = await db.execute(sql`
     UPDATE verdicts
