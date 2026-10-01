@@ -80,6 +80,10 @@ async function main(): Promise<void> {
       // Same, for individual threads. Needed because a thread's messages carry
       // the PARENT id in channel_id, so the channel list cannot name a thread.
       skipThreadIds: config.AI_SKIP_ANALYSIS_THREAD_IDS,
+      // Ceiling on the vision pre-pass fan-out. Uncapped, a 40-message image
+      // batch opened 40 simultaneous vision calls and the provider throttled
+      // the batch.
+      visionConcurrency: config.AI_LLM_MEDIA_MAX_CONCURRENT,
     },
     undefined,
     memory,

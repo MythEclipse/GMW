@@ -25,6 +25,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import pLimit from "p-limit";
 import type { Pool, PoolClient } from "pg";
 import { createChildLogger } from "@/shared/logger/index";
 // Link/embed pairing lives with the other capture→prompt helpers, and the two
@@ -173,6 +174,17 @@ export type WorkerConfig = {
   skipThreadIds?: readonly string[];
   /** Stop after this many batches (0 = run forever). Used by tests. */
   maxBatches?: number;
+  /**
+   * Ceiling on concurrent vision calls inside one batch's pre-pass.
+   *
+   * The fan-out used to be a bare `Promise.all` over every message in the
+   * batch, so a single media batch opened `claimBatchSize` (40 by default)
+   * simultaneous image uploads and completions. AI_LLM_MEDIA_MAX_CONCURRENT
+   * was declared in the schema, documented as owning a dedicated semaphore,
+   * and read by nothing — so a backlog of images hit the provider as a
+   * 40-way burst and the router throttled or dropped the lot.
+   */
+  visionConcurrency?: number;
 };
 
 export const DEFAULT_WORKER_CONFIG: WorkerConfig = {
@@ -187,6 +199,8 @@ export const DEFAULT_WORKER_CONFIG: WorkerConfig = {
   llmTimeoutMs: 90_000,
   visionTimeoutMs: 120_000,
   contextWindow: 10,
+  // Matches the AI_LLM_MEDIA_MAX_CONCURRENT schema default.
+  visionConcurrency: 4,
 };
 
 /**
@@ -668,8 +682,9 @@ export class ModerationWorker {
     const trace = traceId(messages[0].id);
 
     let result: ParseBatchResult;
+    let visionById: Map<string, string>;
     try {
-      result = await this.analyze(messages);
+      ({ result, visionById } = await this.analyze(messages));
     } catch (e) {
       // The whole LLM call failed (network, timeout, refusal). Every message
       // in the batch takes the same action, and attempts increments so a
@@ -691,7 +706,7 @@ export class ModerationWorker {
       return true;
     }
 
-    await this.persist(messages, result);
+    await this.persist(messages, result, visionById);
     this.logCycle(before, cycleStart, trace, messages.length);
     return true;
   }
@@ -872,7 +887,9 @@ export class ModerationWorker {
    * its text, and the missing description is noted in the trace.
    */
 
-  private async analyze(messages: ClaimedMessage[]): Promise<ParseBatchResult> {
+  private async analyze(
+    messages: ClaimedMessage[],
+  ): Promise<{ result: ParseBatchResult; visionById: Map<string, string> }> {
     const requestedIds = messages.map((m) => m.id);
     const hasMedia = messages.some((m) => m.hasMedia);
 
@@ -898,19 +915,30 @@ export class ModerationWorker {
     // empty and that message is still judged on its text.
     const visionById = new Map<string, string>();
     if (hasMedia) {
+      // Bounded, not one call per message at once. The concurrency ceiling keeps
+      // a 40-message image batch from arriving at the provider as a 40-way
+      // burst; p-limit preserves the "all descriptions resolved concurrently"
+      // property the old Promise.all comment claimed, up to the cap.
+      const limit = pLimit(
+        this.config.visionConcurrency ??
+          DEFAULT_WORKER_CONFIG.visionConcurrency ??
+          1,
+      );
       const described = await Promise.all(
-        messages.map(async (m) => {
-          if (!m.hasMedia) return [m.id, ""] as const;
-          return [
-            m.id,
-            await generateVisionDescription(
-              this.pool,
-              m,
-              this.config.visionTimeoutMs,
-              this.vision,
-            ),
-          ] as const;
-        }),
+        messages.map((m) =>
+          limit(async () => {
+            if (!m.hasMedia) return [m.id, ""] as const;
+            return [
+              m.id,
+              await generateVisionDescription(
+                this.pool,
+                m,
+                this.config.visionTimeoutMs,
+                this.vision,
+              ),
+            ] as const;
+          }),
+        ),
       );
       for (const [id, desc] of described) {
         if (desc) visionById.set(id, desc);
@@ -1039,7 +1067,12 @@ export class ModerationWorker {
       batchError: result.batchError,
       durationMs: Date.now() - parseStart,
     });
-    return result;
+    // The vision map travels back out with the result. It is the only record of
+    // what the images contained: the LLM call consumed the descriptions to build
+    // the prompt, but the memory bank is written after the commit from the same
+    // map, and passing a fresh empty Map there silently dropped every image
+    // description from long-term recall.
+    return { result, visionById };
   }
 
   /**
@@ -1053,6 +1086,7 @@ export class ModerationWorker {
   private async persist(
     messages: ClaimedMessage[],
     result: ParseBatchResult,
+    visionById: ReadonlyMap<string, string>,
   ): Promise<void> {
     const byId = new Map(messages.map((m) => [m.id, m]));
     const client: PoolClient = await this.pool.connect();
@@ -1135,7 +1169,7 @@ export class ModerationWorker {
         result.verdicts.map((v) => [v.messageId, v] as const),
       );
       this.memory.retainBatch(
-        toMemoryMessages(messages, new Map(), verdictsById),
+        toMemoryMessages(messages, visionById, verdictsById),
       );
     }
   }

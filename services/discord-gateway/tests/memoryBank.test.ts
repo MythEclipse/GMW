@@ -683,6 +683,104 @@ test("the prompt carries the recalled memory AND the author names", async () => 
   await pool.end();
 });
 
+test("the image description reaches the memory bank, not just the prompt", async () => {
+  const pool = new pg.Pool({ connectionString: DB_URL, max: 2 });
+  try {
+    await pool.query("SELECT 1");
+  } catch {
+    await pool.end();
+    return expect(true).toBe(true);
+  }
+
+  // Two gateways: the vision model that describes the image, and the text
+  // model that judges it. The description must survive BOTH uses — the
+  // moderation prompt and the long-term memory write.
+  const vision: LlmGateway = {
+    modelLabel: "vision-scripted",
+    async complete() {
+      return "seorang pria memegang kartu joker";
+    },
+  };
+  const gateway: LlmGateway = {
+    modelLabel: "scripted",
+    async complete(req) {
+      const id = /<message id="([^"]+)"/.exec(req.user)?.[1] ?? "";
+      return JSON.stringify({
+        results: [
+          {
+            message_id: id,
+            status: "clean",
+            flags: [],
+            categories: [],
+            severity: "none",
+            confidence: 0.9,
+            score: 0.02,
+            recommended_action: "none",
+            analysis: "Gambar kartu.",
+            evidence: [],
+          },
+        ],
+      });
+    },
+  };
+
+  await pool.query(
+    "TRUNCATE messages, verdicts, analysis_attempts, attachments",
+  );
+  const MESSAGE_ID = "1554472364094522999";
+  await pool.query(
+    `INSERT INTO messages
+       (id, guild_id, channel_id, user_id, username, content, created_at,
+        ai_status, ready_for_work_at, metadata)
+     VALUES ($1,'g1','c1','u1','budi','lihat ini',$2,'pending',0,$3)`,
+    [
+      MESSAGE_ID,
+      Date.now(),
+      JSON.stringify({
+        author: { id: "u1", username: "budi" },
+        channel: { channelId: "c1", channelName: "umum", nsfw: false },
+      }),
+    ],
+  );
+  // The attachment is what makes claim_messages report hasMedia, and what the
+  // vision pass reads to build its description.
+  await pool.query(
+    `INSERT INTO attachments
+       (id, message_id, guild_id, channel_id, user_id, filename, size,
+        type, discord_url, created_at)
+     VALUES ('a1',$1,'g1','c1','u1','kartu.png',1024,'image/png',$2,$3)`,
+    [MESSAGE_ID, "https://cdn.discordapp.com/attachments/1/x.png", Date.now()],
+  );
+
+  const bank = new StubBank("");
+  const worker = new ModerationWorker(
+    pool,
+    gateway,
+    {
+      ...DEFAULT_WORKER_CONFIG,
+      leaseMs: 60_000,
+      llmTimeoutMs: 10_000,
+      visionTimeoutMs: 10_000,
+      idlePollMs: 10,
+      claimBatchSize: 10,
+    },
+    vision,
+    bank as unknown as ModerationMemoryBank,
+  );
+  await worker.runOnce();
+
+  // Regression: the vision map is built inside analyze() and used for the
+  // prompt, but persist() previously received a FRESH EMPTY map. The prompt
+  // got the description and the memory bank silently did not, so a later
+  // recall could never mention what any image showed.
+  expect(bank.retained).toHaveLength(1);
+  expect(bank.retained[0].mediaDescription).toContain(
+    "seorang pria memegang kartu joker",
+  );
+
+  await pool.end();
+});
+
 test("with no bank wired, the prompt is exactly what it was before", async () => {
   const pool = new pg.Pool({ connectionString: DB_URL, max: 2 });
   try {
