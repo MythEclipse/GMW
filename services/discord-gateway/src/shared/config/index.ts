@@ -322,7 +322,7 @@ export const configSchema = z
     // content into this store, so it must never share a bank with an
     // assistant's personal memory — a message author could steer it, and a
     // recall could pull the operator's own facts into a public prompt.
-    AI_MEMORY_BASE_URL: z.string().url().default("http://100.121.180.82:8888"),
+    AI_MEMORY_BASE_URL: z.string().url().default("http://127.0.0.1:8890"),
     AI_MEMORY_BANK_ID: z.string().default("gmw-moderation"),
     // Token budget for one recall. Small on purpose: this is prompt context
     // added to every batch, not a report. Measured latency at `low` is ~0.7s.

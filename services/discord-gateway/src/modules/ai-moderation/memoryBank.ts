@@ -13,8 +13,9 @@
  *
  * ## The bank, and why it is not Hermes's
  *
- * Bank `gmw-moderation` on the Hindsight instance at 100.121.180.82:8888. That
- * instance also serves Hermes's own `hermes` bank (250+ facts about this user).
+ * Bank `gmw-moderation` on the Hindsight instance at 127.0.0.1:8890. That
+ * instance also serves Hermes's own `hermes-gemini` bank (722+ facts about this
+ * user).
  * The two are deliberately separate: moderation memory is written by a bot from
  * untrusted Discord content, and sharing a bank with an assistant's personal
  * memory would let a message author steer that memory, and let moderation
@@ -118,7 +119,7 @@ export type MemoryBankConfig = {
 };
 
 export const DEFAULT_MEMORY_BANK_CONFIG: MemoryBankConfig = {
-  baseUrl: "http://100.121.180.82:8888",
+  baseUrl: "http://127.0.0.1:8890",
   bankId: "gmw-moderation",
   enabled: true,
   recallMaxTokens: 1200,
