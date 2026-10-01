@@ -23,6 +23,7 @@ import {
   buildMemoryTags,
   buildRecallQuery,
   extractMemoryAuthor,
+  extractMemoryContext,
   filterByTags,
   formatAuthorForPrompt,
   formatMemoryContent,
@@ -33,12 +34,33 @@ import {
 import {
   buildSystemPrompt,
   clearPromptCache,
+  HISTORY_RULES,
   MEMORY_RULES,
 } from "../src/modules/ai-moderation/policy.js";
 import {
   DEFAULT_WORKER_CONFIG,
   ModerationWorker,
 } from "../src/modules/ai-moderation/worker.js";
+
+/**
+ * A minimal valid `MemoryMessage`, so the tests below can state only the field
+ * each one is actually about. `context: {}` is the honest default: it is what
+ * `extractMemoryContext` returns for a row whose metadata is absent, and the
+ * formatters must render that case rather than crash on it.
+ */
+const baseMessage: MemoryMessage = {
+  messageId: "m1",
+  guildId: "g1",
+  channelId: "c1",
+  content: "halo",
+  createdAt: "2026-09-29T10:00:00.000Z",
+  author: extractMemoryAuthor("1", null),
+  context: {},
+  analysis: "",
+  status: "clean",
+  severity: "none",
+  categories: [],
+};
 
 // ─── Identity ────────────────────────────────────────────────────────────────
 
@@ -86,6 +108,120 @@ test("absent metadata yields nulls, never an invented name", () => {
   }
 });
 
+// ─── Conversation context ────────────────────────────────────────────────────
+
+test("context comes out of the metadata that capture already wrote", () => {
+  const ctx = extractMemoryContext(
+    JSON.stringify({
+      channel: {
+        channelId: "111",
+        threadId: "222",
+        threadName: "diskusi-app",
+        channelName: "general",
+        topic: "topik harian server",
+        channelType: "GUILD_PUBLIC_THREAD",
+      },
+      reference: { messageId: "333", channelId: "111" },
+    }),
+  );
+  expect(ctx.threadId).toBe("222");
+  expect(ctx.threadName).toBe("diskusi-app");
+  expect(ctx.channelName).toBe("general");
+  expect(ctx.topic).toBe("topik harian server");
+  expect(ctx.channelType).toBe("GUILD_PUBLIC_THREAD");
+  expect(ctx.referenceMessageId).toBe("333");
+});
+
+test("a root-channel message has a place but no thread", () => {
+  const ctx = extractMemoryContext(
+    JSON.stringify({ channel: { channelId: "111", channelName: "general" } }),
+  );
+  expect(ctx.channelName).toBe("general");
+  expect(ctx.threadId).toBeNull();
+  expect(ctx.threadName).toBeNull();
+});
+
+test("missing or unparseable metadata yields an EMPTY context, not a guess", () => {
+  for (const input of [null, undefined, "", "not json", "[]", "null", "{}"]) {
+    expect(extractMemoryContext(input)).toEqual({});
+  }
+  // A metadata blob with no channel block must not invent a place.
+  expect(
+    extractMemoryContext(JSON.stringify({ author: { username: "budi" } })),
+  ).toEqual({});
+});
+
+test("the retained text leads with WHERE the message was, not just who", () => {
+  const content = formatMemoryContent({
+    ...baseMessage,
+    context: {
+      threadId: "222",
+      threadName: "diskusi-app",
+      channelName: "general",
+      topic: "topik harian server",
+      channelType: "GUILD_PUBLIC_THREAD",
+    },
+  });
+  // The conversation, in words a recall query can match.
+  expect(content).toContain('thread "diskusi-app"');
+  expect(content).toContain("#general");
+  expect(content).toContain("topik harian server");
+  // Ids stay out of the prose: they are in the tags and metadata instead.
+  expect(content).not.toContain("222");
+});
+
+test("a message with no captured context still renders, without a place", () => {
+  const content = formatMemoryContent({ ...baseMessage, context: {} });
+  expect(content).toContain("halo");
+  expect(content).toContain("channel tanpa nama");
+  // Never an empty "di  pada " — the connective is always satisfied.
+  expect(content).not.toContain("di  ");
+});
+
+test("a thread gets its own tag so a channel recall is not a thread mix", () => {
+  expect(
+    buildMemoryTags({
+      guildId: "g1",
+      channelId: "111",
+      context: { threadId: "222" },
+    }),
+  ).toEqual(["channel:111", "guild:g1", "thread:222"]);
+  // A root message has no thread tag — and must not be given a fake one, or a
+  // channel-scoped recall would silently drop every root message in it.
+  expect(
+    buildMemoryTags({ guildId: "g1", channelId: "111", context: {} }),
+  ).toEqual(["channel:111", "guild:g1"]);
+});
+
+test("the query asks about the DISCUSSION, not about who does what", () => {
+  const q = buildRecallQuery([
+    {
+      ...baseMessage,
+      context: {
+        threadId: "222",
+        threadName: "diskusi-app",
+        channelName: "general",
+        topic: "topik harian server",
+      },
+      author: extractMemoryAuthor(
+        "1",
+        JSON.stringify({ author: { username: "zulfik_dev" } }),
+      ),
+    },
+  ]);
+  // Place leads, by NAME — the only terms the retained prose carries.
+  expect(q).toContain('thread "diskusi-app"');
+  expect(q).toContain("#general");
+  expect(q).toContain("topik harian server");
+  expect(q).toContain("zulfik_dev");
+  // The old query asked who habitually sends gambling links, which is what
+  // made the bank a behaviour log. That clause must not come back.
+  expect(q).not.toContain("habitually");
+  expect(q).not.toContain("link judi");
+  // Ids are scoped by tags, not smuggled into a semantic query.
+  expect(q).not.toContain("222");
+});
+
 test("the retained text carries names, not just the id", () => {
   const content = formatMemoryContent({
     messageId: "m1",
@@ -100,6 +236,7 @@ test("the retained text carries names, not just the id", () => {
         member: { nickname: "Zul" },
       }),
     ),
+    context: {},
     analysis: "Promosi judi dengan link, perlu ditinjau.",
     status: "flagged",
     severity: "high",
@@ -124,6 +261,7 @@ test("an id-only author still produces a storable memory", () => {
     content: "halo",
     createdAt: "2026-09-29T10:00:00.000Z",
     author: extractMemoryAuthor("777", null),
+    context: {},
     analysis: "",
     status: "clean",
     severity: "none",
@@ -217,26 +355,61 @@ test("an empty recall renders nothing at all", () => {
   expect(formatMemoryContext([{ text: "  ", tags: [] }], ["c1"])).toBe("");
 });
 
-test("the query names the channels and participants in the batch", () => {
+test("the query names the place and the participants, by NAME not by id", () => {
   const q = buildRecallQuery([
     {
-      messageId: "m",
-      guildId: "g1",
-      channelId: "c1",
-      content: "",
-      createdAt: "2026-09-29T10:00:00.000Z",
+      ...baseMessage,
+      context: { channelName: "general", topic: "topik harian server" },
       author: extractMemoryAuthor(
         "1",
         JSON.stringify({ author: { username: "zulfik_dev" } }),
       ),
-      analysis: "",
-      status: "clean",
-      severity: "none",
-      categories: [],
     },
   ]);
-  expect(q).toContain("c1");
+  expect(q).toContain("#general");
+  expect(q).toContain("topik harian server");
   expect(q).toContain("zulfik_dev");
+  // The channel id scopes the recall through tags, not through the query text
+  // — a snowflake in a semantic query only adds noise.
+  expect(q).not.toContain("c1");
+});
+
+test("a batch spanning threads and channels names each place once", () => {
+  const q = buildRecallQuery([
+    {
+      ...baseMessage,
+      context: { threadName: "diskusi-app", channelName: "general" },
+    },
+    { ...baseMessage, messageId: "m2", context: { threadName: "diskusi-app" } },
+    { ...baseMessage, messageId: "m3", context: { channelName: "random" } },
+  ]);
+  expect(q).toContain('thread "diskusi-app"');
+  // #random is a genuinely different channel, so the batch really does span
+  // two and both belong in the query.
+  expect(q).toContain("#general");
+  expect(q).toContain("#random");
+  // Dedup, not repetition: "diskusi-app" and "general" each appear in
+  // messages 1 and 2, and neither is named twice.
+  expect(q.match(/"diskusi-app"/g)?.length ?? 0).toBe(1);
+  expect(q.match(/#general/g)?.length ?? 0).toBe(1);
+});
+
+test("a place-less batch never falls back to asking about PEOPLE", () => {
+  const q = buildRecallQuery([
+    {
+      ...baseMessage,
+      author: extractMemoryAuthor(
+        "1",
+        JSON.stringify({ author: { username: "zulfik_dev" } }),
+      ),
+    },
+  ]);
+  // No metadata was ever captured for this row, so there is no place to ask
+  // about. The old code opened with the participant list, which is exactly
+  // the "who is this person" query that made this bank a behaviour log.
+  expect(q).toContain("Riwayat pesan dan penilaian moderasi di kanal ini");
+  expect(q).not.toContain("zulfik_dev");
+  expect(q).toContain("termasuk topik");
 });
 
 test("the system prompt explains memory ONLY when a block is present", () => {
@@ -253,9 +426,40 @@ test("the system prompt explains memory ONLY when a block is present", () => {
 });
 
 test("the rules tell the model memory is context, not evidence", () => {
-  expect(MEMORY_RULES).toContain("KONTEKS");
+  // Normalised: the rule's wording is what is under test, not the line
+  // wrapping. A rewrap of the policy text must not read as a regression.
+  const rules = MEMORY_RULES.replace(/\s+/g, " ");
+  expect(rules).toContain("KONTEKS");
   // The dangerous inversion: memory must not license a harsher verdict.
-  expect(MEMORY_RULES).toContain("alasan untuk lebih longgar");
+  expect(rules).toContain("alasan untuk lebih longgar, bukan lebih curiga");
+  // Memory is scoped to a place, and a memory from elsewhere is not evidence
+  // about this message — the whole point of the 2026-10-01 rebuild.
+  expect(rules).toContain("thread atau channel yang berbeda");
+  expect(rules).toContain("tempat LAIN");
+});
+
+test("the history rules forbid judging the context block", () => {
+  const rules = HISTORY_RULES.replace(/\s+/g, " ");
+  expect(rules).toContain("KONTEKS");
+  // Returning a verdict for a history row would re-apply a decision to a
+  // message that was already judged, or delete it twice.
+  expect(rules).toContain(
+    "JANGAN kembalikan entri results untuk pesan di <conversation_history>",
+  );
+  expect(rules).toContain("Hanya pesan di blok utama yang dinilai");
+});
+
+test("history rules appear only when the prompt carries a history block", () => {
+  clearPromptCache();
+  const withHistory = buildSystemPrompt({ mode: "text", history: true });
+  const without = buildSystemPrompt({ mode: "text", history: false });
+  expect(withHistory).toContain("RIWAYAT PERCAKAPAN");
+  expect(without).not.toContain("RIWAYAT PERCAKAPAN");
+  // And it must not be served from the memory-only cache entry: describing a
+  // block that is absent is worse than omitting the rule.
+  expect(without).toBe(
+    buildSystemPrompt({ mode: "text", memory: false, history: false }),
+  );
 });
 
 // ─── Failure policy ──────────────────────────────────────────────────────────
@@ -270,21 +474,68 @@ test("a dead instance yields no context and never throws", async () => {
     recallTimeoutMs: 2_000,
     retainBatchSize: 10,
   });
-  const out = await bank.recallChannelContext([
-    {
-      messageId: "m",
-      guildId: "g1",
-      channelId: "c1",
-      content: "hi",
-      createdAt: "2026-09-29T10:00:00.000Z",
-      author: extractMemoryAuthor("1", null),
-      analysis: "",
-      status: "clean",
-      severity: "none",
-      categories: [],
-    },
-  ]);
+  const out = await bank.recallChannelContext([baseMessage]);
   expect(out).toBe("");
+});
+
+test("a recall that overruns its deadline ABORTS the request", async () => {
+  // The production bug this guards: for 8h41m one worker process logged 296
+  // deadline failures while the server kept working on them. Racing a timer
+  // stops the WAITING, not the request — so the request has to be cancelled,
+  // or it runs on into a pool nobody is waiting for. The assertion is on the
+  // signal, because "did the server finish" is not observable from here.
+  let seenSignal: AbortSignal | undefined;
+  // The client resolves `globalThis.fetch` at call time, so the signal it hands
+  // to fetch is observable by wrapping the global. `req.signal` on the server
+  // side is NOT a valid observation: Bun does not surface a client-initiated
+  // abort there, which is exactly the kind of assertion that passes for the
+  // wrong reason.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    // The SDK builds a `Request` and calls fetch with it as the sole argument,
+    // so the signal is on `input` — not in `init`.
+    const req = input instanceof Request ? input : new Request(input, init);
+    seenSignal = req.signal;
+    return realFetch(input, init);
+  }) as typeof globalThis.fetch;
+  let releaseFetch: (() => void) | undefined;
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      // Held open until the test lets go, so a request that is never cancelled
+      // is still pending here when the assertion runs.
+      await new Promise<void>((r) => {
+        releaseFetch = r;
+      });
+      return new Response("{}");
+    },
+  });
+  const started = Date.now();
+  try {
+    const bank = new ModerationMemoryBank({
+      baseUrl: `http://127.0.0.1:${server.port}`,
+      bankId: "gmw-moderation",
+      enabled: true,
+      recallMaxTokens: 500,
+      recallBudget: "low",
+      recallTimeoutMs: 200,
+      retainBatchSize: 10,
+    });
+    expect(await bank.recallChannelContext([baseMessage])).toBe("");
+    // The deadline was honoured: rejected at ~200ms, not after a default fetch
+    // timeout, and not after the server's own wait.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(150);
+    expect(Date.now() - started).toBeLessThan(5_000);
+
+    // The signal must exist AND already be aborted at the deadline — that is the
+    // difference between "gave up waiting" and "actually cancelled it".
+    expect(seenSignal).toBeDefined();
+    expect(seenSignal?.aborted).toBe(true);
+  } finally {
+    releaseFetch?.();
+    server.stop(true);
+    globalThis.fetch = realFetch;
+  }
 });
 
 test("disabled memory constructs no client and recalls nothing", async () => {
@@ -298,22 +549,7 @@ test("disabled memory constructs no client and recalls nothing", async () => {
     retainBatchSize: 10,
   });
   expect(bank.enabled).toBe(false);
-  expect(
-    await bank.recallChannelContext([
-      {
-        messageId: "m",
-        guildId: "g1",
-        channelId: "c",
-        content: "x",
-        createdAt: "2026-09-29T10:00:00.000Z",
-        author: extractMemoryAuthor("1", null),
-        analysis: "",
-        status: "clean",
-        severity: "none",
-        categories: [],
-      },
-    ]),
-  ).toBe("");
+  expect(await bank.recallChannelContext([baseMessage])).toBe("");
 });
 
 // ─── Wiring ──────────────────────────────────────────────────────────────────
