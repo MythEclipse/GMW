@@ -255,7 +255,9 @@ export function MessageFeedCard({
             <span className="line-clamp-2">{message.verdict_analysis}</span>
           </summary>
           <p className="mt-1 text-xs text-ink-soft">
-            <span className="whitespace-pre-wrap break-words">{message.verdict_analysis}</span>
+            <span className="whitespace-pre-wrap break-words">
+              {message.verdict_analysis}
+            </span>
           </p>
         </details>
       )}
