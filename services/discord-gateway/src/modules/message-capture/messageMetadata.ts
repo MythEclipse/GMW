@@ -1200,6 +1200,55 @@ export function formatLinkEvidenceForPrompt(
   return `\n<link_evidence>\n${parts.join("\n")}\n</link_evidence>`;
 }
 
+// ─── Channel purpose ──────────────────────────────────────────────────────────
+
+/** Longest channel topic rendered into the prompt. */
+const MAX_TOPIC_CHARS = 300;
+
+/**
+ * The channel's own name, topic and thread name, as `<message>` attributes.
+ *
+ * WHY THIS EXISTS
+ * The model is asked to judge whether a message suits the channel it was
+ * posted in, and until now the prompt never said what that channel IS. It saw
+ * `<message id=… author=… ts=…>` and nothing else, so "is this on topic here?"
+ * was answered by guessing from the channel's name — or, when even the name was
+ * absent, from nothing at all.
+ *
+ * `getMessageLocation` captures `channelName`, `topic` and `threadName` with
+ * every single message, so the answer was in `messages.metadata` the whole
+ * time, stored and never rendered. The concrete damage: a Discord invite posted
+ * in the channel whose topic is "share external communities" came back flagged
+ * as spam for "promotion without permission, unrelated to the channel's topic"
+ * — a verdict about a channel the model had never been shown, and the message
+ * was auto-deleted on it.
+ *
+ * Attributes rather than a sibling block, deliberately: a `<message>`-shaped
+ * element would invite the model to return a verdict for it, and the topic is
+ * admin-written free text, so it must not sit where a `message_id` is expected.
+ * Reuse `parseRichMessageMetadata` rather than reading `metadata` directly: a
+ * row captured before this change carries no `channel` key at all, so the
+ * lookup has to degrade to an empty string and leave the prompt exactly as it
+ * was.
+ */
+export function formatChannelContextForPrompt(
+  metadata: string | null | undefined,
+): string {
+  const channel = parseRichMessageMetadata(metadata)?.channel;
+  if (!channel) return "";
+
+  const attr = (name: string, value: string | null | undefined): string =>
+    value?.trim()
+      ? ` ${name}="${escapeXmlAttr(value.trim().slice(0, MAX_TOPIC_CHARS))}"`
+      : "";
+
+  return (
+    attr("channel", channel.channelName) +
+    attr("topic", channel.topic) +
+    attr("thread", channel.threadName)
+  );
+}
+
 /**
  * True when the sender set `SUPPRESS_EMBEDS` on the message.
  *

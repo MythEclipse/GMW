@@ -294,16 +294,14 @@ export function isEligibleForAutoDelete(
     );
   } else {
     const recommendedAction = deriveRecommendedAction(message, verdict);
+    // Only auto-delete when model explicitly recommends delete/escalate
+    // for non-critical severities. Do not auto-delete for warn/monitor/review/none.
     if (recommendedAction !== "delete" && recommendedAction !== "escalate") {
       logger.debug(
-        { messageId: message.id, recommendedAction },
-        "Message eligible for auto-delete: warn + monitor/review/warn is still actionable",
+        { messageId: message.id, recommendedAction, severity },
+        "Message not eligible for auto-delete: recommended action not delete/escalate",
       );
-      // review/warn/monitor are all actions that say "someone should
-      // look at this", not "leave it". Auto-delete is the harshest
-      // automatic action, so the model's conservative answer is to
-      // delete rather than leave, but when the action is monitor/review
-      // the message still crossed a line and we delete it.
+      return false;
     }
   }
 

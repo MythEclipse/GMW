@@ -34,6 +34,7 @@ import { createChildLogger } from "@/shared/logger/index";
 import {
   escapeMessageBody,
   escapeXmlAttr,
+  formatChannelContextForPrompt,
   formatLinkEvidenceForPrompt,
 } from "../message-capture/messageMetadata.js";
 import type { LlmGateway } from "./llmGateway.js";
@@ -783,16 +784,15 @@ export class ModerationWorker {
       const safe = claimed.filter((r) => r.channelIsNsfw !== true);
       await this.pool.query(
         `UPDATE messages
-            SET ai_status = 'pending',
+            SET ai_status = 'skipped',
                 worker_id = NULL,
-                lease_until = NULL,
-                ready_for_work_at = $2
+                lease_until = NULL
           WHERE id = ANY($1)`,
-        [inNsfw.map((r) => r.id), Date.now() + NSFW_RETRY_DELAY_MS],
+        [inNsfw.map((r) => r.id)],
       );
       log.debug(
         { skipped: inNsfw.length, kept: safe.length },
-        "skipped NSFW channel messages — not analysed",
+        "skipped NSFW channel messages — never analysed",
       );
       // `safe` still needs the skip-list pass below, so fall through rather
       // than returning here.
@@ -1007,9 +1007,18 @@ export class ModerationWorker {
         // snowflakes (digits only), so they carry no injection risk; author
         // names are user-controlled and therefore escaped with XML entities
         // only, without the CDATA wrapper.
+        //
+        // The channel's own name/topic/thread ride along as attributes for the
+        // same reason: without them the model is asked whether a message suits
+        // this channel while never being told what the channel is for. That is
+        // what produced a deleted invite-link "unrelated to the channel's topic"
+        // verdict in a channel whose topic IS sharing external communities.
+        // Empty string on a row captured before these existed, so the tag
+        // degrades to exactly what it was.
+        const place = formatChannelContextForPrompt(m.metadata);
         return (
           `<message id="${m.id}" author="${escapeXmlAttr(who)}" ` +
-          `ts="${isoFromEpoch(m.createdAt)}">\n${vision}` +
+          `ts="${isoFromEpoch(m.createdAt)}"${place}>\n${vision}` +
           `${escapeMessageBody(m.content)}\n${links}\n</message>`
         );
       })

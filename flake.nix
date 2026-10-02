@@ -140,10 +140,18 @@ WRAPPER
             pkgs.cacert
           ];
 
-          # Runtime tools for the voice pipeline: ffmpeg (mic transmit encode,
-          # music stream decode, segment muxing) and yt-dlp (YouTube/Spotify/
-          # search media resolution). Must be on PATH inside the wrapper below.
-          buildInputs = [ pkgs.ffmpeg-headless pkgs.yt-dlp ];
+          # No ffmpeg / yt-dlp runtime deps. The voice, recording and music/media
+          # features that needed them were removed in 33013697 ("refactor:
+          # remove voice, recording, and music/media features"); the deps
+          # outlived the code. Nothing under src/ spawns either binary, and
+          # @discordjs/opus ships a prebuilt opus.node, so voice encoding
+          # never needed an external ffmpeg.
+          #
+          # They were not cheap: ffmpeg-headless dragged clang+llvm into the
+          # RUNTIME closure through its lavfi/loudnorm JIT paths, which is
+          # where the duplicated 814M + 541M clang/llvm lib copies in the
+          # store came from. Re-add both here if a voice/music feature lands.
+          buildInputs = [ ];
 
           # cmake is only needed for node-datachannel's postinstall build —
           # do NOT let stdenv run its own cmake configure phase on the source.
@@ -181,7 +189,6 @@ WRAPPER
             cat > $out/bin/gmw-discord-gateway << WRAPPER
 #!${pkgs.runtimeShell}
 cd $out/lib/gmw-discord-gateway
-export PATH=${pkgs.ffmpeg-headless}/bin:${pkgs.yt-dlp}/bin:\$PATH
 exec ${nodejs}/bin/node dist/index.js
 WRAPPER
             chmod +x $out/bin/gmw-discord-gateway
@@ -196,7 +203,6 @@ WRAPPER
             cat > $out/bin/gmw-discord-gateway-worker << WORKER
 #!${pkgs.runtimeShell}
 cd $out/lib/gmw-discord-gateway
-export PATH=${pkgs.ffmpeg-headless}/bin:\$PATH
 exec ${nodejs}/bin/node dist/moderation-worker.js
 WORKER
             chmod +x $out/bin/gmw-discord-gateway-worker

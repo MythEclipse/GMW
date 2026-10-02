@@ -29,6 +29,7 @@ export {
 export {
   type BuildPromptOptions,
   buildSystemPrompt,
+  CHANNEL_CONTEXT_RULES,
   clearPromptCache,
   POLICY_VERSION,
   type PromptMode,
