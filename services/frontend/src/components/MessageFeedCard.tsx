@@ -252,12 +252,12 @@ export function MessageFeedCard({
         // are not the same box — that is the whole trick.
         <details className="group/analysis mt-2 border-l-2 border-hairline pl-2">
           <summary className="cursor-pointer list-none text-xs text-ink-muted transition-colors hover:text-ink-soft marker:content-none group-open/analysis:text-ink-soft [&::-webkit-details-marker]:hidden">
-            <span className="line-clamp-2">{message.verdict_analysis}</span>
-          </summary>
-          <p className="mt-1 text-xs text-ink-soft">
-            <span className="whitespace-pre-wrap break-words">
+            <span className="line-clamp-2 whitespace-pre-wrap break-words">
               {message.verdict_analysis}
             </span>
+          </summary>
+          <p className="mt-1 text-xs text-ink-soft whitespace-pre-wrap break-words">
+            {message.verdict_analysis}
           </p>
         </details>
       )}
