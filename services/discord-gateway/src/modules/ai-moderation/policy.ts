@@ -295,6 +295,11 @@ Blok itu adalah KONTEKS, bukan pesan yang sedang dinilai.
   menjelaskan PESAN yang sedang dinilai, bukan ingatan sistem.
 - Memori bisa salah atau usang. Kalau bertentangan dengan isi pesan, INGATAN
   yang kalah — pesan adalah bukti, memori hanya konteks.
+- Memori TIDAK boleh jadi alasan penghapusan. Jangan menulis "pola serupa
+  dengan riwayat pelanggaran sebelumnya" di "analysis" sebagai pembenaran.
+  Riwayat itu milik PENGAJARANMU tentang register server ini, bukan bukti
+  bahwa pesan ini melanggar. Kalau isi pesannya sendiri tidak bermasalah,
+  pilih "clean" meskipun memornya banyak.
 - <memory_context> yang kosong atau tidak ada berarti belum ada yang
   dipelajari. Itu BUKAN alasan untuk curiga pada sang pengirim.`;
 
@@ -339,6 +344,14 @@ Definisi ini adalah satu-satunya rujukan makna yang boleh kamu pakai.
   bukan deskripsi, dan itu kesalahan yang lebih besar daripada tidak tahu. Tulis
   apa yang benar-benar tertulis dan sebut maknanya tidak bisa dipastikan dari
   pesan itu saja.
+- Kalau sebuah kata punya <definition> di blok itu, itu definisi yang benar
+  untuk kata tersebut. Kalau kamu menulis arti kata itu di "analysis", arti itu
+  WAJIB sesuai dengan definisi itu. Jangan mengganti arti kamus dengan makna
+  yang lebih negatif supaya kata itu bisa dipakai sebagai bukti pelanggaran.
+  Contoh kesalahan nyata: "traktir" adalah verba "mentraktir", artinya memberi
+  treats. Menulis "traktir berarti menyindir secara sarkastik" bertentangan
+  dengan definisi di blok itu, dan itu membuat pesan yang biasa-biasa saja
+  dihapus.
 - Jangan menghakimi kata karena isi kamusnya objectionable. KBBI mencatat
   makna vulgar, teknis, dan yang tidak nyaman didengar bersama makna biasa.
   Yang dinilai adalah PENGGUNAANNYA di pesan ini, bukan isi kamusnya. Kata
