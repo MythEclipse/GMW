@@ -242,17 +242,25 @@ export function MessageFeedCard({
         // The analysis is the model's reasoning, and it is the most valuable
         // thing on the card — but it is long-form prose, so showing it expanded
         // on every row turns a 50-message feed into a wall of text that buries
-        // the rows that need a human. It is held to two lines and opens on
-        // hover, focus or tap.
+        // the rows that need a human. It is held to two lines until opened.
         //
         // `<details>` rather than a `div` with `tabIndex`: the element really
         // is interactive, and `a11y/noNoninteractiveTabindex` rejects the div
         // version for good reason. A native disclosure also gets keyboard
-        // support and the `open` state for free. The summary is a separate
-        // node from the expanded copy so the collapsed clamp and the full text
-        // are not the same box — that is the whole trick.
+        // support and the `open` state for free.
+        //
+        // The summary is BOTH the click target and a clamped copy of the text,
+        // so it must be HIDDEN once open — `group-open/analysis:hidden` does
+        // that. Without it both nodes render the same prose and expanding a
+        // row shows the analysis twice, which is exactly what shipped. A
+        // colour-only variant (`group-open/analysis:text-ink-soft`) reads like
+        // it is doing this job and is not.
+        //
+        // `open` is deliberately NOT set as an attribute: that is the *result*
+        // of a click, not the input. Hardcoding it would render every card
+        // expanded with the summary hidden — an invisible disclosure.
         <details className="group/analysis mt-2 border-l-2 border-hairline pl-2">
-          <summary className="cursor-pointer list-none text-xs text-ink-muted transition-colors hover:text-ink-soft marker:content-none group-open/analysis:text-ink-soft [&::-webkit-details-marker]:hidden">
+          <summary className="cursor-pointer list-none text-xs text-ink-muted transition-colors hover:text-ink-soft marker:content-none group-open/analysis:hidden [&::-webkit-details-marker]:hidden">
             <span className="line-clamp-2 whitespace-pre-wrap break-words">
               {message.verdict_analysis}
             </span>
