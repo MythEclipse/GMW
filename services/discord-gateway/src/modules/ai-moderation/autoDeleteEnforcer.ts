@@ -55,6 +55,7 @@ interface Row {
   message_id: string;
   status: string;
   reason: string | null;
+  action: string | null;
   confidence: number | null;
   score: number | null;
   categories: string[] | null;
@@ -118,7 +119,7 @@ async function claimUnenforced(limit: number): Promise<Row[]> {
     FROM messages m
     WHERE v.message_id IN (SELECT message_id FROM candidates)
       AND m.id = v.message_id
-    RETURNING v.message_id, v.status, v.reason, v.confidence, v.score,
+    RETURNING v.message_id, v.status, v.reason, v.action, v.confidence, v.score,
               v.categories, v.flags, v.analysis,
               m.guild_id, m.channel_id, m.user_id, m.thread_id, m.username,
               m.content, m.edited_content, m.metadata
@@ -191,6 +192,11 @@ async function tick(client: Client): Promise<void> {
     for (const row of rows) {
       const verdict: VerdictLike = {
         status: row.status,
+        // The model's disposition, straight from the verdict row. NULL on every
+        // row written before the column existed, and on error verdicts — the
+        // manager derives the outcome from `status` when it is absent, so a
+        // missing value is the old behaviour, not a new failure mode.
+        action: row.action,
         confidence: row.confidence,
         score: row.score,
         categories: row.categories ?? [],

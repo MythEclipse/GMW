@@ -9,7 +9,10 @@ import {
   clampScore,
   extractJson,
   hasDeferralAnalysis,
+  normaliseAction,
   parseVerdicts,
+  resolveAction,
+  VERDICT_ACTIONS,
 } from "../src/modules/ai-moderation/verdictParser.js";
 
 describe("D10: a per-message defect must NOT fail the batch", () => {
@@ -345,6 +348,193 @@ describe("status is the whole decision", () => {
     expect(out.verdicts[0].status).toBe("error");
     expect(out.verdicts[0].perMessageError).toBe("invalid_status");
     expect(out.verdicts[0].confidence).toBe(0);
+  });
+});
+
+describe("action: the model chooses the disposition", () => {
+  // `status` answers "is this a violation". It cannot answer "the violation is
+  // in the member's NAME and the message should stay", because a message that
+  // stays is not a `clean` verdict either. Until now that intent was recovered
+  // by regex-matching the model's own prose, and production defeated it: user
+  // 1052035456688205854, nickname "adit cuking", body "Nandayo" -> the MESSAGE
+  // was deleted and the nickname left alone.
+
+  function one(
+    entry: Record<string, unknown>,
+  ): ReturnType<typeof parseVerdicts> {
+    return parseVerdicts(JSON.stringify({ results: [entry] }), ["m1"], 1);
+  }
+
+  test("the three documented values are accepted verbatim", () => {
+    for (const action of ["clean", "delete_message", "reset_nickname"]) {
+      const out = one({
+        message_id: "m1",
+        status: action === "clean" ? "clean" : "deleted",
+        action,
+        analysis: "x",
+      });
+      expect(out.batchFailed).toBe(false);
+      expect(out.verdicts[0].action).toBe(action);
+      expect(out.verdicts[0].perMessageError).toBeUndefined();
+    }
+  });
+
+  test("surrounding whitespace is tolerated", () => {
+    // Models emit " reset_nickname" often enough that a strict compare would
+    // silently drop the only disposition the column exists to carry.
+    const out = one({
+      message_id: "m1",
+      status: "deleted",
+      action: "  reset_nickname\n",
+      analysis: "x",
+    });
+    expect(out.verdicts[0].action).toBe("reset_nickname");
+  });
+
+  // The invalid case must degrade the DISPOSITION, never the verdict: one
+  // hallucinated field must not cost a judgement whose `status` was fine.
+  test("an unrecognised action falls back to the status-derived value", () => {
+    for (const action of [
+      "warn",
+      "review",
+      "reset",
+      "delete",
+      "resetnickname",
+      "RESET_NICKNAME",
+      "hapus nickname",
+      "",
+      123,
+      null,
+      true,
+      ["reset_nickname"],
+      { toString: () => "reset_nickname" },
+    ]) {
+      const out = one({
+        message_id: "m1",
+        status: "deleted",
+        action,
+        analysis: "x",
+      });
+      expect(out.verdicts[0].status).toBe("deleted");
+      expect(out.verdicts[0].action).toBe("delete_message");
+    }
+  });
+
+  test("a missing action falls back to exactly the pre-action behaviour", () => {
+    // This is the upgrade path: a model that ignores the new field, and every
+    // row written before the column existed, must behave identically to before.
+    expect(
+      one({ message_id: "m1", status: "deleted", analysis: "x" }).verdicts[0]
+        .action,
+    ).toBe("delete_message");
+    expect(
+      one({ message_id: "m1", status: "clean", analysis: "x" }).verdicts[0]
+        .action,
+    ).toBe("clean");
+  });
+
+  // A bad disposition is NOT a reason to throw or to error the verdict. That is
+  // the D10 rule: one message's defect must never cost its siblings' verdicts.
+  test("an invalid action never errors the verdict or fails the batch", () => {
+    const raw = JSON.stringify({
+      results: [
+        { message_id: "m1", status: "clean", action: "clean", analysis: "a" },
+        {
+          message_id: "m2",
+          status: "deleted",
+          action: "maybe_reset",
+          reason: "hinaan",
+          analysis: "b",
+        },
+        {
+          message_id: "m3",
+          status: "clean",
+          action: "nonsense",
+          analysis: "perlu ditinjau oleh moderator",
+        },
+      ],
+    });
+    const out = parseVerdicts(raw, ["m1", "m2", "m3"], 1);
+    expect(out.batchFailed).toBe(false);
+    expect(out.verdicts.map((v) => v.status)).toEqual([
+      "clean",
+      "deleted",
+      "error",
+    ]);
+    expect(out.verdicts[1].perMessageError).toBeUndefined();
+  });
+
+  test("an error verdict carries action clean, never a deletion", () => {
+    // Every error path must be inert: `status: "error"` already blocks
+    // enforcement, and an `action` of `delete_message` on the same verdict would
+    // be a second field claiming authority it cannot have.
+    for (const status of ["warn", "flagged", "error", "maybe"]) {
+      expect(
+        one({ message_id: "m1", status, analysis: "x" }).verdicts[0].action,
+      ).toBe("clean");
+    }
+    // And the deferral path, which builds its own error verdict.
+    const deferred = one({
+      message_id: "m1",
+      status: "deleted",
+      action: "delete_message",
+      analysis: "perlu ditinjau oleh admin",
+    });
+    expect(deferred.verdicts[0].status).toBe("error");
+    expect(deferred.verdicts[0].action).toBe("clean");
+  });
+
+  // `reset_nickname` is the one disposition `status` cannot express, so it is
+  // the one that must survive a contradicting status — it deletes nothing.
+  test("reset_nickname survives a clean status", () => {
+    const out = one({
+      message_id: "m1",
+      status: "clean",
+      action: "reset_nickname",
+      analysis: "nickname mengandung kata kasar; isi pesan bersih",
+    });
+    expect(out.verdicts[0].status).toBe("clean");
+    expect(out.verdicts[0].action).toBe("reset_nickname");
+  });
+
+  // The converse is forced, and the reason is the point: honouring a `clean`
+  // beside `status: "deleted"` would mean one inconsistent response silently
+  // switches enforcement off — the 0025 failure of flagged verdicts sitting
+  // unenforced, which is what "membiarkan pesan" looks like.
+  test("clean beside deleted collapses to delete_message, never the reverse", () => {
+    const out = one({
+      message_id: "m1",
+      status: "deleted",
+      action: "clean",
+      reason: "hinaan",
+      analysis: "x",
+    });
+    expect(out.verdicts[0].status).toBe("deleted");
+    expect(out.verdicts[0].action).toBe("delete_message");
+  });
+
+  test("normaliseAction recognises exactly the documented three", () => {
+    expect(VERDICT_ACTIONS).toEqual([
+      "clean",
+      "delete_message",
+      "reset_nickname",
+    ]);
+    for (const good of VERDICT_ACTIONS) {
+      expect(normaliseAction(good)).toBe(good);
+    }
+    for (const bad of ["warn", "", " ", null, undefined, 1, {}, []]) {
+      expect(normaliseAction(bad)).toBeNull();
+    }
+  });
+
+  test("resolveAction is the single rule both fields agree on", () => {
+    expect(resolveAction(null, "deleted")).toBe("delete_message");
+    expect(resolveAction(null, "clean")).toBe("clean");
+    expect(resolveAction(null, "error")).toBe("clean");
+    expect(resolveAction("reset_nickname", "clean")).toBe("reset_nickname");
+    expect(resolveAction("reset_nickname", "deleted")).toBe("reset_nickname");
+    expect(resolveAction("clean", "deleted")).toBe("delete_message");
+    expect(resolveAction("delete_message", "clean")).toBe("clean");
   });
 });
 

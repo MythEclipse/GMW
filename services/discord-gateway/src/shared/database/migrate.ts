@@ -227,6 +227,17 @@ export async function seedDrizzleHistory(client: PoolClient): Promise<void> {
         SELECT FROM information_schema.columns
         WHERE table_name = 'messages' AND column_name = 'ai_analysis_duration_ms'
       )
+      -- 0027 adds verdicts.action, the disposition the MODEL chose. Tested for
+      -- PRESENCE, like 0026: the worker's INSERT names the column explicitly, so
+      -- a database without it fails EVERY verdict write with 42703 — the whole
+      -- moderation queue stops, not one field. This is the sentinel's original
+      -- defect in its purest form: a column the code writes and no migration
+      -- creates, which stays invisible precisely because production already
+      -- carries it out of band.
+      AND EXISTS (
+        SELECT FROM information_schema.columns
+        WHERE table_name = 'verdicts' AND column_name = 'action'
+      )
       -- 0021 is DATA-ONLY: it creates no object, so nothing above can detect
       -- it. Its sentinel is the absence of the state it was written to fix —
       -- a judged message with no verdict row. Vacuously true where there is

@@ -40,6 +40,18 @@ const logger = createChildLogger("auto-delete-eligibility");
  */
 export interface VerdictLike {
   status: string;
+  /**
+   * The model's disposition, as `verdicts.action` stores it: `clean`,
+   * `delete_message`, or `reset_nickname`.
+   *
+   * Optional and nullable because the column is new, so every row written
+   * before it reads NULL — and because `readVerdict`'s legacy `messages.ai_*`
+   * fallback has no equivalent at all. That is the degraded path, not the
+   * normal one: the enforcer derives the disposition from `status` when it is
+   * absent, which is exactly the behaviour that shipped before the column
+   * existed.
+   */
+  action?: string | null;
   confidence?: number | null;
   score?: number | null;
   categories?: string[] | null;
@@ -197,6 +209,12 @@ function normaliseName(value: string): string {
  * Both halves are required. A body that itself contains the term is a real
  * message-level violation and must still be deletable; only a violation that
  * lives SOLELY in the name earns the nickname reset.
+ *
+ * Note for callers: a FALSE result is ambiguous. It means either "no nickname
+ * violation" or "a nickname violation plus a rude body", and those two demand
+ * opposite enforcement. Ask `isEligibleForAutoDelete` to tell them apart rather
+ * than reading this as "no nickname problem" — doing so is how a body violation
+ * gets spared by a name complaint.
  */
 function nicknameCarriesInsult(message: MessageLike): boolean {
   const nick = readServerNickname(message);

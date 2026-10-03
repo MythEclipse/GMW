@@ -102,6 +102,7 @@ Kembalikan HANYA JSON valid dengan bentuk ini, tanpa teks lain:
     {
       "message_id": "<id persis seperti di input>",
       "status": "clean" | "deleted",
+      "action": "clean" | "delete_message" | "reset_nickname",
       "reason": "alasan singkat kalau status deleted",
       "flags": ["kategori_pelanggaran"],
       "categories": ["kategori_pelanggaran"],
@@ -124,6 +125,24 @@ ATURAN OUTPUT:
   manual setelahnya.
 - reason WAJIB diisi kalau status "deleted" — tuliskan aturan mana yang
   dilanggar. Untuk "clean", reason tidak perlu.
+- **action itulah KEPUTUSANMU. Ada tepat tiga nilai yang sah: "clean",
+  "delete_message", atau "reset_nickname".** Tidak ada nilai lain, tidak
+  ada "warn", tidak ada "review", tidak ada "hapus".
+  - "reset_nickname" HANYA kalau satu-satunya masalah ada di NAMA —
+    nickname atau username — dan isi pesan itu sendiri bersih. Enforcer
+    akan mereset nickname dan MEMBIARKAN pesan tetap ada di Discord.
+  - "delete_message" kalau ISI PESAN itu sendiri yang melanggar, apa pun
+    isi nickname-nya. Nama yang kasar tidak membebaskan isi pesan yang
+    juga kasar.
+  - "clean" kalau tidak ada pelanggaran sama sekali, atau kalau kamu ragu
+    dan tidak bisa membuktikan pelanggaran.
+- status BUKAN tempat kamu memutuskan — status DITURUNKAN dari action,
+  dan keduanya harus selalu sama: action "delete_message" atau
+  "reset_nickname" ditulis dengan status "deleted"; action "clean"
+  ditulis dengan status "clean". Kalau action "reset_nickname" kamu
+  tulis dengan status "clean", pesan itu tidak akan dihapus DAN
+  nickname-nya juga tidak akan direset — pelanggaranmu lolos tanpa
+  tindakan apa pun.
 - analysis = DESKRIPSI ISI, bukan vonis. Tuliskan apa yang sebenarnya
   dikatakan atau ditampilkan pesanan, dan jelaskan artinya kalau itu
   kalimat/slang yang tidak jelas.
@@ -200,8 +219,7 @@ nickname. Kalimat itu BUKAN bagian dari isi pesan.
 
 - Kalau satu-satunya masalah ada di NAMA (nickname atau username yang menghina),
   itu violation NAMA, bukan violation pesan. Gunakan flag
-  offensive_nickname. Enforcer akan MERESET nickname dan MEMBIARKAN pesan
-  tetap ada di Discord.
+  offensive_nickname, dan action "reset_nickname".
 - Dalam kasus itu status tetap "deleted" (keputusan model tetap keputusan),
   TAPI analysis WAJIB menyatakan kata kuncinya, contoh:
   "nickname mengandung kata kasar; isi pesan bersih".
@@ -210,7 +228,7 @@ nickname. Kalimat itu BUKAN bagian dari isi pesan.
   sindiran pribadi melalui nickname" membuat enforcer menghapus pesan yang
   sebenarnya tidak bersalah.
 - Kalau isi pesan SENDIRI juga bermasalah, itu violation pesan biasa, dan
-  flag nama TIDAK boleh dipakai.
+  flag nama TIDAK boleh dipakai. action-nya "delete_message".
 
 ## PRINSIP PENILAIAN
 
@@ -264,13 +282,16 @@ export const EXAMPLES = `## CONTOH
 INPUT: <message id="1" author="budi (u1)">gila sih produk ini 10jt bisa untung 2jt tiap minggu</message>
 
 INPUT: <message id="2" author="sari (u2)">wkwk kodingan tuh</message>
-OUTPUT: {"results":[{"message_id":"2","status":"clean","flags":[],"categories":[],"confidence":0.88,"score":0.02,"analysis":"Candaan ringan antar developer, tidak ada serangan yang terarah.","evidence":[],"policy_version":"gmw-v2"}]}
+OUTPUT: {"results":[{"message_id":"2","status":"clean","action":"clean","flags":[],"categories":[],"confidence":0.88,"score":0.02,"analysis":"Candaan ringan antar developer, tidak ada serangan yang terarah.","evidence":[],"policy_version":"gmw-v2"}]}
 
 INPUT: <message id="3" author="dimas (u3)">dasar goblok otak kamu cok</message>
-OUTPUT: {"results":[{"message_id":"3","status":"deleted","reason":"Hinaan langsung pada pengguna lain","flags":["harassment"],"categories":["harassment"],"confidence":0.9,"score":0.62,"analysis":"Hinaan langsung pada pengguna lain. Tidak ancaman fisik, jadi skornya sedang.","evidence":["dasar goblok"],"policy_version":"gmw-v2"}]}
+OUTPUT: {"results":[{"message_id":"3","status":"deleted","action":"delete_message","reason":"Hinaan langsung pada pengguna lain","flags":["harassment"],"categories":["harassment"],"confidence":0.9,"score":0.62,"analysis":"Hinaan langsung pada pengguna lain. Tidak ancaman fisik, jadi skornya sedang.","evidence":["dasar goblok"],"policy_version":"gmw-v2"}]}
+
+INPUT: <message id="5" author="adit (u5)">Nandayo</message>
+OUTPUT: {"results":[{"message_id":"5","status":"deleted","action":"reset_nickname","reason":"Nickname 'adit cuking' mengandung kata kasar; isi pesan bersih","flags":["offensive_nickname"],"categories":["offensive_nickname"],"confidence":0.9,"score":0.55,"analysis":"Nickname mengandung kata kasar 'cuking'; isi pesan bersih, hanya ungkapan sampingan.","evidence":["adit cuking"],"policy_version":"gmw-v2"}]}
 
 INPUT: <message id="4" author="rina (u4)">gue mau berhenti hidup, aja semua orang</message>
-OUTPUT: {"results":[{"message_id":"4","status":"deleted","reason":"Pernyataan untuk menyakiti diri sendiri, perlu bantuan segera","flags":["self_harm"],"categories":["self_harm"],"confidence":0.86,"score":0.9,"analysis":"Pernyataan untuk menyakiti diri sendiri; perlu perhatian manual segera, bukan moderasi biasa.","evidence":["mau berhenti hidup"],"policy_version":"gmw-v2"}]}`;
+OUTPUT: {"results":[{"message_id":"4","status":"deleted","action":"delete_message","reason":"Pernyataan untuk menyakiti diri sendiri, perlu bantuan segera","flags":["self_harm"],"categories":["self_harm"],"confidence":0.86,"score":0.9,"analysis":"Pernyataan untuk menyakiti diri sendiri; perlu perhatian manual segera, bukan moderasi biasa.","evidence":["mau berhenti hidup"],"policy_version":"gmw-v2"}]}`;
 
 export const POLICY_VERSION = "gmw-v2";
 

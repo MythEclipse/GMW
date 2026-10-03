@@ -607,6 +607,22 @@ export const pgVerdictsTable = pgTable(
     score: pgReal("score"),
     /** Why the model deleted it. Required for a `deleted` verdict. */
     reason: pgText("reason"),
+    /**
+     * The disposition the MODEL chose: `clean`, `delete_message`, or
+     * `reset_nickname`.
+     *
+     * Read-only here — the gateway's worker writes it and its enforcer reads it;
+     * the backend only displays. `status` still carries the decision and this
+     * says what to do about it, which is why they are two fields and not one
+     * duplicated: a name-only violation is a `deleted` verdict whose message is
+     * NOT deleted.
+     *
+     * Deliberately `pgText` with no enum, because the column carries no CHECK in
+     * the schema — the value set is enforced in code (`VERDICT_ACTIONS`). An
+     * enum here would make the type assert a guarantee the database does not
+     * make, which is how a read path starts rejecting rows that are legal.
+     */
+    action: pgText("action"),
     analysis: pgText("analysis").notNull().default(""),
     evidence: pgJsonb("evidence").notNull().default([]),
     policy_version: pgText("policy_version"),

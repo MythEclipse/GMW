@@ -47,9 +47,12 @@ export {
   type PromptMode,
 } from "./policy.js";
 export {
+  normaliseAction,
   type ParseBatchResult,
   type ParsedVerdict,
   parseVerdicts,
+  VERDICT_ACTIONS,
+  type VerdictAction,
 } from "./verdictParser.js";
 export {
   assertLeaseCoversLlmTimeout,

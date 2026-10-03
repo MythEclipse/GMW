@@ -1379,8 +1379,8 @@ export class ModerationWorker {
     await client.query(
       `INSERT INTO verdicts
          (message_id, status, reason, score, confidence, flags, categories,
-          analysis, evidence, model)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)
+          analysis, evidence, model, action)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
        ON CONFLICT (message_id) DO UPDATE SET
          status = EXCLUDED.status,
          reason = EXCLUDED.reason,
@@ -1388,6 +1388,12 @@ export class ModerationWorker {
          flags = EXCLUDED.flags, categories = EXCLUDED.categories,
          analysis = EXCLUDED.analysis, evidence = EXCLUDED.evidence,
          model = EXCLUDED.model,
+         -- The disposition travels with the judgement. Without this column the
+         -- model's reset_nickname died HERE, and the enforcer — a DIFFERENT
+         -- process, reading this row back — could only infer the outcome from
+         -- the analysis prose, which is the defect the column exists to fix. An
+         -- error verdict keeps NULL: "could not judge" names no action.
+         action = EXCLUDED.action,
          auto_delete_state = CASE
            WHEN verdicts.status IS DISTINCT FROM EXCLUDED.status
              OR verdicts.score IS DISTINCT FROM EXCLUDED.score
@@ -1412,6 +1418,10 @@ export class ModerationWorker {
         v.analysis,
         JSON.stringify(v.evidence),
         this.llm.modelLabel ?? null,
+        // NULL for an error verdict: "could not judge" names no action, and the
+        // enforcer treats NULL as "fall back to status", which for `error` is
+        // no enforcement at all.
+        isError ? null : v.action,
       ],
     );
 

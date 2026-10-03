@@ -36,6 +36,7 @@ import {
 import { logAlreadyDeleted, logDeletionToChannel } from "./autoDeleteLogger.js";
 import { sendDeletionNotification } from "./autoDeleteNotify.js";
 import { createDefaultGateway } from "./llmGateway.js";
+import { normaliseAction } from "./verdictParser.js";
 import { verdictToActionFields } from "./verdictToActionFields.js";
 
 const logger = createChildLogger("auto-delete-manager");
@@ -345,10 +346,43 @@ export async function attemptAutoDeleteFlaggedMessage(
     return { deleted: false, skipped: true, reason: "disabled" };
   }
 
+  // ── The model's chosen disposition ─────────────────────────────────
+  // `verdicts.action` is what the model decided should happen, so it is read
+  // first and the boolean classifier below is demoted to a safety net. The
+  // ordering is the whole point: a decision that must not be re-writable by the
+  // model belongs on evidence, and `action` IS evidence — a named field rather
+  // than a phrase the model chose to write.
+  //
+  // Re-validated here rather than trusted from the parser, because the two run
+  // in DIFFERENT PROCESSES: the worker parses and persists, the gateway
+  // enforces, and anything in between (an older row, a hand-written verdict, a
+  // future writer) can put a value in that column this code has never seen.
+  const modelAction = normaliseAction(verdict?.action);
+
   // ── Nickname-only violation: reset the nick, keep the message ─────
   // When the only flag is about the name, the problem is the nickname, not
   // the content. Enforcement is removing the nickname, not deleting the text.
+  //
+  // Checked regardless of what the model said, and the model is overridden when
+  // it disagrees. The shipped regression: user 1052035456688205854, nickname
+  // "adit cuking", body "Nandayo" — the verdict blamed the NICKNAME, and the
+  // message was deleted while the name survived. A model answering
+  // `delete_message` for a violation that lives in the name is making exactly
+  // that mistake again, so it is not taken at its word while the evidence says
+  // otherwise.
   if (isNicknameOnlyViolation(message, verdict)) {
+    if (modelAction !== null && modelAction !== "reset_nickname") {
+      logger.warn(
+        {
+          messageId: message.id,
+          userId: message.user_id,
+          modelAction,
+          enforced: "reset_nickname",
+        },
+        "Model asked for a different action on a nickname-only violation — " +
+          "overridden to nickname reset, message kept",
+      );
+    }
     if (
       !config.AUTO_DELETE_FLAGGED_DRY_RUN &&
       config.AUTO_NICKNAME_RESET_ENABLED !== false &&
@@ -395,6 +429,88 @@ export async function attemptAutoDeleteFlaggedMessage(
       skipped: true,
       reason: "nickname_only_violation",
     };
+  }
+
+  // ── Model chose a nickname reset, and the evidence does not object ──
+  // `isNicknameOnlyViolation` above is the evidence check that overrides a model
+  // asking to delete. This is its mirror: a model asking for a name reset still
+  // gets one when nothing else is wrong, because the only cost is a member's
+  // nickname going back to their username — and the named field is now the only
+  // carrier of that intent, since it used to be recovered from the prose the
+  // model itself wrote.
+  //
+  // Runs AFTER the evidence check, never instead of it. That check returned false
+  // here, which is ambiguous: it means either "no nickname problem" or "a
+  // nickname problem PLUS a rude body", and those two demand opposite
+  // enforcement. `isEligibleForAutoDelete` is what tells them apart, so the
+  // decision is delegated rather than re-derived — a second copy of the
+  // insult-term list would be a second thing to drift out of step with the first.
+  //
+  // A body that violates in its own right still gets deleted below, and `action`
+  // is not a veto: honouring `reset_nickname` there would hand the model a
+  // get-out-of-jail card — name the action and keep any message. Only the NAME is
+  // reset; the abusive message still goes.
+  if (
+    modelAction === "reset_nickname" &&
+    !isNicknameOnlyViolation(message, verdict)
+  ) {
+    if (isEligibleForAutoDelete(message, verdict)) {
+      logger.info(
+        { messageId: message.id, userId: message.user_id, modelAction },
+        "Model chose reset_nickname but the message body violates too — " +
+          "nickname reset AND message delete both applied",
+      );
+    } else if (
+      !config.AUTO_DELETE_FLAGGED_DRY_RUN &&
+      config.AUTO_NICKNAME_RESET_ENABLED !== false &&
+      !isNicknameResetInCooldown(message.guild_id, message.user_id)
+    ) {
+      const resetOk = await resetOffensiveNickname(
+        client,
+        message.guild_id,
+        message.user_id,
+        message.id,
+      );
+      try {
+        await messageStore.createModerationAction({
+          message_id: message.id,
+          user_id: message.user_id,
+          guild_id: message.guild_id,
+          action_type: "reset_nickname",
+          reason: "model memilih action reset_nickname; pesan dibiarkan",
+          ...verdictToActionFields(message, verdict),
+          username: message.username ?? null,
+          server_nick: resolveServerNick(message),
+          executed_by: "auto-delete-manager",
+          status: resetOk ? "executed" : "failed",
+          error: resetOk ? null : "nickname_reset_failed",
+          executed_at: resetOk ? Date.now() : null,
+        } as never);
+      } catch (error) {
+        logger.warn(
+          {
+            messageId: message.id,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "Failed to persist nickname reset action log",
+        );
+      }
+    }
+    // Return WITHOUT deleting only when the message itself is not being
+    // deleted. When `isEligibleForAutoDelete` was true above, fall through to
+    // the delete path instead: the nickname gets reset here AND the abusive
+    // message gets deleted below.
+    if (!isEligibleForAutoDelete(message, verdict)) {
+      logger.info(
+        { messageId: message.id, userId: message.user_id },
+        "Model chose reset_nickname: message kept, nickname reset attempted",
+      );
+      return {
+        deleted: false,
+        skipped: true,
+        reason: "model_action_reset_nickname",
+      };
+    }
   }
 
   // ── Eligibility gate ─────────────────────────────────────────────

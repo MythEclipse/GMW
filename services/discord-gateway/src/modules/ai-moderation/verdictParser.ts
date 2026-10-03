@@ -42,6 +42,17 @@ export type ParsedVerdict = {
   messageId: string;
   /** THE decision. `deleted` means "remove this"; `error` means "needs a human". */
   status: "clean" | "deleted" | "error";
+  /**
+   * WHICH enforcement the model chose, as a three-valued disposition.
+   *
+   * Deliberately NOT a second decision: `status` still says whether the message
+   * is a violation, and `action` says what happens to it. `clean` and
+   * `delete_message` are DERIVED from `status` and carry no new information.
+   * `reset_nickname` is the one outcome `status` cannot express — the violation
+   * lives in the member's name while the message itself stays up in Discord —
+   * so this is the only place the model's disposition survives.
+   */
+  action: VerdictAction;
   /** Required when `status` is `deleted`; the cause of the violation. */
   reason?: string;
   flags: string[];
@@ -70,6 +81,81 @@ export type ParseBatchResult = {
  * violation is removed. An unknown value is an `error`, not a guess.
  */
 const STATUSES = new Set(["clean", "deleted"]);
+
+/**
+ * The three dispositions the MODEL may choose between.
+ *
+ * `status` answers "is this a violation"; this answers "what should happen to
+ * it". The only outcome `status` cannot express is `reset_nickname`, because
+ * the violation lives in the member's nickname and the message is correct
+ * enough to stay — which is why the model has to be asked, rather than code
+ * inferring it from prose the model itself wrote.
+ *
+ * Spelled as `moderation_actions.action_type` values on purpose: this string is
+ * what the enforcer writes into the audit row, and it is free text in the
+ * schema (no CHECK), so the two must not drift apart.
+ */
+export const VERDICT_ACTIONS = [
+  "clean",
+  "delete_message",
+  "reset_nickname",
+] as const;
+
+export type VerdictAction = (typeof VERDICT_ACTIONS)[number];
+
+const ACTION_SET: ReadonlySet<string> = new Set(VERDICT_ACTIONS);
+
+/**
+ * Read a model-supplied `action` into the three-value set, or return null.
+ *
+ * Null means "the model did not give us a value we understand", and the caller
+ * decides what to do about it. It deliberately does NOT guess: an unrecognised
+ * disposition must be distinguishable from a deliberate `clean`, because a
+ * hallucinated `action` field is exactly as untrustworthy as a hallucinated
+ * `status` and must not be laundered into a decision.
+ */
+export function normaliseAction(value: unknown): VerdictAction | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return ACTION_SET.has(trimmed) ? (trimmed as VerdictAction) : null;
+}
+
+/**
+ * The disposition a verdict takes when the model named none we understand.
+ *
+ * Derives from `status`, and from `status` ALONE — which is what makes this the
+ * safe direction to fail in. `status` is the field that already gates every
+ * deletion, so falling back to it reproduces exactly the behaviour that shipped
+ * before `action` existed. The alternatives are both worse: defaulting a
+ * `deleted` verdict to `clean` would silently stop every deletion in the
+ * pipeline the first time a model ignored the new field, and defaulting a
+ * `clean` one to `delete_message` would let a hallucinated field delete
+ * messages outright.
+ */
+function actionFromStatus(status: string): VerdictAction {
+  return status === "deleted" ? "delete_message" : "clean";
+}
+
+/**
+ * The disposition to store, reconciling the model's answer with `status`.
+ *
+ * Exported because this is the single place the two fields are made to agree,
+ * and a caller that writes `verdicts` needs the same rule the parser used —
+ * writing the raw model value instead is how a self-contradictory row
+ * (`status: 'deleted'`, `action: 'clean'`) appears.
+ */
+export function resolveAction(
+  modelAction: VerdictAction | null,
+  status: string,
+): VerdictAction {
+  // The one disposition `status` cannot express: a violation in the member's
+  // name, with the message itself left standing. Honoured on a `clean` status
+  // too, because it deletes nothing — it is the model's explicit statement that
+  // a name needs resetting, and dropping it would be the same infer-from-prose
+  // defect this field was added to remove.
+  if (modelAction === "reset_nickname") return "reset_nickname";
+  return actionFromStatus(status);
+}
 
 /** Deferral language. Kept from v1 so policy behaviour does not drift. */
 const DEFERRAL_ANALYSIS_PATTERN =
@@ -166,6 +252,11 @@ function errorVerdict(
   return {
     messageId,
     status: "error",
+    // `clean`, and it is the only correct value: `status: "error"` means the
+    // model could not read this message, which authorises no enforcement at
+    // all. `actionFromStatus` happens to agree here, but stating the value
+    // directly keeps "an error deletes nothing" independent of that helper.
+    action: "clean",
     // Distinct flag per cause so the attempt log explains WHY, and so the
     // dashboard can tell "model was evasive" from "JSON was malformed".
     flags: [`analysis_${reason}`],
@@ -283,12 +374,43 @@ export function parseVerdicts(
 
     const reason = typeof raw_.reason === "string" ? raw_.reason.trim() : "";
 
+    // The model's disposition, or the pre-existing derivation if it named none
+    // we understand.
+    //
+    // Never a degradation to `error`: unlike `status`, an unusable `action`
+    // must not cost us the verdict. `status` is still valid, the judgement is
+    // still real, and the whole batch would be one hallucinated field away from
+    // being thrown away — the exact D10 failure this parser was rewritten to
+    // eliminate. A bad disposition degrades the DISPOSITION.
+    const modelAction = normaliseAction(raw_.action);
+
+    // One rule, two cases: `reset_nickname` is the only disposition that
+    // survives a contradicting `status`, and everything else is derived from it.
+    //
+    // Honoured on a `clean` status — the model found a name violation but
+    // declined to call the message one. That deletes nothing, and it is the
+    // model's explicit statement that a name needs resetting.
+    //
+    // Everything else follows `status`, because `status` is the field the schema
+    // constrains and the only one that ever authorised a deletion. So an
+    // explicit `clean` beside `status: "deleted"` collapses to
+    // `delete_message`: the model cannot have meant "this is fine" in the same
+    // breath as "delete it", and honouring the `clean` would mean one
+    // inconsistent response silently switches enforcement off — the failure mode
+    // 0025 was written to kill, where flagged verdicts sat unenforced. The
+    // stored row is therefore never self-contradictory: a `deleted` verdict
+    // always carries an action that does something.
+    const action = resolveAction(modelAction, status);
+
     verdictById.set(id, {
       messageId: id,
       // `status` is already the decision — it is validated above to be exactly
       // one of clean/deleted — so nothing reconciles it and nothing overrides
       // it. The model states the outcome once and that value is the outcome.
       status: status as ParsedVerdict["status"],
+      // The disposition the model chose, already reconciled with `status`
+      // above and never an unrecognised value.
+      action,
       // A deletion without a stated cause is a deletion a moderator cannot
       // audit or appeal, so it falls back to the model's own explanation rather
       // than to an empty string. The fallback is the analysis, not a literal
