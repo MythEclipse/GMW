@@ -454,7 +454,12 @@ export async function attemptAutoDeleteFlaggedMessage(
     modelAction === "reset_nickname" &&
     !isNicknameOnlyViolation(message, verdict)
   ) {
-    if (isEligibleForAutoDelete(message, verdict)) {
+    // Computed ONCE. This is the ambiguity resolver for the check above, and
+    // asking twice invites the two answers to drift apart the moment either
+    // predicate changes.
+    const messageIsBeingDeleted = isEligibleForAutoDelete(message, verdict);
+
+    if (messageIsBeingDeleted) {
       logger.info(
         { messageId: message.id, userId: message.user_id, modelAction },
         "Model chose reset_nickname but the message body violates too — " +
@@ -500,7 +505,7 @@ export async function attemptAutoDeleteFlaggedMessage(
     // deleted. When `isEligibleForAutoDelete` was true above, fall through to
     // the delete path instead: the nickname gets reset here AND the abusive
     // message gets deleted below.
-    if (!isEligibleForAutoDelete(message, verdict)) {
+    if (!messageIsBeingDeleted) {
       logger.info(
         { messageId: message.id, userId: message.user_id },
         "Model chose reset_nickname: message kept, nickname reset attempted",
