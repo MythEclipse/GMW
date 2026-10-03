@@ -47,13 +47,7 @@ export type VerdictStatus = "clean" | "deleted" | "error";
  */
 export type RecommendedAction = "clean" | "deleted";
 
-export type ModerationActionType =
-  | "delete_message"
-  | "mute_user"
-  | "warn_user"
-  | "kick_user"
-  | "ban_user"
-  | "reset_nickname";
+export type ModerationActionType = "delete_message" | "reset_nickname";
 
 export type ActionExecutionStatus = "pending" | "executed" | "failed";
 

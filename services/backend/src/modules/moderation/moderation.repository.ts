@@ -8,13 +8,7 @@ export interface ListModerationQuery {
   cursor?: number;
 }
 
-const ACTION_TYPES = [
-  "delete_message",
-  "mute_user",
-  "warn_user",
-  "kick_user",
-  "ban_user",
-] as const;
+const ACTION_TYPES = ["delete_message", "reset_nickname"] as const;
 const STATUSES = ["pending", "executed", "failed"] as const;
 
 /**
@@ -258,10 +252,15 @@ export class ModerationRepository {
    *
    * It returns BOTH `decisions` and `actions`, and they are deliberately not the
    * same thing: `decisions` is `action_type` with a force-ranked CASE order
-   * (ban > kick > mute > warn > delete), because `desc()` on a text enum sorts
+   * (delete_message > reset_nickname), because `desc()` on a text enum sorts
    * lexically and would present that as the ranking. `actions` is the plain
    * count-descending breakdown. The dashboard's ranked panel reads `actions`, so
    * neither key is dead and dropping either one empties a chart.
+   *
+   * There are exactly two action types. `mute_user` / `warn_user` /
+   * `kick_user` / `ban_user` were aspirational labels that nothing ever wrote
+   * and that prod has zero rows of; they are gone rather than left as filters
+   * that could only ever return an empty table.
    */
   async getTrends(days: number) {
     const db = getDatabase();
@@ -285,7 +284,7 @@ export class ModerationRepository {
     // Ranked by the DECISION, because a bare `GROUP BY action_type` returns rows in
     // an arbitrary order that is not a ranking. `action_type` is a text enum, so
     // it needs the explicit CASE — `desc()` on it directly would sort lexically
-    // ("warn_user" > "mute_user" > "kick_user"), which is not the order of force
+    // ("reset_nickname" > "delete_message"), which is not the order of force
     // the action represents. Count breaks ties within a decision.
     const dec = await db.execute(sql`
       SELECT action_type, COUNT(*)::int AS c
@@ -294,11 +293,8 @@ export class ModerationRepository {
       GROUP BY action_type
       ORDER BY
         CASE action_type
-          WHEN 'ban_user' THEN 4
-          WHEN 'kick_user' THEN 3
-          WHEN 'mute_user' THEN 2
-          WHEN 'warn_user' THEN 1
-          WHEN 'delete_message' THEN 0
+          WHEN 'delete_message' THEN 1
+          WHEN 'reset_nickname' THEN 0
           ELSE -1
         END DESC,
         c DESC

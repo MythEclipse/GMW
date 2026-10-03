@@ -46,13 +46,12 @@ export class ModerationHandler {
       };
     }
 
-    const validActions = [
-      "delete_message",
-      "mute_user",
-      "warn_user",
-      "kick_user",
-      "ban_user",
-    ] as const;
+    // Only the two actions this system can actually perform. `mute_user`,
+    // `warn_user`, `kick_user` and `ban_user` were accepted here but never
+    // implemented downstream — the command wrote a row claiming an action
+    // nobody took. `reset_nickname` is the counterpart to `delete_message`:
+    // correct the name, keep the message.
+    const validActions = ["delete_message", "reset_nickname"] as const;
     if (
       !validActions.includes(
         payload.action_type as (typeof validActions)[number],
@@ -99,12 +98,7 @@ export class ModerationHandler {
         message_id: payload.message_id,
         user_id: payload.user_id,
         guild_id: payload.guild_id,
-        action_type: payload.action_type as
-          | "delete_message"
-          | "mute_user"
-          | "warn_user"
-          | "kick_user"
-          | "ban_user",
+        action_type: payload.action_type as "delete_message" | "reset_nickname",
         reason: payload.reason ?? null,
         username: null,
         server_nick: null,

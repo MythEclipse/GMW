@@ -59,14 +59,7 @@ import { useWsEvent } from "@/lib/ws/context";
 const ANY = "__any__";
 
 const ACTION_STATUSES = ["executed", "pending", "failed"] as const;
-const ACTION_TYPES = [
-  "delete_message",
-  "warn_user",
-  "mute_user",
-  "kick_user",
-  "ban_user",
-  "reset_nickname",
-] as const;
+const ACTION_TYPES = ["delete_message", "reset_nickname"] as const;
 
 /**
  * Label maps for the enforcement-log filters.

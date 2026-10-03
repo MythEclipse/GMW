@@ -656,14 +656,7 @@ export const pgModerationActionsTable = pgTable(
     user_id: pgText("user_id"),
     guild_id: pgText("guild_id").notNull(),
     action_type: pgText("action_type", {
-      enum: [
-        "delete_message",
-        "mute_user",
-        "warn_user",
-        "kick_user",
-        "ban_user",
-        "reset_nickname",
-      ],
+      enum: ["delete_message", "reset_nickname"],
     }).notNull(),
     reason: pgText("reason"),
     executed_by: pgText("executed_by"),

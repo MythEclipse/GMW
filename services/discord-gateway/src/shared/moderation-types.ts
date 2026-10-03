@@ -196,13 +196,7 @@ export interface MessageReview {
   reviewed_at: number | null;
 }
 
-export type ModerationActionType =
-  | "delete_message"
-  | "mute_user"
-  | "warn_user"
-  | "kick_user"
-  | "ban_user"
-  | "reset_nickname";
+export type ModerationActionType = "delete_message" | "reset_nickname";
 
 export interface ModerationAction {
   id: string;
