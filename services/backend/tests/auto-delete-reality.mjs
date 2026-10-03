@@ -35,7 +35,7 @@ try {
       count(*) FILTER (WHERE m.deleted_at IS NULL)::int AS present
     FROM verdicts v
     JOIN messages m ON m.id = v.message_id
-    WHERE v.status = 'flagged'`);
+    WHERE v.status = 'deleted'`);
   const f = flagged.rows[0];
   console.log(
     `flagged verdicts: ${f.flagged} (deleted ${f.deleted}, still present ${f.present})`,
@@ -53,7 +53,7 @@ try {
       count(*) FILTER (WHERE m.deleted_at IS NULL)::int AS present
     FROM verdicts v
     JOIN messages m ON m.id = v.message_id
-    WHERE v.status = 'flagged' AND v.created_at > extract(epoch from now())::bigint * 1000 - 86400000`);
+    WHERE v.status = 'deleted' AND v.created_at > extract(epoch from now())::bigint * 1000 - 86400000`);
   const r = recent.rows[0];
   console.log(`flagged in last 24h: ${r.flagged} (still present ${r.present})`);
   check(

@@ -102,7 +102,7 @@ export function DashboardView({ days }: { days: number }) {
           to="/messages"
         />
         <StatTile
-          label="Flagged"
+          label="Deleted"
           value={formatCompact(stats.data?.total_flagged)}
           hint={
             flaggedRate === null
@@ -110,7 +110,7 @@ export function DashboardView({ days }: { days: number }) {
               : `${formatPercent(flaggedRate, 2)} of all messages`
           }
           tone={flaggedRate !== null && flaggedRate > 2 ? "warning" : "neutral"}
-          to="/messages?verdict=flagged"
+          to="/messages?verdict=deleted"
         />
         <StatTile
           label="In queue"

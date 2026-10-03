@@ -6,7 +6,6 @@ import { Badge, type Tone } from "@/components/shared/tone";
 import {
   pipelineLabel,
   pipelineTone,
-  severityTone,
   verdictLabel,
   verdictTone,
 } from "@/lib/ai-status";
@@ -17,7 +16,7 @@ import {
   readEmbeds,
   readStickers,
 } from "@/lib/message-metadata";
-import type { Message, Severity, VerdictStatus } from "@/lib/types";
+import type { Message, VerdictStatus } from "@/lib/types";
 
 /**
  * Message row for the live feed and the review queue.
@@ -25,7 +24,7 @@ import type { Message, Severity, VerdictStatus } from "@/lib/types";
  * Shows BOTH state axes explicitly, because collapsing them is the bug that
  * made "still queued" indistinguishable from "judged clean":
  *
- *   - the VERDICT pill  (clean / warn / flagged / error / unjudged)
+ *   - the VERDICT pill  (clean / deleted / error / unjudged)
  *   - the PIPELINE pill (queued / analyzing / analyzed / retrying / abandoned)
  *
  * An unjudged message is visually neutral, never green.
@@ -218,12 +217,6 @@ export function MessageFeedCard({
           </Badge>
         )}
 
-        {message.verdict_severity && message.verdict_severity !== "none" && (
-          <Badge tone={severityTone(message.verdict_severity)}>
-            {message.verdict_severity}
-          </Badge>
-        )}
-
         {deleted && <Badge tone="danger">Deleted</Badge>}
         {edited && !deleted && <Badge tone="neutral">Edited</Badge>}
 
@@ -315,11 +308,6 @@ export function Avatar({
       className="shrink-0 rounded-full"
     />
   );
-}
-
-export function SeverityBadge({ severity }: { severity: Severity | null }) {
-  if (!severity || severity === "none") return null;
-  return <Badge tone={severityTone(severity)}>{severity}</Badge>;
 }
 
 export type { Tone };

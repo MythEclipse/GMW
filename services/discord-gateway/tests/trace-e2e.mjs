@@ -73,8 +73,6 @@ const stub = {
         analysis: "Aman.",
         score: 0.01,
         confidence: 0.9,
-        recommended_action: "none",
-        severity: "none",
         evidence: [],
       })),
     });

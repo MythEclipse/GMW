@@ -19,16 +19,17 @@ export type AIStatus =
   | "dead"
   | "skipped";
 
-/** The verdict, from the `verdicts` table. Never stored in `ai_status`. */
-export type VerdictStatus = "clean" | "warn" | "flagged" | "error";
-export type AISeverity = "none" | "low" | "medium" | "high" | "critical";
-export type AIRecommendedAction =
-  | "none"
-  | "monitor"
-  | "warn"
-  | "review"
-  | "delete"
-  | "escalate";
+/**
+ * The verdict, from the `verdicts` table. Never stored in `ai_status`.
+ *
+ * Two real answers and one non-answer: a message either violates the policy
+ * (`deleted`) or it does not (`clean`). There is no `warn`/`flagged` middle
+ * tier, because a middle tier in practice meant "nobody acted on this" — the
+ * message stayed up while the pipeline called it handled. `error` is not a
+ * middle tier; it means the model could not read the message at all, which is a
+ * different thing entirely and still never authorises a deletion.
+ */
+export type VerdictStatus = "clean" | "deleted" | "error";
 
 export interface BroadcasterClient {
   messageCreated: (data: unknown) => void;
@@ -86,9 +87,7 @@ export interface MessageRecord {
   ai_moderation_score?: number | null;
   ai_analysis?: string | null;
   ai_categories?: string | null;
-  ai_severity?: AISeverity | null;
   ai_confidence?: number | null;
-  ai_recommended_action?: AIRecommendedAction | null;
   ai_analyzed_at?: number | null;
   ai_error?: string | null;
   // ── The JUDGEMENT (from `verdicts`, joined by the backend) ───────────────
@@ -98,12 +97,13 @@ export interface MessageRecord {
   // consumer of this record cannot tell "judged clean" from "not judged yet",
   // and the dashboard badge falls back to rendering "unjudged".
   verdict_status?: VerdictStatus | null;
-  verdict_severity?: AISeverity | null;
+  /** Why the model deleted it. Required for a `deleted` verdict so the
+   *  decision is auditable and appealable. */
+  verdict_reason?: string | null;
   verdict_score?: number | null;
   verdict_confidence?: number | null;
   verdict_flags?: string[] | null;
   verdict_categories?: string[] | null;
-  verdict_recommended_action?: AIRecommendedAction | null;
   verdict_analysis?: string | null;
   verdict_model?: string | null;
   verdict_policy_version?: string | null;
@@ -164,9 +164,7 @@ export interface AnalysisResult {
   score: number;
   analysis: string;
   categories?: string[];
-  severity?: AISeverity;
   confidence?: number;
-  recommendedAction?: AIRecommendedAction;
   policyVersion?: string;
   evidence?: string[];
 }

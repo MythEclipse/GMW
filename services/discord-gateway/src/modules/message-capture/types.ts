@@ -6,8 +6,6 @@ import type {
 
 // Re-export all shared types for backward compatibility
 export type {
-  AIRecommendedAction,
-  AISeverity,
   AIStatus,
   AnalysisQueueStatus,
   AnalysisResult,

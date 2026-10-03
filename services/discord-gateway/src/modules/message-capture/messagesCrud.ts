@@ -142,9 +142,7 @@ export class MessagesCrud {
           ai_moderation_score: null,
           ai_analysis: null,
           ai_categories: null,
-          ai_severity: null,
           ai_confidence: null,
-          ai_recommended_action: null,
           ai_analyzed_at: null,
           ai_error: null,
         })

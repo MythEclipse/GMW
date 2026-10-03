@@ -73,13 +73,7 @@ export const pgMessagesTable = pgTable(
     ai_moderation_score: pgReal("ai_moderation_score"),
     ai_analysis: pgText("ai_analysis"),
     ai_categories: pgText("ai_categories"),
-    ai_severity: pgText("ai_severity", {
-      enum: ["none", "low", "medium", "high", "critical"],
-    }),
     ai_confidence: pgReal("ai_confidence"),
-    ai_recommended_action: pgText("ai_recommended_action", {
-      enum: ["none", "monitor", "warn", "review", "delete", "escalate"],
-    }),
     ai_analyzed_at: pgBigint("ai_analyzed_at", { mode: "number" }),
     ai_analysis_duration_ms: pgBigint("ai_analysis_duration_ms", {
       mode: "number",
@@ -594,7 +588,10 @@ export type ChatbotMessageInsert = typeof chatbotMessagesTable.$inferInsert;
 //
 // The important split: `messages.ai_status` is pipeline position
 // (pending/claimed/analyzed/retry_wait/dead/skipped) and says nothing about the
-// judgement. The outcome — clean, warn, flagged, error — is `verdicts.status`.
+// judgement. The outcome — clean, deleted, error — is `verdicts.status`, and the
+// `verdicts.reason` records why. There is deliberately no second decision
+// column: a `recommended_action` that could disagree with `status` is the same
+// defect severity was removed for, one scale down.
 // Filtering messages by `ai_status = 'flagged'` returns nothing, because
 // nothing writes that value any more.
 export const pgVerdictsTable = pgTable(
@@ -602,18 +599,14 @@ export const pgVerdictsTable = pgTable(
   {
     message_id: pgText("message_id").primaryKey(),
     status: pgText("status", {
-      enum: ["clean", "warn", "flagged", "error"],
+      enum: ["clean", "deleted", "error"],
     }).notNull(),
     flags: pgText("flags").array().notNull().default([]),
     categories: pgText("categories").array().notNull().default([]),
-    severity: pgText("severity", {
-      enum: ["none", "low", "medium", "high", "critical"],
-    })
-      .notNull()
-      .default("none"),
     confidence: pgReal("confidence").notNull().default(0),
     score: pgReal("score"),
-    recommended_action: pgText("recommended_action").notNull().default("none"),
+    /** Why the model deleted it. Required for a `deleted` verdict. */
+    reason: pgText("reason"),
     analysis: pgText("analysis").notNull().default(""),
     evidence: pgJsonb("evidence").notNull().default([]),
     policy_version: pgText("policy_version"),
@@ -628,11 +621,13 @@ export const pgVerdictsTable = pgTable(
       table.status,
       table.created_at,
     ),
-    actionableIdx: pgIndex("idx_verdicts_actionable")
-      .on(table.recommended_action, table.created_at)
-      .where(
-        sql`${table.recommended_action} IN ('delete', 'escalate', 'review')`,
-      ),
+    // The enforcer's candidate index. It used to key on `recommended_action`,
+    // which duplicated the decision and could disagree with `status`; 0025
+    // drops that column, so the index is keyed on the status itself and its
+    // predicate narrows to deletions — the only rows worth enforcing.
+    actionableIdx: pgIndex("idx_verdicts_auto_delete_pending")
+      .on(table.created_at)
+      .where(sql`${table.status} = 'deleted'`),
   }),
 );
 

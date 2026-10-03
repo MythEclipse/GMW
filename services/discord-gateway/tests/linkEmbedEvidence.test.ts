@@ -13,6 +13,12 @@
  * indication of over-promotion, should be watched" and returned
  * `warn`/`low`/`spam` - and the message was deleted.
  *
+ * (That verdict shape no longer exists: `warn`, `low` and the middle tier
+ * between "leave it" and "delete it" were all removed, and `status` is now the
+ * only decision. The deleted message is therefore expressed below as a
+ * `deleted` verdict on evidence the model never saw, which is the same defect
+ * expressed in the surviving vocabulary.)
+ *
  * The mirror-image bug: an embedder bot's message has `content: ""`, because
  * `getDisplayContent()` runs at `messageCreate` before the embed resolves. The
  * model judged an empty string and answered "Pesan kosong tanpa konten
@@ -211,7 +217,7 @@ describe("recognising a bare link post", () => {
   });
 });
 
-describe("auto-delete refuses a bare link post on a guessed verdict", () => {
+describe("auto-delete refuses a bare link post judged on a guessed verdict", () => {
   const base = {
     id: "m1",
     guild_id: "g1",
@@ -221,46 +227,22 @@ describe("auto-delete refuses a bare link post on a guessed verdict", () => {
     metadata: metadataWithFbEmbed,
   };
 
-  it("keeps a warn/low link post - the exact deleted Facebook case", () => {
-    // This is the production verdict: warn, low severity, spam flag. The
-    // message was deleted. It must not be eligible again.
+  // THE DELETED MESSAGE, restated. The Facebook share above carries a fully
+  // resolved preview — a title, a description and a site name. The verdict was
+  // invented from the domain alone because the prompt never showed the model
+  // that preview, and the message was removed for it. Both halves of the fix
+  // have to hold: the prompt now carries the preview (see the suite below), and
+  // when the preview genuinely could not be resolved the gate refuses to delete
+  // on reasoning from nothing.
+  it("deletes a bare link post whose preview WAS resolved and read", () => {
+    // With the evidence on the table the model is no longer guessing, so a
+    // `deleted` verdict stands. The guard must not become a blanket exemption
+    // for link posts — that would make every share undeletable.
     expect(
       isEligibleForAutoDelete(base, {
-        status: "warn",
-        severity: "low",
-        confidence: 0.8,
-        score: 0.2,
-        recommended_action: "warn",
-        categories: ["spam"],
-        flags: ["spam"],
-        analysis: "Pengguna membagikan tautan eksternal ke Facebook.",
-      }),
-    ).toBe(false);
-  });
-
-  it("keeps a flagged/medium link post", () => {
-    expect(
-      isEligibleForAutoDelete(base, {
-        status: "flagged",
-        severity: "medium",
-        confidence: 0.9,
-        recommended_action: "review",
-        categories: ["spam"],
-        flags: ["spam"],
-        analysis: "Promosi berlebihan.",
-      }),
-    ).toBe(false);
-  });
-
-  it("still deletes a bare link post at high severity", () => {
-    // The guard must not become a loophole: severity high/critical is the
-    // strongest signal there is, and is usually grounded in real content.
-    expect(
-      isEligibleForAutoDelete(base, {
-        status: "flagged",
-        severity: "high",
+        status: "deleted",
         confidence: 0.95,
-        recommended_action: "delete",
+        score: 0.9,
         categories: ["nsfw"],
         flags: ["nsfw"],
         analysis: "Pratinjau memuat konten seksual eksplisit.",
@@ -268,16 +250,86 @@ describe("auto-delete refuses a bare link post on a guessed verdict", () => {
     ).toBe(true);
   });
 
+  // The unresolved case is the guard that replaces the severity tier. There is
+  // no severity to compare any more, so the question is no longer "is this
+  // serious enough to delete a link post?" but "did we ever see what the link
+  // says?" — and when we did not, there is nothing to judge on.
+  it("refuses a bare link post when no preview resolved for it", () => {
+    expect(
+      isEligibleForAutoDelete(
+        { ...base, metadata: JSON.stringify({ embeds: [], attachments: [] }) },
+        {
+          status: "deleted",
+          confidence: 0.99,
+          score: 0.95,
+          categories: ["spam"],
+          flags: ["spam"],
+          analysis: "Pengguna membagikan tautan eksternal.",
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a bare link post when the preview resolves for only some of its links", () => {
+    // Two links, one embed. The pairing leaves one of them with
+    // `embed: null`, and a message that is partly unreadable is not judgeable —
+    // the model could have read the second link's preview and deleted on it.
+    expect(
+      isEligibleForAutoDelete(
+        {
+          ...base,
+          content: `${T_CO_WRAPPER} https://example.org/second`,
+          metadata: JSON.stringify({
+            embeds: [
+              {
+                title: "Kopi Susu Gula Aren dari UMKM Magelang",
+                url: FB_LINK,
+                type: "rich",
+              },
+            ],
+            attachments: [],
+          }),
+        },
+        {
+          status: "deleted",
+          confidence: 0.99,
+          score: 0.95,
+          categories: ["spam"],
+          flags: ["spam"],
+          analysis: "Berbagi tautan.",
+        },
+      ),
+    ).toBe(false);
+  });
+
+  // A `warn` verdict used to be the reason this message survived. There is no
+  // review tier now, so the survival comes from the verdict itself being a
+  // non-deletion — asserted explicitly so a future re-introduction of a middle
+  // outcome is caught here rather than silently deleting shares again.
+  it("a bare link post the model called clean is not eligible", () => {
+    expect(
+      isEligibleForAutoDelete(base, {
+        status: "clean",
+        confidence: 0.9,
+        score: 0.05,
+        categories: ["spam"],
+        flags: ["spam"],
+        analysis: "Pengguna membagikan tautan eksternal ke Facebook.",
+      }),
+    ).toBe(false);
+  });
+
   it("does not change eligibility for an ordinary non-link message", () => {
-    // The guard is scoped to bare link posts; a text message is unaffected.
+    // The guard is scoped to bare link posts; a text message is unaffected even
+    // when its score is low, because there is no unresolved evidence to refuse
+    // on.
     expect(
       isEligibleForAutoDelete(
         { ...base, content: "kirimin link porn 5 juta", metadata: null },
         {
-          status: "flagged",
-          severity: "low",
+          status: "deleted",
           confidence: 0.9,
-          recommended_action: "delete",
+          score: 0.6,
           categories: ["nsfw"],
           flags: ["nsfw"],
           analysis: "Ajakan Tyson pornografi.",

@@ -2,9 +2,10 @@
  * Channel logging for auto-delete.
  *
  * Ported from the pre-rewrite `autoDeleteLogger.ts`. The only change is where
- * the status/severity come from: the old code read `message.ai_status` and
+ * the status comes from: the old code read `message.ai_status` and
  * `message.ai_severity`, which after the rewrite no longer describe the
- * judgement. They now come from the verdict row.
+ * judgement. It now comes from the verdict row, which carries the decision and
+ * nothing else — there is no severity to report.
  */
 import type { Guild } from "discord.js-selfbot-v13";
 import { config } from "../../shared/config/index.js";
@@ -42,7 +43,6 @@ export async function logDeletionToChannel(
       "send" in logChannel &&
       typeof (logChannel as ChannelWithSend).send === "function"
     ) {
-      const severity = verdict?.severity ?? message.ai_severity ?? "none";
       const status = verdict?.status ?? message.ai_status ?? "unknown";
       const categories =
         (verdict?.categories ?? []).join(", ") ||
@@ -58,7 +58,6 @@ export async function logDeletionToChannel(
       await (logChannel as ChannelWithSend).send(
         `**🧹 Auto-Delete** — Pesan dari <@${message.user_id}> di <#${channelId}>\n` +
           `**Status:** ${status}\n` +
-          `**Severitas:** ${severity}\n` +
           `**Kategori:** ${categories}\n` +
           `**Alasan:** ${reason}\n` +
           `**Isi:** ${snippet}\n` +
@@ -107,7 +106,6 @@ export async function logAlreadyDeleted(
       "send" in logChannel &&
       typeof (logChannel as ChannelWithSend).send === "function"
     ) {
-      const severity = verdict?.severity ?? message.ai_severity ?? "none";
       const status = verdict?.status ?? message.ai_status ?? "unknown";
       const categories =
         (verdict?.categories ?? []).join(", ") ||
@@ -123,7 +121,6 @@ export async function logAlreadyDeleted(
       await (logChannel as ChannelWithSend).send(
         `**⏭️ Auto-Delete gagal — sudah dihapus orang lain** — Pesan dari <@${message.user_id}> di <#${channelId}>\n` +
           `**Status:** ${status}\n` +
-          `**Severitas:** ${severity}\n` +
           `**Kategori:** ${categories}\n` +
           `**Alasan AI:** ${reason}\n` +
           `**Isi:** ${snippet}\n` +

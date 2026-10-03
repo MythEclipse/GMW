@@ -23,7 +23,7 @@ try {
   const row = await pool.query(
     `SELECT m.id, m.guild_id, m.channel_id, m.user_id, m.username, m.content,
             m.ai_status, m.deleted_at, m.created_at,
-            v.status AS verdict_status, v.severity, v.confidence, v.score,
+            v.status AS verdict_status, v.confidence, v.score,
             v.recommended_action, v.flags, v.categories, v.analysis, v.model,
             v.auto_delete_state, v.auto_delete_claimed_at, v.created_at AS v_at
      FROM messages m
@@ -42,7 +42,7 @@ try {
     console.log(`channel       ${r.channel_id}`);
     console.log(`ai_status     ${r.ai_status}`);
     console.log(`deleted_at    ${r.deleted_at ?? "(still present)"}`);
-    console.log(`verdict       ${r.verdict_status} / ${r.severity} / conf=${r.confidence} / score=${r.score}`);
+    console.log(`verdict       ${r.verdict_status} / conf=${r.confidence} / score=${r.score}`);
     console.log(`action        ${r.recommended_action}`);
     console.log(`categories    ${JSON.stringify(r.categories)}`);
     console.log(`flags         ${JSON.stringify(r.flags)}`);

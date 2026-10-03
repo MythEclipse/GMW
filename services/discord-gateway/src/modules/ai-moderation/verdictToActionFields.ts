@@ -10,7 +10,6 @@ import type { MessageLike, VerdictLike } from "./autoDeleteEligibility.js";
 
 export interface VerdictActionFields {
   status: string;
-  severity: string;
   categories: string;
   flags: string;
   confidence: number;
@@ -31,7 +30,6 @@ export function verdictToActionFields(
   policyVersion?: string | null,
 ): VerdictActionFields {
   const status = verdict?.status ?? message.ai_status ?? "unknown";
-  const severity = verdict?.severity ?? message.ai_severity ?? "none";
   const confidence =
     verdict?.confidence ??
     message.ai_confidence ??
@@ -43,7 +41,6 @@ export function verdictToActionFields(
 
   return {
     status,
-    severity,
     categories,
     flags,
     confidence,

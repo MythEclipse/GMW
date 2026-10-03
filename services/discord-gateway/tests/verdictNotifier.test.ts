@@ -46,9 +46,9 @@ afterAll(async () => {
 });
 
 async function seed(
-  over: { status: string; severity: string } = {
-    status: "flagged",
-    severity: "high",
+  over: { status: string; reason: string } = {
+    status: "deleted",
+    reason: "hinaan langsung pada pengguna lain",
   },
 ) {
   await pool.query(
@@ -62,11 +62,11 @@ async function seed(
     [Date.now()],
   );
   await pool.query(
-    `INSERT INTO verdicts (message_id,status,severity,score,confidence,flags,categories,
-                           analysis,evidence,recommended_action,model,duration_ms)
+    `INSERT INTO verdicts (message_id,status,reason,score,confidence,flags,categories,
+                           analysis,evidence,model,duration_ms)
      VALUES ('notif-1',$1,$2,0.9,0.95,'{harassment}','{harassment}',
-             'Hinaan langsung pada pengguna lain.','[]','warn','test-model',1234)`,
-    [over.status, over.severity],
+             'Hinaan langsung pada pengguna lain.','[]','test-model',1234)`,
+    [over.status, over.reason],
   );
 }
 
@@ -112,15 +112,15 @@ describe("verdict notifier selection", () => {
 
   test("a RE-analysis is picked up (cursor must be updated_at, not created_at)", async () => {
     if (!reachable) return;
-    await seed({ status: "warn", severity: "low" });
+    await seed({ status: "clean", reason: "" });
     const before = await pool.query<{ u: string; c: string }>(
       "SELECT updated_at::text u, created_at::text c FROM verdicts WHERE message_id='notif-1'",
     );
     // A re-judgement updates in place: created_at is unchanged, updated_at
     // moves. A cursor on created_at would miss this entirely and the
-    // dashboard would keep showing the stale severity forever.
+    // dashboard would keep showing the stale verdict forever.
     await pool.query(
-      `UPDATE verdicts SET status='flagged', severity='critical',
+      `UPDATE verdicts SET status='deleted', reason='hinaan langsung pada pengguna lain',
               updated_at=(extract(epoch from now())*1000)::bigint
         WHERE message_id='notif-1'`,
     );
@@ -134,16 +134,16 @@ describe("verdict notifier selection", () => {
   test("the verdict columns the badge needs are all populated", async () => {
     if (!reachable) return;
     await seed();
-    // The badge reads verdict_status, falling back to ai_status. If the
-    // notifier omitted verdict_status the message renders "unjudged" for an
-    // analyzed row — the exact symptom this fixes.
+    // The badge reads verdict_status and verdict_reason, falling back to
+    // ai_status. If the notifier omitted verdict_status the message renders
+    // "unjudged" for an analyzed row — the exact symptom this fixes. `reason`
+    // is what the dashboard shows as the cause of a deletion.
     const { rows } = await pool.query<Record<string, unknown>>(
-      `SELECT v.status, v.severity, v.recommended_action, v.duration_ms, v.analysis
+      `SELECT v.status, v.reason, v.duration_ms, v.analysis
          FROM verdicts v WHERE v.message_id = 'notif-1'`,
     );
-    expect(rows[0].status).toBe("flagged");
-    expect(rows[0].severity).toBe("high");
-    expect(rows[0].recommended_action).toBe("warn");
+    expect(rows[0].status).toBe("deleted");
+    expect(String(rows[0].reason)).toContain("hinaan");
     expect(Number(rows[0].duration_ms)).toBe(1234);
     expect(String(rows[0].analysis)).toContain("Hinaan");
   });

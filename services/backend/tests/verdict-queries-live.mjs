@@ -34,10 +34,10 @@ function check(name, ok, detail = "") {
 try {
   // ── 1. The review queue must not be empty just because ai_status changed ──
   const review = await pool.query(`
-    SELECT m.ai_status, v.status AS verdict_status, v.severity, v.recommended_action
+    SELECT m.ai_status, v.status AS verdict_status, v.recommended_action
     FROM messages m
     LEFT JOIN verdicts v ON v.message_id = m.id
-    WHERE v.status IN ('warn','flagged') OR m.ai_status = 'dead'
+    WHERE v.status = 'deleted' OR m.ai_status = 'dead'
     ORDER BY v.created_at DESC NULLS LAST
     LIMIT 5
   `);
@@ -74,7 +74,7 @@ try {
   // ── 3. Stats must be live (moderation_actions is frozen at cutover) ──
   const stats = await pool.query(`
     SELECT COALESCE(v.status,'unjudged') AS status,
-           COALESCE(v.recommended_action,'none') AS action_type,
+           COALESCE(v.recommended_action,'clean') AS action_type,
            COUNT(*)::int AS c
     FROM messages m
     LEFT JOIN verdicts v ON v.message_id = m.id
@@ -118,7 +118,7 @@ try {
   // ── 5. The split must be observable: analyzed+flagged ≠ analyzed+unjudged ──
   const split = await pool.query(`
     SELECT
-      COUNT(*) FILTER (WHERE m.ai_status='analyzed' AND v.status='flagged')::int AS analyzed_flagged,
+      COUNT(*) FILTER (WHERE m.ai_status='analyzed' AND v.status='deleted')::int AS analyzed_flagged,
       COUNT(*) FILTER (WHERE m.ai_status='analyzed' AND v.status IS NULL)::int AS analyzed_unjudged
     FROM messages m LEFT JOIN verdicts v ON v.message_id = m.id
   `);

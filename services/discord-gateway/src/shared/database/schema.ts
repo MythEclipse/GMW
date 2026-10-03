@@ -58,13 +58,7 @@ export const pgMessagesTable = pgTable(
     ai_moderation_score: pgReal("ai_moderation_score"),
     ai_analysis: pgText("ai_analysis"),
     ai_categories: pgText("ai_categories"),
-    ai_severity: pgText("ai_severity", {
-      enum: ["none", "low", "medium", "high", "critical"],
-    }),
     ai_confidence: pgReal("ai_confidence"),
-    ai_recommended_action: pgText("ai_recommended_action", {
-      enum: ["none", "monitor", "warn", "review", "delete", "escalate"],
-    }),
     ai_analyzed_at: pgBigint("ai_analyzed_at", { mode: "number" }),
     ai_analysis_duration_ms: pgBigint("ai_analysis_duration_ms", {
       mode: "number",
@@ -684,9 +678,6 @@ export const pgModerationActionsTable = pgTable(
     // ── Explainability (structured verdict; surfaced read-only to public web) ──
     flags: pgText("flags"), // JSON array of string flags, e.g. ["sara_agama","vulgar"]
     categories: pgText("categories"), // JSON array of category strings
-    severity: pgText("severity", {
-      enum: ["none", "low", "medium", "high", "critical"],
-    }),
     confidence: pgReal("confidence"), // 0..1
     score: pgReal("score"), // 0..1 raw model score
     evidence: pgText("evidence"), // JSON array of short quoted snippets

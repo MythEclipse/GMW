@@ -56,10 +56,9 @@ const BATCH_LIMIT = 50;
 interface VerdictRow {
   message_id: string;
   status: string;
-  severity: string | null;
+  reason: string | null;
   score: number | null;
   confidence: number | null;
-  recommended_action: string | null;
   flags: string[] | null;
   categories: string[] | null;
   analysis: string | null;
@@ -103,8 +102,8 @@ async function fetchUnnotified(
   // as read-only), which is the same reason autoDeleteEnforcer queries it
   // this way. The values are bound parameters, never interpolated.
   const res = await db.execute(sql`
-    SELECT v.message_id, v.status, v.severity, v.score, v.confidence,
-           v.recommended_action, v.flags, v.categories, v.analysis,
+    SELECT v.message_id, v.status, v.reason, v.score, v.confidence,
+           v.flags, v.categories, v.analysis,
            v.duration_ms, v.model, v.policy_version, v.updated_at,
            m.guild_id, m.channel_id, m.thread_id, m.user_id, m.username,
            m.avatar_url, m.content, m.edited_content, m.metadata,
@@ -160,13 +159,11 @@ function toMessageRecord(
     // without them the frontend falls back to the queue state and, for an
     // analyzed message, renders "unjudged".
     verdict_status: row.status as MessageRecord["verdict_status"],
-    verdict_severity: row.severity as MessageRecord["verdict_severity"],
+    verdict_reason: row.reason,
     verdict_score: row.score,
     verdict_confidence: row.confidence,
     verdict_flags: row.flags,
     verdict_categories: row.categories,
-    verdict_recommended_action:
-      row.recommended_action as MessageRecord["verdict_recommended_action"],
     verdict_analysis: row.analysis,
     verdict_model: row.model,
     verdict_policy_version: row.policy_version,

@@ -53,7 +53,7 @@ try {
   const states = await pool.query(`
     SELECT auto_delete_state, count(*)::int AS n
     FROM verdicts
-    WHERE status IN ('flagged','warn')
+    WHERE status = 'deleted'
     GROUP BY 1 ORDER BY 2 DESC`);
   console.log("\nenforcer state on flagged/warn verdicts:");
   for (const r of states.rows) {

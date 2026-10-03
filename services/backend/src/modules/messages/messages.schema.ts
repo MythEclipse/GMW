@@ -19,12 +19,7 @@ export const pipelineStatusSchema = z.enum([
 ]);
 
 /** The judgement itself. Lives in the `verdicts` table, not on `messages`. */
-export const verdictStatusSchema = z.enum([
-  "clean",
-  "warn",
-  "flagged",
-  "error",
-]);
+export const verdictStatusSchema = z.enum(["clean", "deleted", "error"]);
 
 export const messageQuerySchema = z.object({
   channelId: z.string().optional(),
@@ -40,7 +35,13 @@ export const messageQuerySchema = z.object({
    * yet never matches, which is the point.
    */
   verdict: verdictStatusSchema.optional(),
-  /** Shorthand for the review queue: verdict in (warn, flagged). */
+  /**
+   * Shorthand for the enforcement queue: verdict is `deleted`. The name is
+   * historical — there is no review tier any more, so this no longer means
+   * "needs a human to look". It is the set of messages the pipeline removed,
+   * kept under the old name because the frontend filter and the route both
+   * still speak it.
+   */
   needsReview: z.coerce.boolean().optional(),
   limit: z.coerce.number().int().positive().default(50),
   offset: z.coerce.number().int().nonnegative().default(0),
@@ -77,15 +78,13 @@ export const messageUpdateSchema = z.object({
   editedContent: z.string().optional(),
   aiStatus: pipelineStatusSchema.optional(),
   verdictStatus: verdictStatusSchema.optional(),
-  recommendedAction: z.string().optional(),
+  recommendedAction: z.enum(["clean", "deleted"]).optional(),
   analysis: z.string().optional(),
   categories: z.string().optional(),
-  severity: z.enum(["none", "low", "medium", "high", "critical"]).optional(),
   confidence: z.number().optional(),
   // Legacy camelCase aliases the dashboard still sends.
   aiAnalysis: z.string().optional(),
   aiCategories: z.string().optional(),
-  aiSeverity: z.enum(["none", "low", "medium", "high", "critical"]).optional(),
   aiConfidence: z.number().optional(),
 });
 

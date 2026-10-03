@@ -31,7 +31,7 @@ import {
   useModerationStats,
   useModerationTrends,
 } from "@/hooks/use-data";
-import { filterFromUrl, severityTone } from "@/lib/ai-status";
+import { filterFromUrl } from "@/lib/ai-status";
 import {
   formatCompact,
   formatDateTime,
@@ -41,12 +41,7 @@ import {
   messageBody,
   truncate,
 } from "@/lib/format";
-import type {
-  Coverage,
-  HourBucket,
-  ModerationActionPage,
-  Severity,
-} from "@/lib/types";
+import type { Coverage, HourBucket, ModerationActionPage } from "@/lib/types";
 import { useWsEvent } from "@/lib/ws/context";
 
 /**
@@ -165,31 +160,18 @@ export function ModerationView({ days }: { days: number }) {
     [trends.data?.categories],
   );
 
-  const severityBars = useMemo(() => {
-    // Severity is an ORDINAL scale, so these are sorted by intensity — not by
-    // count, and not alphabetically. Postgres returns `GROUP BY severity` in
-    // arbitrary order, which rendered as "Medium, None, Critical, High, Low":
-    // a reader comparing two severities had to hunt for the right row.
-    //
-    // `none` sorts FIRST because it is the absence of a finding, not a level on
-    // the scale; putting it last would imply it were the most severe thing here.
-    const rank: Record<string, number> = {
-      none: 0,
-      low: 1,
-      medium: 2,
-      high: 3,
-      critical: 4,
-    };
-
-    return (trends.data?.severities ?? [])
-      .map((s) => ({
-        label: humanize(s.level),
-        value: s.count,
-        rank: rank[String(s.level).toLowerCase()] ?? 99,
-      }))
-      .sort((a, b) => a.rank - b.rank)
-      .map(({ rank: _rank, ...bar }) => bar);
-  }, [trends.data?.severities]);
+  // What the model actually did, by action type. This replaced the severity
+  // distribution panel, which aggregated a column that no longer exists — the
+  // backend already returns this breakdown on the same call, so the panel keeps
+  // its slot rather than leaving a hole in the grid.
+  const actionBars = useMemo(
+    () =>
+      (trends.data?.actions ?? []).map((a) => ({
+        label: humanize(a.type),
+        value: a.count,
+      })),
+    [trends.data?.actions],
+  );
 
   // The two "model errors" figures measure DIFFERENT things, and the tile used
   // to present them as one fraction.
@@ -271,11 +253,15 @@ export function ModerationView({ days }: { days: number }) {
           )}
         </Section>
 
-        <Section
-          title="Severity distribution"
-          description={`Last ${days} days`}
-        >
-          <RankedBars data={severityBars} />
+        <Section title="Actions taken" description={`Last ${days} days`}>
+          {trends.error && !trends.data ? (
+            <ErrorState
+              error={trends.error}
+              onRetry={() => void trends.refetch()}
+            />
+          ) : (
+            <RankedBars data={actionBars} showRank />
+          )}
         </Section>
       </SectionGrid>
 
@@ -428,7 +414,7 @@ function ActionsTable({
             <TableHead>User</TableHead>
             <TableHead>Message</TableHead>
             <TableHead>Action</TableHead>
-            <TableHead>Severity</TableHead>
+            <TableHead>Confidence</TableHead>
             <TableHead>By</TableHead>
             <TableHead>Status</TableHead>
           </TableRow>
@@ -467,9 +453,21 @@ function ActionsTable({
                 <Badge>{humanize(row.action_type)}</Badge>
               </TableCell>
               <TableCell>
-                <Badge tone={severityTone(row.severity as Severity | null)}>
-                  {row.severity ?? "—"}
-                </Badge>
+                {row.confidence == null ? (
+                  <span className="font-mono text-xs text-ink-faint">—</span>
+                ) : (
+                  <Badge
+                    tone={
+                      row.confidence >= 0.9
+                        ? "danger"
+                        : row.confidence >= 0.7
+                          ? "warning"
+                          : "neutral"
+                    }
+                  >
+                    {formatPercent(row.confidence, 0)}
+                  </Badge>
+                )}
               </TableCell>
               <TableCell>
                 <span className="block whitespace-nowrap font-mono text-micro text-ink-faint">

@@ -249,7 +249,6 @@ export function logVerdictWritten(fields: {
   trace: string;
   messageId: string;
   status: string;
-  recommendedAction: string;
   score: number | null;
   attempts: number;
   createdAt: unknown;
@@ -263,7 +262,6 @@ export function logVerdictWritten(fields: {
       messageId: fields.messageId,
       stage: "verdict",
       status: fields.status,
-      recommendedAction: fields.recommendedAction,
       score: fields.score,
       attempts: fields.attempts,
       perMessageError: fields.perMessageError ?? null,

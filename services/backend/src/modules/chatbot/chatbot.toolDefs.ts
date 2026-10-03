@@ -29,7 +29,7 @@ export const tools: ToolDef[] = [
     function: {
       name: "get_server_stats",
       description:
-        "Ambil statistik ringkas server/guild: total pesan, user aktif, jumlah pesan flagged, warn, dan clean. Panggil untuk jawab pertanyaan umum soal kondisi server. guildId/channelId otomatis ter-isi dari scope; kosongkan untuk semua data.",
+        "Ambil statistik ringkas server/guild: total pesan, user aktif, jumlah pesan yang dihapus (deleted) dan yang clean. Panggil untuk jawab pertanyaan umum soal kondisi server. guildId/channelId otomatis ter-isi dari scope; kosongkan untuk semua data.",
       parameters: {
         type: "object",
         properties: {
@@ -81,7 +81,7 @@ export const tools: ToolDef[] = [
     function: {
       name: "get_top_flagged",
       description:
-        "Ambil pesan dengan ai_status flagged (beserta alasan, severity, analysis). Panggil untuk bahas pesan bermasalah / kerjaan moderator.",
+        "Ambil pesan yang di-flag AI (beserta alasan, status keputusan, analysis). Panggil untuk bahas pesan bermasalah / kerjaan moderator.",
       parameters: {
         type: "object",
         properties: {
@@ -183,7 +183,7 @@ export const tools: ToolDef[] = [
     function: {
       name: "get_message_detail",
       description:
-        "Ambil 1 pesan lengkap beserta hasil analisis AI-nya (status, flags, score, severity, kategori, analysis, recommended action). Untuk jelasin keputusan moderasi pada pesan tertentu. Butuh message_id.",
+        "Ambil 1 pesan lengkap beserta hasil analisis AI-nya (status, flags, score, kategori, analysis, alasan penghapusan). Untuk jelasin keputusan moderasi pada pesan tertentu. Butuh message_id.",
       parameters: {
         type: "object",
         properties: {
@@ -238,7 +238,7 @@ export const tools: ToolDef[] = [
     function: {
       name: "get_moderation_timeline",
       description:
-        "Ambil tren harian: per hari, jumlah total pesan vs flagged vs warn vs clean. Untuk 'minggu ini pelanggaran naik?' / lihat tren moderasi. guildId otomatis ter-isi.",
+        "Ambil tren harian: per hari, jumlah total pesan vs yang dihapus (deleted) vs clean. Untuk 'minggu ini pelanggaran naik?' / lihat tren moderasi. guildId otomatis ter-isi.",
       parameters: {
         type: "object",
         properties: {

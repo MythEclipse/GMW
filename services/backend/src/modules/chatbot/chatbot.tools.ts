@@ -138,18 +138,20 @@ async function serverStats(
     .select({
       total_messages: sql<number>`COUNT(*)::int`,
       active_users: sql<number>`COUNT(DISTINCT ${pgMessagesTable.user_id})::int`,
-      flagged: sql<number>`COUNT(*) FILTER (WHERE ${pgMessagesTable.ai_status} = 'flagged')::int`,
-      warned: sql<number>`COUNT(*) FILTER (WHERE ${pgMessagesTable.ai_status} = 'warn')::int`,
-      clean: sql<number>`COUNT(*) FILTER (WHERE ${pgMessagesTable.ai_status} = 'clean')::int`,
+      flagged: sql<number>`COUNT(*) FILTER (WHERE ${pgVerdictsTable.status} = 'deleted')::int`,
+      clean: sql<number>`COUNT(*) FILTER (WHERE ${pgVerdictsTable.status} = 'clean')::int`,
     })
     .from(pgMessagesTable)
+    .leftJoin(
+      pgVerdictsTable,
+      eq(pgVerdictsTable.message_id, pgMessagesTable.id),
+    )
     .where(scopeMessages(guildId, channelId));
 
   const r = result ?? {
     total_messages: 0,
     active_users: 0,
     flagged: 0,
-    warned: 0,
     clean: 0,
   };
   return JSON.stringify(r);
@@ -212,7 +214,6 @@ async function topFlagged(
       // The judgement itself. `messages.ai_status = 'flagged'` matches nothing
       // since the rewrite, which silently made this tool always answer "none".
       verdict_status: pgVerdictsTable.status,
-      verdict_severity: pgVerdictsTable.severity,
       verdict_flags: pgVerdictsTable.flags,
       verdict_analysis: pgVerdictsTable.analysis,
       verdict_score: pgVerdictsTable.score,
@@ -225,10 +226,20 @@ async function topFlagged(
     .where(
       and(
         scopeMessages(guildId, channelId),
-        inArray(pgVerdictsTable.status, ["flagged", "warn"]),
+        eq(pgVerdictsTable.status, "deleted"),
       ),
     )
-    .orderBy(desc(pgVerdictsTable.severity), desc(pgMessagesTable.created_at))
+    // Ranked by the DECISION, then by how hard the model judged it. `score` is a
+    // number, so desc() is a real ranking here — and NOT on the text columns,
+    // which would sort lexically ("clean" > "deleted") rather than by meaning.
+    .orderBy(
+      desc(sql`CASE ${pgVerdictsTable.status}
+        WHEN 'deleted' THEN 2
+        WHEN 'clean' THEN 1
+        ELSE 0 END`),
+      desc(sql`COALESCE(${pgVerdictsTable.score}, 0)`),
+      desc(pgMessagesTable.created_at),
+    )
     .limit(limit);
   return JSON.stringify(rows);
 }
@@ -351,10 +362,8 @@ async function messageDetail(messageId?: string): Promise<string> {
       ai_status: pgMessagesTable.ai_status,
       ai_moderation_flags: pgMessagesTable.ai_moderation_flags,
       ai_moderation_score: pgMessagesTable.ai_moderation_score,
-      ai_severity: pgMessagesTable.ai_severity,
       ai_categories: pgMessagesTable.ai_categories,
       ai_analysis: pgMessagesTable.ai_analysis,
-      ai_recommended_action: pgMessagesTable.ai_recommended_action,
       ai_confidence: pgMessagesTable.ai_confidence,
     })
     .from(pgMessagesTable)
@@ -429,11 +438,14 @@ async function moderationTimeline(
     .select({
       day,
       total: sql<number>`COUNT(*)::int`,
-      flagged: sql<number>`COUNT(*) FILTER (WHERE ${pgMessagesTable.ai_status} = 'flagged')::int`,
-      warned: sql<number>`COUNT(*) FILTER (WHERE ${pgMessagesTable.ai_status} = 'warn')::int`,
-      clean: sql<number>`COUNT(*) FILTER (WHERE ${pgMessagesTable.ai_status} = 'clean')::int`,
+      flagged: sql<number>`COUNT(*) FILTER (WHERE ${pgVerdictsTable.status} = 'deleted')::int`,
+      clean: sql<number>`COUNT(*) FILTER (WHERE ${pgVerdictsTable.status} = 'clean')::int`,
     })
     .from(pgMessagesTable)
+    .leftJoin(
+      pgVerdictsTable,
+      eq(pgVerdictsTable.message_id, pgMessagesTable.id),
+    )
     .where(
       and(
         scopeMessages(guildId, channelId),

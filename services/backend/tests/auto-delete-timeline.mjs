@@ -88,7 +88,7 @@ try {
       count(*)::int AS total
     FROM verdicts v
     JOIN messages m ON m.id = v.message_id
-    WHERE v.status = 'flagged'`);
+    WHERE v.status = 'deleted'`);
   const b = backlog.rows[0];
   const pct = b.total ? ((b.present / b.total) * 100).toFixed(1) : "0";
   console.log(

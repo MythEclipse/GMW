@@ -131,7 +131,7 @@ try {
     check(
       "message detail returns the joined verdict",
       Boolean(msg?.verdict_status),
-      `verdict_status=${msg?.verdict_status} severity=${msg?.verdict_severity} action=${msg?.verdict_recommended_action}`,
+      `verdict_status=${msg?.verdict_status} action=${msg?.verdict_recommended_action}`,
     );
     check(
       "message detail returns attempt history",

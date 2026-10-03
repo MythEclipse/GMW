@@ -52,12 +52,12 @@ export interface MappedMessage {
   ai_ready_for_work_at: number | null;
   // Joined verdict columns (aliased `verdict_*` by the repository)
   verdict_status?: string | null;
-  verdict_severity?: string | null;
   verdict_score?: number | null;
   verdict_confidence?: number | null;
   verdict_flags?: string[] | null;
   verdict_categories?: string[] | null;
-  verdict_recommended_action?: string | null;
+  /** Why the model deleted it. Null for a clean verdict and for pre-0025 rows. */
+  verdict_reason?: string | null;
   verdict_analysis?: string | null;
   verdict_evidence?: unknown;
   verdict_model?: string | null;
@@ -66,9 +66,7 @@ export interface MappedMessage {
   ai_moderation_score: number | null;
   ai_analysis: string | null;
   ai_categories: string | null;
-  ai_severity: string | null;
   ai_confidence: number | null;
-  ai_recommended_action: string | null;
   ai_analyzed_at: number | null;
   ai_analysis_duration_ms: number | null;
   ai_error: string | null;
@@ -111,13 +109,11 @@ export function mapMessageRow(row: Record<string, unknown>): MappedMessage {
     // null means "not judged yet" — which is now distinguishable from
     // "judged clean". Before the split those were the same value.
     verdict_status: (row.verdict_status as string | null) ?? null,
-    verdict_severity: (row.verdict_severity as string | null) ?? null,
     verdict_score: (row.verdict_score as number | null) ?? null,
     verdict_confidence: (row.verdict_confidence as number | null) ?? null,
     verdict_flags: (row.verdict_flags as string[] | null) ?? null,
     verdict_categories: (row.verdict_categories as string[] | null) ?? null,
-    verdict_recommended_action:
-      (row.verdict_recommended_action as string | null) ?? null,
+    verdict_reason: (row.verdict_reason as string | null) ?? null,
     verdict_analysis: (row.verdict_analysis as string | null) ?? null,
     verdict_evidence: (row.verdict_evidence as unknown) ?? null,
     verdict_model: (row.verdict_model as string | null) ?? null,
@@ -129,9 +125,7 @@ export function mapMessageRow(row: Record<string, unknown>): MappedMessage {
     ai_moderation_score: (row.ai_moderation_score as number | null) ?? null,
     ai_analysis: (row.ai_analysis as string | null) ?? null,
     ai_categories: (row.ai_categories as string | null) ?? null,
-    ai_severity: (row.ai_severity as string | null) ?? null,
     ai_confidence: (row.ai_confidence as number | null) ?? null,
-    ai_recommended_action: (row.ai_recommended_action as string | null) ?? null,
     ai_analyzed_at: (row.ai_analyzed_at as number | null) ?? null,
     ai_analysis_duration_ms:
       (row.ai_analysis_duration_ms as number | null) ?? null,

@@ -32,18 +32,20 @@ export type PipelineStatus =
 /**
  * The JUDGEMENT, from the `verdicts` table. A separate column from
  * `ai_status` and never stored there.
+ *
+ * Two outcomes and a failure: the model either let the message through
+ * (`clean`) or called for its removal (`deleted`). There is no severity scale
+ * to grade in between, so there is nothing between "fine" and "gone" — the
+ * ordinal axis is gone from the schema, not just hidden in the UI.
  */
-export type VerdictStatus = "clean" | "warn" | "flagged" | "error";
+export type VerdictStatus = "clean" | "deleted" | "error";
 
-export type Severity = "none" | "low" | "medium" | "high" | "critical";
-
-export type RecommendedAction =
-  | "none"
-  | "monitor"
-  | "warn"
-  | "review"
-  | "delete"
-  | "escalate";
+/**
+ * What the model wants done, mirroring the verdict. `clean` means leave it
+ * alone; `deleted` means the message goes. Same two states as the verdict
+ * because there is no middle outcome left to distinguish.
+ */
+export type RecommendedAction = "clean" | "deleted";
 
 export type ModerationActionType =
   | "delete_message"
@@ -79,12 +81,16 @@ export interface TextChannel {
 /** The judgement, joined onto a message by the backend. */
 export interface VerdictFields {
   verdict_status?: VerdictStatus | null;
-  verdict_severity?: Severity | null;
   verdict_score?: number | null;
   verdict_confidence?: number | null;
   verdict_flags?: string[] | null;
   verdict_categories?: string[] | null;
-  verdict_recommended_action?: RecommendedAction | null;
+  /**
+   * Why the model deleted it. Not a second decision — `verdict_status` already
+   * says whether the message goes — but the cause, so a deletion is auditable
+   * and appealable. Null for a clean verdict, and for rows judged before 0025.
+   */
+  verdict_reason?: string | null;
   verdict_analysis?: string | null;
   verdict_evidence?: string[] | null;
   verdict_model?: string | null;
@@ -118,7 +124,6 @@ export interface Message extends VerdictFields {
   attempts?: number | null;
   worker_id?: string | null;
   // Legacy columns kept for the review row; the verdict_* fields are canonical.
-  ai_severity?: Severity | null;
   ai_confidence?: number | null;
   ai_analysis?: string | null;
   ai_categories?: string | null;
@@ -225,7 +230,6 @@ export interface DashboardStats {
   total_users: number;
   total_flagged: number;
   total_clean: number;
-  total_warned: number;
   total_error: number;
   total_pending: number;
   total_claimed: number;
@@ -330,15 +334,13 @@ export interface ModerationStats {
   failed: number;
   pending: number;
   failed_rate: number;
-  by_action: Record<
-    string,
-    { executed: number; failed: number; pending: number }
-  >;
+  /** Verdict status → count. Keyed by status, not by a separate action: the
+   *  decision is stated once, so there is nothing to group it by twice. */
+  by_status: Record<string, number>;
 }
 
 export interface ModerationTrends {
   categories: Array<{ name: string; count: number }>;
-  severities: Array<{ level: string; count: number }>;
   actions: Array<{ type: string; count: number }>;
 }
 
@@ -372,7 +374,6 @@ export interface ModerationActionRow {
   executed_at: number | null;
   flags: string[] | null;
   categories: string[] | null;
-  severity: Severity | null;
   confidence: number | null;
   score: number | null;
   evidence: string[] | null;
@@ -396,7 +397,6 @@ export interface CategoryDrilldownRow {
   reason: string | null;
   status: string;
   created_at: number;
-  severity: Severity | null;
   confidence: number | null;
   score: number | null;
   username: string | null;

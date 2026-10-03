@@ -2,6 +2,13 @@
  * Copies the legacy moderation columns out of production into a scratch
  * database, so a backfill can be rehearsed before it touches real data.
  *
+ * The COLS list below is deliberately PRE-0025: it names `ai_severity` and
+ * `ai_recommended_action`, which migration 0025 drops. So this only runs
+ * against a database that has NOT yet had 0025 applied — production, before
+ * the deploy — and it fails on any database already migrated, which is the
+ * correct signal rather than a bug. Once 0025 is live in prod the rehearsal
+ * this exists for is moot and the tool can be retired.
+ *
  * Run: DSN=<prod dsn> bun tests/build-legacy-replica.mjs
  */
 import pg from "pg";

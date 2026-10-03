@@ -58,7 +58,6 @@ const baseMessage: MemoryMessage = {
   context: {},
   analysis: "",
   status: "clean",
-  severity: "none",
   categories: [],
 };
 
@@ -237,9 +236,8 @@ test("the retained text carries names, not just the id", () => {
       }),
     ),
     context: {},
-    analysis: "Promosi judi dengan link, perlu ditinjau.",
-    status: "flagged",
-    severity: "high",
+    analysis: "Promosi judi dengan link.",
+    status: "deleted",
     categories: ["gambling"],
   });
 
@@ -248,7 +246,9 @@ test("the retained text carries names, not just the id", () => {
   expect(content).toContain("zulfik_dev");
   expect(content).toContain("Zul");
   // The verdict rides along, so a recall can ask "have we seen this scam".
-  expect(content).toContain("flagged");
+  // `status` is the only judgement stored now — there is no severity tier and
+  // no recommended action to record alongside it.
+  expect(content).toContain("deleted");
   expect(content).toContain("gambling");
   expect(content).toContain("kirim link jackpot ZEUS sekarang");
 });
@@ -264,7 +264,6 @@ test("an id-only author still produces a storable memory", () => {
     context: {},
     analysis: "",
     status: "clean",
-    severity: "none",
     categories: [],
   });
   expect(content).toContain("777");
@@ -603,10 +602,8 @@ test("the prompt carries the recalled memory AND the author names", async () => 
             status: "clean",
             flags: [],
             categories: [],
-            severity: "none",
             confidence: 0.9,
             score: 0.02,
-            recommended_action: "none",
             analysis: "Ringkasan isi pesan.",
             evidence: [],
           },

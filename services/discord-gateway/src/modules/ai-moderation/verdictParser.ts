@@ -25,22 +25,29 @@ import { POLICY_VERSION } from "./policy.js";
  * model was asked about is missing entirely.
  */
 
-/** One message's outcome. Never throws. */
+/**
+ * One message's outcome. Never throws.
+ *
+ * `status` IS the decision, and it is two-valued because there is nothing in
+ * between: `severity` and the six-valued `recommended_action` are both gone.
+ * A message is either a violation to remove or it is clean — no review tier,
+ * full auto. `status` rather than a separate boolean is deliberate: the
+ * decision and the column that stores it stay one fact, not two that can drift.
+ *
+ * `error` remains a third value because "could not judge" is a real outcome and
+ * not a synonym for "clean". An unreadable message must reach a human rather
+ * than being deleted on no evidence or silently blessed.
+ */
 export type ParsedVerdict = {
   messageId: string;
-  status: "clean" | "warn" | "flagged" | "error";
+  /** THE decision. `deleted` means "remove this"; `error` means "needs a human". */
+  status: "clean" | "deleted" | "error";
+  /** Required when `status` is `deleted`; the cause of the violation. */
+  reason?: string;
   flags: string[];
   categories: string[];
-  severity: "none" | "low" | "medium" | "high" | "critical";
   confidence: number;
   score: number;
-  recommendedAction:
-    | "none"
-    | "monitor"
-    | "warn"
-    | "review"
-    | "delete"
-    | "escalate";
   analysis: string;
   evidence: string[];
   policyVersion?: string;
@@ -57,16 +64,12 @@ export type ParseBatchResult = {
   batchError?: string;
 };
 
-const SEVERITIES = new Set(["none", "low", "medium", "high", "critical"]);
-const ACTIONS = new Set([
-  "none",
-  "monitor",
-  "warn",
-  "review",
-  "delete",
-  "escalate",
-]);
-const STATUSES = new Set(["clean", "warn", "flagged"]);
+/**
+ * The outcomes a verdict may claim. `clean` and `deleted` are the only two real
+ * answers — there is no review tier, so the pipeline is full auto and every
+ * violation is removed. An unknown value is an `error`, not a guess.
+ */
+const STATUSES = new Set(["clean", "deleted"]);
 
 /** Deferral language. Kept from v1 so policy behaviour does not drift. */
 const DEFERRAL_ANALYSIS_PATTERN =
@@ -167,10 +170,13 @@ function errorVerdict(
     // dashboard can tell "model was evasive" from "JSON was malformed".
     flags: [`analysis_${reason}`],
     categories: [`analysis_${reason}`],
-    severity: "none",
+    // Never delete on an error. "The model could not read this message" is not
+    // evidence of a violation, and deleting on it is unrecoverable — the content
+    // is gone and the judgement that justified removing it never happened.
+    // Confidence 0 says so explicitly rather than leaving a stale high value
+    // from a failed attempt to imply the model was sure.
     confidence: 0,
     score: 0,
-    recommendedAction: "review",
     analysis: `Analisis tidak dapat diselesaikan (${reason}). Perlu pemeriksaan manual. Percobaan ${attempt}.`,
     evidence: [],
     perMessageError: reason,
@@ -263,36 +269,37 @@ export function parseVerdicts(
       continue;
     }
 
-    const severity = String(raw_.severity ?? "");
-    const action = String(raw_.recommended_action ?? "");
-
     const score = clampScore(raw_.score, 0);
     const confidenceRaw = clampScore(raw_.confidence, Number.NaN);
     // v1 derived confidence from score when the model omitted it. Keep that.
     const confidence = Number.isFinite(confidenceRaw)
       ? confidenceRaw
-      : status === "flagged"
+      : status === "deleted"
         ? Math.max(0.8, score)
-        : status === "warn"
-          ? 0.6
-          : 0.9;
+        : 0.9;
 
     const flags = asStringArray(raw_.flags);
     const categories = asStringArray(raw_.categories);
 
+    const reason = typeof raw_.reason === "string" ? raw_.reason.trim() : "";
+
     verdictById.set(id, {
       messageId: id,
+      // `status` is already the decision — it is validated above to be exactly
+      // one of clean/deleted — so nothing reconciles it and nothing overrides
+      // it. The model states the outcome once and that value is the outcome.
       status: status as ParsedVerdict["status"],
+      // A deletion without a stated cause is a deletion a moderator cannot
+      // audit or appeal, so it falls back to the model's own explanation rather
+      // than to an empty string. The fallback is the analysis, not a literal
+      // placeholder: a real sentence is worth more to a reviewer than "n/a".
+      ...(status === "deleted"
+        ? { reason: reason.length > 0 ? reason : analysis }
+        : {}),
       flags,
       categories: categories.length > 0 ? categories : flags,
-      severity: (SEVERITIES.has(severity)
-        ? severity
-        : deriveSeverity(status, score)) as ParsedVerdict["severity"],
       confidence,
       score,
-      recommendedAction: (ACTIONS.has(action)
-        ? action
-        : "none") as ParsedVerdict["recommendedAction"],
       analysis:
         analysis.length > 0
           ? analysis
@@ -317,15 +324,4 @@ export function parseVerdicts(
     missing,
     batchFailed: false,
   };
-}
-
-function deriveSeverity(
-  status: string,
-  score: number,
-): ParsedVerdict["severity"] {
-  if (status === "clean") return "none";
-  if (score >= 0.85) return "critical";
-  if (score >= 0.65) return "high";
-  if (score >= 0.4) return "medium";
-  return "low";
 }

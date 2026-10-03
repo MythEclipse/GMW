@@ -33,9 +33,7 @@ export interface AIAnalysisUpdate {
   score?: number | null;
   analysis?: string | null;
   categories?: string[] | string | null;
-  severity?: MessageRecord["ai_severity"] | null;
   confidence?: number | null;
-  recommendedAction?: MessageRecord["ai_recommended_action"] | null;
   analyzedAt?: number | null;
   /** Wall-clock time the AI analysis (LLM call) took, in milliseconds. */
   analysisDurationMs?: number | null;
@@ -51,9 +49,7 @@ function buildAIAnalysisSet(result: AIAnalysisUpdate, now?: number) {
     ai_moderation_score: result.score ?? null,
     ai_analysis: result.analysis ?? null,
     ai_categories: stringifyAIList(result.categories),
-    ai_severity: result.severity ?? null,
     ai_confidence: result.confidence ?? result.score ?? null,
-    ai_recommended_action: result.recommendedAction ?? null,
     ai_analyzed_at: result.analyzedAt ?? now ?? Date.now(),
     ai_analysis_duration_ms: result.analysisDurationMs ?? null,
     ai_error: result.error ?? null,

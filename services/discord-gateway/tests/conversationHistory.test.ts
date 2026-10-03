@@ -105,9 +105,8 @@ async function seed(rows: Seed[]): Promise<void> {
     // seeding a real past verdict, which is what history IS.
     await pool.query(
       `INSERT INTO verdicts
-         (message_id, status, severity, confidence, score,
-          recommended_action, analysis)
-       VALUES ($1, 'clean', 'none', 0.9, 0.01, 'none', 'seeded past verdict')`,
+         (message_id, status, reason, confidence, score, analysis)
+       VALUES ($1, 'clean', NULL, 0.9, 0.01, 'seeded past verdict')`,
       [id],
     );
     await pool.query(
@@ -157,10 +156,8 @@ function capturingGateway(): LlmGateway & Capture {
           status: "clean",
           flags: [],
           categories: [],
-          severity: "none",
           confidence: 0.9,
           score: 0.01,
-          recommended_action: "none",
           analysis: "test verdict",
           evidence: [],
           policy_version: "test",
@@ -456,13 +453,12 @@ describe("conversation history reaches the prompt", () => {
         return JSON.stringify({
           results: [before, target].map((id) => ({
             message_id: id,
-            status: "flagged",
+            status: "deleted",
+            reason: "disobedient verdict",
             flags: ["abuse"],
             categories: ["abuse"],
-            severity: "high",
             confidence: 0.9,
             score: 0.9,
-            recommended_action: "delete",
             analysis: "disobedient verdict",
             evidence: [],
             policy_version: "test",
@@ -488,7 +484,7 @@ describe("conversation history reaches the prompt", () => {
     });
     expect(await analysisFor(target)).toEqual({
       analysis: "disobedient verdict",
-      status: "flagged",
+      status: "deleted",
     });
   });
 });

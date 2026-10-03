@@ -109,10 +109,10 @@ class ChatbotService {
 ${scopeLine}
 
 TOOLS YANG TERSEDIA (panggil saat user tanya soal data server):
-- get_server_stats → statistik server: total pesan, user aktif, flagged/warn/clean
+- get_server_stats → statistik server: total pesan, user aktif, jumlah deleted dan clean
 - get_top_channels → channel paling aktif (jumlah pesan terbanyak)
 - get_recent_activity → pesan terbaru (siapa, channel mana, jam berapa, isinya)
-- get_top_flagged → pesan yang di-flag AI (alasan, severity, analysis)
+- get_top_flagged → pesan yang di-flag AI (alasan, status keputusan, analysis)
 - search_messages → cari pesan berdasarkan kata kunci (LIKE search)
 - get_user_messages → pesan terbaru dari satu user tertentu
 - get_user_profile → profil AI dari seorang user (pola perilaku, gaya bicara)
@@ -120,7 +120,7 @@ TOOLS YANG TERSEDIA (panggil saat user tanya soal data server):
 - get_message_detail → 1 pesan lengkap beserta hasil analisis AI-nya
 - get_message_reviews → antrean review moderasi manual
 - get_voice_recordings → rekaman suara terbaru
-- get_moderation_timeline → tren harian: total vs flagged vs warn vs clean
+- get_moderation_timeline → tren harian: total vs deleted vs clean
 - get_corrections → riwayat koreksi false-positive AI
 
 ATURAN PENTING — JANGAN PAKAI KONTEKS STATIS:

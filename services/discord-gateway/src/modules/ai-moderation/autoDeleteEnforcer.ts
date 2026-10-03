@@ -54,10 +54,9 @@ const MARKER_COLUMNS = "auto_delete_state, auto_delete_claimed_at";
 interface Row {
   message_id: string;
   status: string;
-  severity: string | null;
+  reason: string | null;
   confidence: number | null;
   score: number | null;
-  recommended_action: string | null;
   categories: string[] | null;
   flags: string[] | null;
   analysis: string | null;
@@ -99,7 +98,7 @@ async function claimUnenforced(limit: number): Promise<Row[]> {
       SELECT v.message_id
       FROM verdicts v
       JOIN messages m ON m.id = v.message_id
-      WHERE v.status IN ('flagged', 'warn')
+      WHERE v.status = 'deleted'
         AND m.deleted_at IS NULL
         AND v.created_at <= ${notBefore}
         AND (v.${sql.raw("auto_delete_state")} IS NULL
@@ -119,8 +118,8 @@ async function claimUnenforced(limit: number): Promise<Row[]> {
     FROM messages m
     WHERE v.message_id IN (SELECT message_id FROM candidates)
       AND m.id = v.message_id
-    RETURNING v.message_id, v.status, v.severity, v.confidence, v.score,
-              v.recommended_action, v.categories, v.flags, v.analysis,
+    RETURNING v.message_id, v.status, v.reason, v.confidence, v.score,
+              v.categories, v.flags, v.analysis,
               m.guild_id, m.channel_id, m.user_id, m.thread_id, m.username,
               m.content, m.edited_content, m.metadata
   `);
@@ -192,10 +191,8 @@ async function tick(client: Client): Promise<void> {
     for (const row of rows) {
       const verdict: VerdictLike = {
         status: row.status,
-        severity: row.severity,
         confidence: row.confidence,
         score: row.score,
-        recommended_action: row.recommended_action,
         categories: row.categories ?? [],
         flags: row.flags ?? [],
         analysis: row.analysis,

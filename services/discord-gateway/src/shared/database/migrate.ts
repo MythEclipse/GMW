@@ -197,6 +197,28 @@ export async function seedDrizzleHistory(client: PoolClient): Promise<void> {
         SELECT FROM information_schema.columns
         WHERE table_name = 'text_analysis_cache' AND column_name = 'embedding'
       )
+      -- 0025: severity and recommended_action are GONE, so this tests their
+      -- ABSENCE, the same inverse shape as 0024. Its reason column is the
+      -- positive half: without both, a database still carrying the old columns
+      -- reports "at latest", 0025 gets stamped as applied without running, and
+      -- the columns the worker no longer writes to linger beside the decision
+      -- that replaced them.
+      AND NOT EXISTS (
+        SELECT FROM information_schema.columns
+        WHERE table_name = 'verdicts' AND column_name = 'severity'
+      )
+      AND NOT EXISTS (
+        SELECT FROM information_schema.columns
+        WHERE table_name = 'verdicts' AND column_name = 'recommended_action'
+      )
+      AND NOT EXISTS (
+        SELECT FROM information_schema.columns
+        WHERE table_name = 'messages' AND column_name = 'ai_severity'
+      )
+      AND EXISTS (
+        SELECT FROM information_schema.columns
+        WHERE table_name = 'verdicts' AND column_name = 'reason'
+      )
       -- 0021 is DATA-ONLY: it creates no object, so nothing above can detect
       -- it. Its sentinel is the absence of the state it was written to fix —
       -- a judged message with no verdict row. Vacuously true where there is

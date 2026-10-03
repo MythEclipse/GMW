@@ -1,12 +1,14 @@
 /**
- * Does a message the policy now flags actually become eligible for deletion?
+ * Does a message the policy now calls a violation actually become eligible for
+ * deletion?
  *
- * `status = flagged` is not enough. The gate also requires severity within
- * AUTO_DELETE_ALLOWED_SEVERITIES (default critical,high,medium,low),
- * confidence >= AUTO_DELETE_MIN_CONFIDENCE (default 0.5), and a recommended
- * action of delete. A policy fix that raises status to flagged while leaving
- * severity at "none" would change the dashboard and delete nothing — the same
- * class of silent failure as the broken claim query.
+ * `status = deleted` is necessary but not sufficient: the gate also requires
+ * confidence >= AUTO_DELETE_MIN_CONFIDENCE (default 0.5), evidence the message
+ * was actually readable (no SUPPRESS_EMBEDS, no bare link with an unresolved
+ * preview), and a category the operator allows. A policy fix that raised
+ * confidence to 0.99 on a message whose content was never captured would
+ * change the dashboard and delete nothing — the same class of silent failure as
+ * the broken claim query.
  *
  * This runs the real prompt through the real model and then feeds the verdict
  * through the real gate, so the whole path is exercised.
@@ -80,17 +82,17 @@ for (const c of CASES) {
       return m ? Number(m[1]) : NaN;
     };
     const status = pick("status") ?? "?";
-    const severity = pick("severity") ?? "?";
-    const action = pick("recommended_action") ?? "?";
+    // `reason` replaced severity + recommended_action: it is now the only
+    // record of why a message was removed, and the gate reads it as text.
+    const reason = pick("reason") ?? "";
     const conf = pickNum("confidence") || pickNum("score") || 0;
 
     const verdict = {
       message_id: "probe",
       status,
-      severity,
+      reason,
       confidence: Number.isFinite(conf) ? conf : 0,
       score: Number(pick("score") ?? "0") || 0,
-      recommended_action: action,
       categories: (pick("categories") ?? "").split(",").filter(Boolean),
       flags: [],
       analysis: "",
@@ -105,7 +107,7 @@ for (const c of CASES) {
     const ok = c.expect === "delete" ? eligible : !eligible;
     ok ? pass++ : fail++;
     console.log(
-      `${ok ? "PASS" : "FAIL"}  ${JSON.stringify(c.text).padEnd(34)} status=${String(status).padEnd(9)} sev=${String(severity).padEnd(9)} action=${String(action).padEnd(9)} conf=${conf.toFixed(2)} eligible=${String(eligible).padEnd(5)}  (${c.why})`,
+      `${ok ? "PASS" : "FAIL"}  ${JSON.stringify(c.text).padEnd(34)} status=${String(status).padEnd(9)} conf=${conf.toFixed(2)} eligible=${String(eligible).padEnd(5)}  (${c.why})`,
     );
   } catch (e) {
     fail++;

@@ -262,7 +262,7 @@ export function useMessageFeed(
 
 /**
  * The review queue, paged. Same cursor mechanism as the feed; the backend sorts
- * it actionable-first, so paging walks down a severity ranking rather than
+ * it actionable-first, so paging walks down a priority ranking rather than
  * backwards through time.
  *
  * `review` answers `{ results, limit, cursor }` — the resume token is `cursor`,

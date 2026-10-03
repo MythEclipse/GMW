@@ -39,7 +39,7 @@ try {
   // ── 1. Recent analyses, verbatim ────────────────────────────────────
   console.log("=== 20 most recent analyses ===");
   const recent = await pool.query(`
-    SELECT v.status, v.severity,
+    SELECT v.status, v.reason,
            left(v.analysis, 150) AS analysis,
            left(m.content, 45) AS content,
            (SELECT count(*)::int FROM attachments a WHERE a.message_id = m.id) AS n_attach,
@@ -52,7 +52,7 @@ try {
   for (const r of recent.rows) {
     const attach = r.n_attach > 0 ? `img×${r.n_attach}` : "text";
     console.log(
-      `\n  [${attach}${r.nsfw ? " NSFW" : ""}] ${r.status}/${r.severity}`,
+      `\n  [${attach}${r.nsfw ? " NSFW" : ""}] ${r.status}${r.reason ? ` — ${r.reason}` : ""}`,
     );
     console.log(`    content : ${JSON.stringify((r.content ?? "").slice(0, 45))}`);
     console.log(`    analysis: ${r.analysis ?? "(null)"}`);

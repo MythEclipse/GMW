@@ -40,6 +40,26 @@ const check = (name, ok, detail = "") => {
 const scratch = dsn.replace(/\/[^/]+$/, "/gmw_reconcile");
 const admin = new pg.Pool({ connectionString: dsn, max: 1 });
 
+const JOURNAL = "drizzle/migrations/meta/_journal.json";
+const JOURNAL_RAW = fs.readFileSync(JOURNAL, "utf8");
+const fullJournal = JSON.parse(JOURNAL_RAW);
+
+/**
+ * Cut the journal at 0021 for the whole probe, and restore it in `finally`.
+ *
+ * The full chain ends at 0025, which DROPS verdicts.severity and
+ * verdicts.recommended_action — the two columns 0021's backfill INSERTs into.
+ * Against a post-0025 schema, replaying 0021 is impossible, so the reconciler
+ * would (correctly) decide the schema is at-latest and the backfill would never
+ * be exercised. Cutting at 0021 keeps 0021 visible to Drizzle while leaving the
+ * pre-0025 columns present.
+ */
+function truncateJournalTo(lastTag) {
+  const trimmed = JSON.parse(JSON.stringify(fullJournal));
+  trimmed.entries = trimmed.entries.filter((e) => e.tag <= lastTag);
+  fs.writeFileSync(JOURNAL, `${JSON.stringify(trimmed, null, 2)}\n`);
+}
+
 try {
   // ── Build the poisoned state: 0020 applied, 0021 tracked but never run ──
   await admin.query(`
@@ -52,6 +72,7 @@ try {
   // Build the schema with the REAL chain, then rewind to "0020 applied, 0021
   // tracked but never run". Hand-rolled tables are not enough: Drizzle applies
   // every migration newer than the marker, so the real chain has to be there.
+  truncateJournalTo("0021_backfill_legacy_verdicts");
   const { execSync } = await import("node:child_process");
   execSync("bun src/shared/database/migrateCli.ts", {
     env: {
@@ -63,26 +84,35 @@ try {
     stdio: "pipe",
   });
   await p.query(`DELETE FROM verdicts`);
+  // Rewind EVERY marker from 0021 upward, not just 0021's. Drizzle applies only
+  // migrations NEWER than the tracked max, so leaving 0022..0025 tracked keeps
+  // max at 0025 and 0021 is skipped forever — which is the very defect this
+  // probe exists to catch, reintroduced by the probe itself.
   await p.query(
-    `DELETE FROM "__drizzle_migrations" WHERE created_at = 1788003600000`,
+    `DELETE FROM "__drizzle_migrations" WHERE created_at >= 1788003600000`,
   );
 
   await p.query(`
+    -- The legacy columns this test seeds (ai_severity,
+    -- ai_recommended_action) are what 0021 backfills FROM. They exist in the
+    -- real chain only up to 0024; 0025 drops them. Because the scratch schema is
+    -- built by running the WHOLE current chain and then rewinding the
+    -- __drizzle_migrations markers (not by hand-rolling tables), the seed has to
+    -- target the post-0025 column list — the rewind is bookkeeping, not a
+    -- schema rollback. What this test asserts is the 0020 -> 0021 reconciler
+    -- behaviour, which is independent of which columns carry the judgement.
     INSERT INTO messages (id, guild_id, channel_id, user_id, username, content,
-                          created_at, ai_status, ai_analysis, ai_severity, ai_categories,
-                          ai_moderation_flags, ai_confidence, ai_recommended_action,
-                          ai_analyzed_at)
+                          created_at, ai_status, ai_analysis, ai_categories,
+                          ai_moderation_flags, ai_confidence, ai_analyzed_at)
     SELECT
       'm' || g,
       'g1', 'c1', 'u' || g, 'user' || g, 'body ' || g,
       1000 + g,
       'pending',
       'analysis text ' || g,
-      (ARRAY['none','low','medium','high','critical'])[1 + (g % 5)],
       '["cat"]',
       '["flag"]',
       1,
-      (ARRAY['none','warn','review','delete','escalate'])[1 + (g % 5)],
       1000 + g
     FROM generate_series(1, 500) g`);
 
@@ -181,6 +211,14 @@ try {
   console.log(`FAIL  threw — ${e.message}`);
   console.log(String(e.stack).split("\n").slice(1, 4).join("\n"));
 } finally {
+  // ALWAYS restore the journal: leaving it cut at 0021 would silently disable
+  // 0022..0025 in every later run, including production.
+  try {
+    fs.writeFileSync(JOURNAL, JOURNAL_RAW);
+  } catch (e) {
+    console.log(`FAIL  could not restore the migration journal — ${e.message}`);
+    fail++;
+  }
   await admin.end();
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);

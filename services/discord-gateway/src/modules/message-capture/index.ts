@@ -20,8 +20,6 @@ export { setModerationEventBroadcaster } from "./moderationActionsDb.js";
 
 // ── Domain types ──────────────────────────────────────────────────────────
 export type {
-  AIRecommendedAction,
-  AISeverity,
   AIStatus,
   AnalysisQueueStatus,
   AnalysisResult,

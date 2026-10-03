@@ -58,7 +58,7 @@ const cfg = {
 };
 
 /**
- * A realistic responder: one message flagged by POSITION, not by an id
+ * A realistic responder: one message judged a violation by POSITION, not by an id
  * substring (seeded ids are e-1..e-N and never contain a marker, so an
  * id-based flag silently matches nothing).
  *
@@ -75,7 +75,10 @@ function responder(mutate) {
       const ids = [...req.user.matchAll(/<message id="([^"]+)"/g)].map((m) => m[1]);
       const results = ids.map((id, i) => ({
         message_id: id,
-        status: i === 7 ? "flagged" : "clean",
+        // `status` is the whole decision now: there is no severity tier and no
+        // recommended action, and a `deleted` verdict must carry a `reason`.
+        status: i === 7 ? "deleted" : "clean",
+        ...(i === 7 ? { reason: "hinaan langsung" } : {}),
         flags: i === 7 ? ["harassment"] : [],
         analysis:
           i === 7
@@ -83,8 +86,6 @@ function responder(mutate) {
             : "Tidak ada indikasi pelanggaran.",
         score: i === 7 ? 0.92 : 0.03,
         confidence: i === 7 ? 0.94 : 0.91,
-        recommended_action: i === 7 ? "delete" : "none",
-        severity: i === 7 ? "high" : "none",
         evidence: i === 7 ? ["kamu dolo"] : [],
       }));
       if (first) mutate?.(results, req);
@@ -94,7 +95,7 @@ function responder(mutate) {
 }
 
 // ── 1. Full pipeline, mixed batch ──────────────────────────────────────────
-console.log("\n[1] end-to-end: 24 messages, one flagged, one deferred, two omitted");
+console.log("\n[1] end-to-end: 24 messages, one deleted, one deferred, two omitted");
 await seed(24);
 const gw = responder((results) => {
   results[3].analysis = "perlu ditinjau oleh moderator sebelum dapat dipastikan";
@@ -113,12 +114,12 @@ check("no message stranded in claimed", (s1.claimed ?? 0) === 0, JSON.stringify(
 check("all 24 reached a verdict after the queue drained", s1.analyzed === 24, JSON.stringify(s1));
 
 const { rows: v } = await pool.query(
-  "SELECT status, recommended_action, count(*)::int n FROM verdicts GROUP BY 1,2",
+  "SELECT status, count(*)::int n FROM verdicts GROUP BY 1",
 );
-const tally = Object.fromEntries(v.map((r) => [`${r.status}/${r.recommended_action}`, r.n]));
-check("the flagged message kept its verdict", tally["flagged/delete"] === 1, JSON.stringify(tally));
-check("the deferral became a per-message error", tally["error/review"] === 1, JSON.stringify(tally));
-check("clean verdicts persisted", tally["clean/none"] === 22, JSON.stringify(tally));
+const tally = Object.fromEntries(v.map((r) => [r.status, r.n]));
+check("the deleted message kept its verdict", tally["deleted"] === 1, JSON.stringify(tally));
+check("the deferral became a per-message error", tally["error"] === 1, JSON.stringify(tally));
+check("clean verdicts persisted", tally["clean"] === 22, JSON.stringify(tally));
 
 // ── 2. The attempt log explains the work ───────────────────────────────────
 console.log("\n[2] append-only attempt log accounts for the work");

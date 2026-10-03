@@ -1,9 +1,4 @@
-import type {
-  DisplayVerdict,
-  PipelineStatus,
-  Severity,
-  VerdictStatus,
-} from "./types";
+import type { DisplayVerdict, PipelineStatus, VerdictStatus } from "./types";
 
 /**
  * The moderation state machine, in one place.
@@ -20,7 +15,7 @@ import type {
  *                            written.
  *
  *   `verdicts.status`     — WHAT the model decided.
- *                            clean | warn | flagged | error
+ *                            clean | deleted | error
  *
  * So "still queued" and "judged clean" are different facts. A message that is
  * `pending` has no outcome yet; rendering it as clean is a lie, and a filter
@@ -42,17 +37,8 @@ export const PIPELINE_STATUSES: readonly PipelineStatus[] = [
 
 export const VERDICT_STATUSES: readonly VerdictStatus[] = [
   "clean",
-  "warn",
-  "flagged",
+  "deleted",
   "error",
-] as const;
-
-export const SEVERITIES: readonly Severity[] = [
-  "none",
-  "low",
-  "medium",
-  "high",
-  "critical",
 ] as const;
 
 /** True only for values the DB CHECK constraint will accept. */
@@ -94,15 +80,16 @@ export type VerdictTone = "neutral" | "positive" | "warning" | "danger";
 /**
  * Map a verdict to a tone. `"unjudged"` is neutral, NOT positive: it means the
  * worker has not concluded, and painting it green would understate the backlog.
+ *
+ * `deleted` is danger for the same reason `flagged` was — it is the outcome
+ * that acted on the message, and the one a moderator needs to see.
  */
 export function verdictTone(
   verdict: DisplayVerdict | null | undefined,
 ): VerdictTone {
   switch (verdict) {
-    case "flagged":
+    case "deleted":
       return "danger";
-    case "warn":
-      return "warning";
     case "error":
       return "warning";
     case "clean":
@@ -116,10 +103,8 @@ export function verdictLabel(
   verdict: DisplayVerdict | null | undefined,
 ): string {
   switch (verdict) {
-    case "flagged":
-      return "Flagged";
-    case "warn":
-      return "Warn";
+    case "deleted":
+      return "Deleted";
     case "error":
       return "Error";
     case "clean":
@@ -173,22 +158,6 @@ export function pipelineTone(
       return "positive";
     default:
       return "neutral";
-  }
-}
-
-export function severityTone(
-  severity: Severity | null | undefined,
-): VerdictTone {
-  switch (severity) {
-    case "critical":
-    case "high":
-      return "danger";
-    case "medium":
-      return "warning";
-    case "low":
-      return "neutral";
-    default:
-      return "positive";
   }
 }
 

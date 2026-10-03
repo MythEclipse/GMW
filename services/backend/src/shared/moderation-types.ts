@@ -1,21 +1,21 @@
 // Shared moderation types for all services
 // Source of truth — snake_case + number (matching PostgreSQL schema)
 
+/**
+ * Pipeline position, NOT the judgement. Since migration 0020 this column says
+ * only where a message is in the work queue; the outcome lives in
+ * `verdicts.status` as clean | deleted | error. The old 'warn'/'flagged' values
+ * here were fiction — nothing has written them since the split, and querying
+ * for them silently matched zero rows.
+ */
 export type AIStatus =
   | "pending"
   | "processing"
-  | "clean"
-  | "warn"
-  | "flagged"
-  | "error";
-export type AISeverity = "none" | "low" | "medium" | "high" | "critical";
-export type AIRecommendedAction =
-  | "none"
-  | "monitor"
-  | "warn"
-  | "review"
-  | "delete"
-  | "escalate";
+  | "claimed"
+  | "analyzed"
+  | "retry_wait"
+  | "dead"
+  | "skipped";
 
 export interface BroadcasterClient {
   messageCreated: (data: unknown) => void;
@@ -73,9 +73,7 @@ export interface MessageRecord {
   ai_moderation_score?: number | null;
   ai_analysis?: string | null;
   ai_categories?: string | null;
-  ai_severity?: AISeverity | null;
   ai_confidence?: number | null;
-  ai_recommended_action?: AIRecommendedAction | null;
   ai_analyzed_at?: number | null;
   ai_analysis_duration_ms?: number | null;
   ai_error?: string | null;
@@ -133,9 +131,7 @@ export interface AnalysisResult {
   score: number;
   analysis: string;
   categories?: string[];
-  severity?: AISeverity;
   confidence?: number;
-  recommendedAction?: AIRecommendedAction;
   policyVersion?: string;
   evidence?: string[];
 }

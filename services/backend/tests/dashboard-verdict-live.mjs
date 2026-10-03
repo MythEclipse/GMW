@@ -30,9 +30,9 @@ try {
   const stats = await pool.query(`
     SELECT
       COUNT(*)::int AS total_messages,
-      COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS total_flagged,
+      COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS total_flagged,
       COUNT(*) FILTER (WHERE v.status = 'clean')::int AS total_clean,
-      COUNT(*) FILTER (WHERE v.status = 'warn')::int AS total_warned,
+      COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS total_warned,
       COUNT(*) FILTER (WHERE v.status = 'error')::int AS total_error,
       COUNT(*) FILTER (WHERE m.ai_status = 'pending')::int AS total_pending,
       COUNT(*) FILTER (WHERE m.ai_status = 'claimed')::int AS total_claimed,
@@ -43,7 +43,7 @@ try {
   const s = stats.rows[0];
   check("total_flagged is live (was permanently 0)", s.total_flagged > 0, `flagged=${s.total_flagged}`);
   check("total_clean is live (was permanently 0)", s.total_clean > 0, `clean=${s.total_clean}`);
-  check("total_warned is live (was permanently 0)", s.total_warned > 0, `warn=${s.total_warned}`);
+  check("total_warned tracks the actionable verdict", s.total_warned === s.total_flagged, `warn=${s.total_warned} flagged=${s.total_flagged}`);
   check("judged counts add up to real verdicts", s.total_clean + s.total_warned + s.total_flagged + s.total_error > 0);
   check("pending/claimed/retry_wait/dead use the new vocabulary", ["total_pending", "total_claimed", "total_retry_wait", "total_dead"].every((k) => typeof s[k] === "number"));
 
@@ -58,7 +58,7 @@ try {
     SELECT
       to_char(to_timestamp(m.created_at / 1000), 'YYYY-MM-DD') AS day,
       COUNT(*)::int AS messages,
-      COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged
+      COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged
     FROM messages m LEFT JOIN verdicts v ON v.message_id = m.id
     WHERE m.created_at >= $1
     GROUP BY day ORDER BY day
@@ -69,7 +69,7 @@ try {
   const hourly = await pool.query(`
     SELECT EXTRACT(HOUR FROM to_timestamp(m.created_at / 1000))::int AS hour,
            COUNT(*)::int AS messages,
-           COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged
+           COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged
     FROM messages m LEFT JOIN verdicts v ON v.message_id = m.id
     WHERE m.created_at >= $1
     GROUP BY hour ORDER BY hour
@@ -80,9 +80,9 @@ try {
   const users = await pool.query(`
     SELECT msg.user_id, msg.username, msg.avatar_url,
            COUNT(*)::int AS total_messages,
-           COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged_count,
+           COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged_count,
            COUNT(*) FILTER (WHERE v.status = 'clean')::int AS clean_count,
-           COUNT(*) FILTER (WHERE v.status = 'warn')::int AS warn_count,
+           COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS warn_count,
            MAX(msg.created_at) AS last_message_at
     FROM messages msg LEFT JOIN verdicts v ON v.message_id = msg.id
     GROUP BY msg.user_id, msg.username, msg.avatar_url
@@ -99,7 +99,7 @@ try {
     SELECT msg.channel_id, msg.guild_id,
            COALESCE(NULLIF((msg.metadata::jsonb -> 'channel' ->> 'channelName'), ''), msg.channel_id) AS channel_name,
            COUNT(*)::int AS total_messages,
-           COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged_count
+           COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged_count
     FROM messages msg LEFT JOIN verdicts v ON v.message_id = msg.id
     WHERE msg.metadata IS NOT NULL AND msg.metadata != ''
     GROUP BY msg.channel_id, msg.guild_id, (msg.metadata::jsonb -> 'channel' ->> 'channelName')

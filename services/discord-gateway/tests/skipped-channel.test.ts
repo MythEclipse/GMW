@@ -88,17 +88,23 @@ function scriptedGateway(
   return g;
 }
 
+/**
+ * A deletion for the given ids.
+ *
+ * `reason` is required whenever `status` is `deleted` — `verdicts_reason_check`
+ * rejects the row otherwise — and the removed `severity`/`recommended_action`
+ * fields are gone: `status` is the whole decision.
+ */
 const verdictFor = (ids: string[]) =>
   JSON.stringify({
     results: ids.map((id) => ({
       message_id: id,
-      status: "flagged",
+      status: "deleted",
+      reason: "test verdict",
       flags: ["abuse"],
       categories: ["abuse"],
-      severity: "high",
       confidence: 0.95,
       score: 0.9,
-      recommended_action: "delete",
       analysis: "test verdict",
       evidence: [],
       policy_version: "test",

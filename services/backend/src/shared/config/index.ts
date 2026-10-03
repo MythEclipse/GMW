@@ -53,7 +53,7 @@ export const configSchema = z
       .transform((v) => v.split(",").filter(Boolean)),
     WEBHOOK_EVENTS: z
       .string()
-      .default("message_flagged,auto_deleted,high_severity")
+      .default("message_flagged,auto_deleted,message_deleted")
       .transform((v) => v.split(",").filter(Boolean)),
     METRICS_PORT: z.coerce.number().positive().default(9090),
 

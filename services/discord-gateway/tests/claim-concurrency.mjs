@@ -25,11 +25,13 @@ const check = (name, ok, detail = "") => {
 async function resetQueue() {
   const c = conn();
   await c.connect();
-  await c.query("TRUNCATE messages, verdicts, analysis_attempts");
+  // `attachments` must be listed: a later migration made it an FK child of
+  // `messages`, and Postgres refuses to truncate a table a FK points at.
+  await c.query("TRUNCATE messages, verdicts, analysis_attempts, attachments");
   // Insert in a single statement so there is no interleaving during seeding.
   await c.query(
-    `INSERT INTO messages (id, guild_id, channel_id, user_id, content, created_at, ai_status, ready_for_work_at)
-     SELECT 'q-'||g, 'g1', 'c'||(g%10), 'u'||(g%50), 'msg '||g, g, 'pending', 0
+    `INSERT INTO messages (id, guild_id, channel_id, user_id, username, content, created_at, ai_status, ready_for_work_at)
+     SELECT 'q-'||g, 'g1', 'c'||(g%10), 'u'||(g%50), 'user'||(g%50), 'msg '||g, g, 'pending', 0
        FROM generate_series(1, $1) g`,
     [TOTAL_MESSAGES],
   );
@@ -180,8 +182,8 @@ async function testVerdictInvariant() {
   // The correct pattern: both statements, one transaction.
   await c.query("BEGIN");
   await c.query(
-    `INSERT INTO verdicts (message_id,status,severity,recommended_action,analysis)
-     VALUES ('q-1','flagged','high','review','test') ON CONFLICT (message_id) DO UPDATE SET status='flagged'`,
+    `INSERT INTO verdicts (message_id,status,reason,analysis)
+     VALUES ('q-1','deleted','test','test') ON CONFLICT (message_id) DO UPDATE SET status='deleted'`,
   );
   await c.query("UPDATE messages SET ai_status='analyzed' WHERE id='q-1'");
   await c.query("COMMIT");
@@ -190,7 +192,7 @@ async function testVerdictInvariant() {
   );
   check(
     "verdict + analyzed in one transaction SUCCEEDS",
-    rows[0]?.ai_status === "analyzed" && rows[0]?.status === "flagged",
+    rows[0]?.ai_status === "analyzed" && rows[0]?.status === "deleted",
   );
   await c.end();
 }

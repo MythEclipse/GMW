@@ -89,7 +89,7 @@ describe("embed-only messages are not dropped", () => {
   });
 
   test("an embed-only message is not a bare link post", () => {
-    // There is no link in the body at all, so the "bare link" severity gate
+    // There is no link in the body at all, so the bare-link evidence gate
     // must not be what protects it — that is the suppressed-embed guard's job.
     expect(isLinkOnlyPost("", EMBED_ONLY_METADATA)).toBe(false);
   });
@@ -119,18 +119,48 @@ describe("unreadable messages are never auto-deleted", () => {
     metadata: SUPPRESSED_BOT_METADATA,
   };
 
-  for (const severity of ["low", "medium", "high", "critical"] as const) {
-    test(`severity=${severity} is still refused`, () => {
+  // The guard cannot be talked out of it by any verdict the model returns.
+  // The severity ladder this used to loop over ("low", "medium", "high",
+  // "critical") is gone, so what is left to vary is the one input that could
+  // still have mattered: the model's own confidence in the judgement. Even at
+  // maximum certainty, a message whose content was never captured cannot be
+  // deleted — the evidence does not exist, so the confidence is a number about
+  // nothing.
+  for (const confidence of [0.5, 0.75, 0.99, 1]) {
+    test(`confidence=${confidence} is still refused`, () => {
       expect(
         isEligibleForAutoDelete(blocked, {
-          status: "flagged",
-          severity,
-          confidence: 0.99,
-          recommended_action: "delete",
+          status: "deleted",
+          confidence,
+          score: confidence,
         }),
       ).toBe(false);
     });
   }
+
+  // And a message the model could not read at all is never eligible, at any
+  // confidence — "could not judge" is not evidence of a violation.
+  test("an error verdict on a suppressed message is refused", () => {
+    expect(
+      isEligibleForAutoDelete(blocked, {
+        status: "error",
+        confidence: 1,
+        score: 1,
+      }),
+    ).toBe(false);
+  });
+
+  // The positive control. Without it the four assertions above would also pass
+  // if `isEligibleForAutoDelete` simply returned false for everything, which
+  // is the failure mode that looks like a working safety gate.
+  test("the same message is eligible once its embeds are readable", () => {
+    expect(
+      isEligibleForAutoDelete(
+        { ...blocked, metadata: EMBED_ONLY_METADATA },
+        { status: "deleted", confidence: 0.99, score: 0.99 },
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("a Facebook share with no preview is not deleted", () => {
@@ -140,7 +170,10 @@ describe("a Facebook share with no preview is not deleted", () => {
     channel: { channelId: "c1", nsfw: false },
   });
 
-  test("low-severity verdict on a bare link is refused", () => {
+  // The prompt failed to resolve this preview, so the model had nothing to
+  // judge but the domain — and guessed. A guessed deletion is not a deletion,
+  // whatever the verdict says.
+  test("a deleted verdict on a bare link with no resolved preview is refused", () => {
     expect(
       isEligibleForAutoDelete(
         {
@@ -151,7 +184,7 @@ describe("a Facebook share with no preview is not deleted", () => {
           content: "https://www.facebook.com/share/p/1HS6635WgE/",
           metadata: meta,
         },
-        { status: "warn", severity: "low", confidence: 0.8 },
+        { status: "deleted", confidence: 0.99, score: 0.95 },
       ),
     ).toBe(false);
   });

@@ -48,7 +48,7 @@ const CLAIM = `
     SELECT v.message_id
     FROM verdicts v
     JOIN messages m ON m.id = v.message_id
-    WHERE v.status IN ('flagged', 'warn')
+    WHERE v.status = 'deleted'
       AND m.deleted_at IS NULL
       AND (v.auto_delete_state IS NULL OR v.auto_delete_state = 'pending')
     ORDER BY v.created_at ASC
@@ -84,6 +84,8 @@ try {
     stdio: "pipe",
   });
 
+  // `reason` is required for a `deleted` verdict (`verdicts_reason_check`), so a
+  // clean row legitimately passes NULL and a deletion always carries a cause.
   const seed = async (id, status, deletedAt) => {
     // ai_status stays 'pending': inserting as 'analyzed' would trip the
     // deferred invariant trigger that requires a verdict row for an analyzed
@@ -95,10 +97,10 @@ try {
       [id, `usr-${id}`, `body ${id}`, 1000, deletedAt],
     );
     await p.query(
-      `INSERT INTO verdicts (message_id, status, severity, confidence, score,
-                             recommended_action, analysis, model, created_at, updated_at)
-       VALUES ($1,$2,'high',0.95,0.95,'delete','abusive content','test',1000,1000)`,
-      [id, status],
+      `INSERT INTO verdicts (message_id, status, reason, confidence, score,
+                             analysis, model, created_at, updated_at)
+       VALUES ($1,$2,$3,0.95,0.95,'abusive content','test',1000,1000)`,
+      [id, status, status === "deleted" ? "abusive content" : null],
     );
     // The worker marks a message analyzed once it has a verdict.
     await p.query(
@@ -107,32 +109,34 @@ try {
     );
   };
 
-  await seed("flagged-1", "flagged", null);
-  await seed("flagged-2", "flagged", null);
-  await seed("warn-1", "warn", null);
+  await seed("deleted-1", "deleted", null);
+  await seed("deleted-2", "deleted", null);
+  await seed("deleted-3", "deleted", null);
   await seed("clean-1", "clean", null);
-  await seed("gone-1", "flagged", 9999); // already deleted in Discord
+  // 'error' means the model could not read the message at all. It must never
+  // authorise a deletion, so it is seeded next to the clean row as the other
+  // non-actionable status.
+  await seed("error-1", "error", null);
+  await seed("gone-1", "deleted", 9999); // already deleted in Discord
 
   const start = await p.query(`
     SELECT count(*)::int n FROM verdicts WHERE auto_delete_state IS NULL`);
-  check("seeded verdicts start undecided", start.rows[0].n === 5);
+  check("seeded verdicts start undecided", start.rows[0].n === 6);
 
   // ── The claim must pick up exactly the actionable ones ──────────────
   const claimed = await p.query(CLAIM, [Date.now(), 10]);
   const ids = claimed.rows.map((r) => r.message_id).sort();
   check(
-    "claim returns only undecided flagged/warn messages that are still present",
-    JSON.stringify(ids) === JSON.stringify(["flagged-1", "flagged-2", "warn-1"]),
+    "claim returns only undecided deleted verdicts that are still present",
+    JSON.stringify(ids) === JSON.stringify(["deleted-1", "deleted-2", "deleted-3"]),
     `claimed=${JSON.stringify(ids)}`,
   );
   check(
     "claim excludes an already-deleted message",
     !ids.includes("gone-1"),
   );
-  check(
-    "claim excludes a clean verdict",
-    !ids.includes("clean-1"),
-  );
+  check("claim excludes a clean verdict", !ids.includes("clean-1"));
+  check("claim excludes an unreadable (error) verdict", !ids.includes("error-1"));
   check(
     "claim marks every row it returns as claimed",
     claimed.rows.every((r) => r.auto_delete_state === "claimed"),
@@ -147,25 +151,25 @@ try {
   );
 
   // ── 'pending' is retried, 'done' is not ─────────────────────────────
-  await p.query(`UPDATE verdicts SET auto_delete_state='pending' WHERE message_id='warn-1'`);
-  await p.query(`UPDATE verdicts SET auto_delete_state='done' WHERE message_id='flagged-2'`);
+  await p.query(`UPDATE verdicts SET auto_delete_state='pending' WHERE message_id='deleted-1'`);
+  await p.query(`UPDATE verdicts SET auto_delete_state='done' WHERE message_id='deleted-2'`);
   const third = await p.query(CLAIM, [Date.now(), 10]);
   const thirdIds = third.rows.map((r) => r.message_id);
   check(
     "a pending row is retried",
-    thirdIds.includes("warn-1"),
+    thirdIds.includes("deleted-1"),
     `claimed=${JSON.stringify(thirdIds)}`,
   );
   check(
     "a done row is never re-claimed",
-    !thirdIds.includes("flagged-2"),
+    !thirdIds.includes("deleted-2"),
   );
 
   // ── Stale claims are released ──────────────────────────────────────
   await p.query(`
     UPDATE verdicts
     SET auto_delete_state='claimed', auto_delete_claimed_at=$1
-    WHERE message_id='warn-1'`, [Date.now() - 120_000]);
+    WHERE message_id='deleted-1'`, [Date.now() - 120_000]);
   const released = await p.query(`
     UPDATE verdicts SET auto_delete_state='pending'
     WHERE auto_delete_state='claimed' AND auto_delete_claimed_at < $1`,
@@ -205,7 +209,7 @@ try {
   check(
     "every actionable message is claimed exactly once",
     unique.size === 3,
-    `unique=${unique.size} (expect flagged-1, flagged-2, warn-1)`,
+    `unique=${unique.size} (expect deleted-1, deleted-2, deleted-3)`,
   );
   await a.end();
   await b.end();

@@ -71,7 +71,8 @@ describe("D10: a per-message defect must NOT fail the batch", () => {
         },
         {
           message_id: "m1",
-          status: "flagged",
+          status: "deleted",
+          reason: "second answer says delete",
           analysis: "Second.",
           confidence: 0.9,
         },
@@ -105,7 +106,8 @@ describe("D10: a per-message defect must NOT fail the batch", () => {
         },
         {
           message_id: "NOT-REQUESTED",
-          status: "flagged",
+          status: "deleted",
+          reason: "a deletion we never asked for",
           analysis: "x",
           confidence: 0.9,
         },
@@ -192,48 +194,42 @@ describe("D10: a real batch failure is still reported as such", () => {
 });
 
 describe("normalisation preserves policy behaviour", () => {
-  test("severity is derived from score when the model omits it", () => {
+  // The score-derived severity ladder is gone with the column. What replaced it
+  // is that `status` alone IS the decision, so the only score-shaped thing left
+  // is the confidence floor a deletion is held to.
+  test("a deleted verdict's confidence is floored at 0.8 when the model omits it", () => {
     const raw = JSON.stringify({
       results: [
-        {
-          message_id: "m1",
-          status: "flagged",
-          score: 0.9,
-          analysis: "x",
-          confidence: 0.9,
-        },
-        {
-          message_id: "m2",
-          status: "flagged",
-          score: 0.5,
-          analysis: "x",
-          confidence: 0.9,
-        },
-        {
-          message_id: "m3",
-          status: "clean",
-          score: 0.0,
-          analysis: "x",
-          confidence: 0.9,
-        },
+        { message_id: "m1", status: "deleted", score: 0.9, analysis: "x" },
+        { message_id: "m2", status: "deleted", score: 0.5, analysis: "x" },
+        // A low score must NOT pull the confidence down below the floor: the
+        // model already said "delete", and confidence is how sure it was.
+        { message_id: "m3", status: "deleted", score: 0.05, analysis: "x" },
       ],
     });
     const out = parseVerdicts(raw, ["m1", "m2", "m3"], 1);
-    expect(out.verdicts[0].severity).toBe("critical");
-    expect(out.verdicts[1].severity).toBe("medium");
-    expect(out.verdicts[2].severity).toBe("none");
+    expect(out.verdicts.map((v) => v.status)).toEqual([
+      "deleted",
+      "deleted",
+      "deleted",
+    ]);
+    expect(out.verdicts[0].confidence).toBe(0.9);
+    expect(out.verdicts[1].confidence).toBe(0.8);
+    expect(out.verdicts[2].confidence).toBe(0.8);
   });
 
-  test("confidence falls back to score-derived defaults when omitted", () => {
+  test("a clean verdict with no confidence defaults to 0.9, not to its score", () => {
     const raw = JSON.stringify({
       results: [
-        { message_id: "m1", status: "flagged", score: 0.9, analysis: "x" },
-        { message_id: "m2", status: "warn", analysis: "x" },
+        { message_id: "m1", status: "clean", score: 0.0, analysis: "x" },
+        { message_id: "m2", status: "clean", analysis: "x" },
       ],
     });
     const out = parseVerdicts(raw, ["m1", "m2"], 1);
-    expect(out.verdicts[0].confidence).toBeGreaterThanOrEqual(0.8);
-    expect(out.verdicts[1].confidence).toBe(0.6);
+    // Both answers are "clean", so both are certain the message is fine; a
+    // near-zero score must not make the model look unsure about that.
+    expect(out.verdicts[0].confidence).toBe(0.9);
+    expect(out.verdicts[1].confidence).toBe(0.9);
   });
 
   test("categories default to flags when the model omits them", () => {
@@ -241,7 +237,8 @@ describe("normalisation preserves policy behaviour", () => {
       results: [
         {
           message_id: "m1",
-          status: "flagged",
+          status: "deleted",
+          reason: "harassment",
           flags: ["harassment"],
           analysis: "x",
           confidence: 0.9,
@@ -255,11 +252,99 @@ describe("normalisation preserves policy behaviour", () => {
   test("an out-of-range confidence is clamped, not trusted", () => {
     const raw = JSON.stringify({
       results: [
-        { message_id: "m1", status: "flagged", confidence: 7, analysis: "x" },
+        {
+          message_id: "m1",
+          status: "deleted",
+          reason: "x",
+          confidence: 7,
+          analysis: "x",
+        },
       ],
     });
     const out = parseVerdicts(raw, ["m1"], 1);
     expect(out.verdicts[0].confidence).toBe(1);
+  });
+});
+
+describe("status is the whole decision", () => {
+  // `severity` and the six-valued `recommended_action` are both gone, so a
+  // deletion cannot be softened by a second field the model also controls.
+  test("a deleted verdict keeps the reason the model gave as the cause", () => {
+    const raw = JSON.stringify({
+      results: [
+        {
+          message_id: "m1",
+          status: "deleted",
+          reason: "hinaan langsung pada pengguna lain",
+          analysis: "x",
+          confidence: 0.9,
+        },
+      ],
+    });
+    const out = parseVerdicts(raw, ["m1"], 1);
+    expect(out.verdicts[0].status).toBe("deleted");
+    expect(out.verdicts[0].reason).toBe("hinaan langsung pada pengguna lain");
+  });
+
+  // `verdicts_reason_check` requires a non-empty reason for every deletion, so
+  // the parser must never emit a `deleted` verdict without one.
+  test("a deletion with no stated reason falls back to the analysis, never empty", () => {
+    const raw = JSON.stringify({
+      results: [
+        {
+          message_id: "m1",
+          status: "deleted",
+          analysis: "memuat tautan ke domain patterning",
+          confidence: 0.9,
+        },
+      ],
+    });
+    const out = parseVerdicts(raw, ["m1"], 1);
+    expect(out.verdicts[0].status).toBe("deleted");
+    expect(out.verdicts[0].reason).toBe(out.verdicts[0].analysis);
+    expect(out.verdicts[0].reason).not.toBe("");
+  });
+
+  // The safety property the two-value contract buys: a value we do not
+  // understand is a keep, never a deletion on a guess.
+  test("'warn' and 'flagged' are no longer accepted outcomes — both are errors", () => {
+    const raw = JSON.stringify({
+      results: [
+        { message_id: "m1", status: "warn", analysis: "x", confidence: 0.95 },
+        {
+          message_id: "m2",
+          status: "flagged",
+          analysis: "x",
+          confidence: 0.95,
+        },
+      ],
+    });
+    const out = parseVerdicts(raw, ["m1", "m2"], 1);
+    expect(out.verdicts[0].status).toBe("error");
+    expect(out.verdicts[0].perMessageError).toBe("invalid_status");
+    expect(out.verdicts[1].status).toBe("error");
+    expect(out.verdicts[1].perMessageError).toBe("invalid_status");
+    // Confidence is forced to 0 so a stale high value cannot imply the model
+    // was sure about a status we refused to accept.
+    expect(out.verdicts[0].confidence).toBe(0);
+    expect(out.verdicts[1].confidence).toBe(0);
+  });
+
+  test("'error' is not a value the model may return — it is derived, not read", () => {
+    const raw = JSON.stringify({
+      results: [
+        { message_id: "m1", status: "error", analysis: "x", confidence: 0.9 },
+      ],
+    });
+    const out = parseVerdicts(raw, ["m1"], 1);
+    // `STATUSES` is exactly {clean, deleted}. `error` is not in it, so a model
+    // that tries to report "could not judge" as a status is treated like any
+    // other unknown value — and lands on the same error verdict, from the same
+    // code path, with confidence forced to 0. There is no way for the model to
+    // hand us an outcome the pipeline did not derive itself.
+    expect(out.verdicts[0].status).toBe("error");
+    expect(out.verdicts[0].perMessageError).toBe("invalid_status");
+    expect(out.verdicts[0].confidence).toBe(0);
   });
 });
 

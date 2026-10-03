@@ -4,16 +4,21 @@
  * Revived from the pre-rewrite `autoDeleteEligibility.test.ts` (deleted in
  * 2658b0dd) and rewritten against `bun:test`, the runner this repo uses now.
  *
- * The input changed shape: the old tests set `ai_status: "flagged"` on a
- * message. After the rewrite that column only means "the worker finished", so
- * these tests set `verdict.status` instead — the field that actually carries
- * the judgement. A test that still passed on the old shape would prove
- * nothing about the live path.
+ * The input changed shape twice. The old tests set `ai_status: "flagged"` on a
+ * message; after the 0020 rewrite that column only means "the worker
+ * finished", so these tests set `verdict.status` instead — the field that
+ * actually carries the judgement. Then `severity` and the six-valued
+ * `recommended_action` were deleted, taking `deriveSeverity` and
+ * `deriveRecommendedAction` with them: there is nothing left to derive, because
+ * `status` is the whole decision and the pipeline is full auto.
+ *
+ * That is why the suites below replaced the two derivation suites rather than
+ * re-asserting them. Each replacement keeps the original question ("is this
+ * guarded?") and points it at the gate that now exists — confidence, evidence,
+ * and the allow-lists — instead of at a tier that no longer does.
  */
 import { describe, expect, test } from "bun:test";
 import {
-  deriveRecommendedAction,
-  deriveSeverity,
   isEligibleForAutoDelete,
   isNicknameOnlyViolation,
   type MessageLike,
@@ -34,11 +39,9 @@ function msg(overrides: Partial<MessageLike> = {}): MessageLike {
 
 function verdict(overrides: Partial<VerdictLike> = {}): VerdictLike {
   return {
-    status: "flagged",
-    severity: "high",
+    status: "deleted",
     confidence: 0.95,
     score: 0.95,
-    recommended_action: "delete",
     categories: ["harassment"],
     flags: ["harassment"],
     analysis: "contains abusive language directed at another member",
@@ -65,138 +68,38 @@ describe("parseStringList", () => {
   });
 });
 
-describe("deriveSeverity", () => {
-  test("uses the stored severity when present", () => {
-    expect(deriveSeverity(msg(), verdict({ severity: "critical" }))).toBe(
-      "critical",
-    );
-  });
-
-  // confidence is checked before score, so clear it when testing the score
-  // thresholds — otherwise the default 0.95 from `verdict()` wins and every
-  // case resolves to "critical".
-  test("derives from score for a flagged verdict with no severity", () => {
-    expect(
-      deriveSeverity(
-        msg(),
-        verdict({ severity: null, confidence: null, score: 0.95 }),
-      ),
-    ).toBe("critical");
-    expect(
-      deriveSeverity(
-        msg(),
-        verdict({ severity: null, confidence: null, score: 0.75 }),
-      ),
-    ).toBe("high");
-    expect(
-      deriveSeverity(
-        msg(),
-        verdict({ severity: null, confidence: null, score: 0.2 }),
-      ),
-    ).toBe("medium");
-  });
-
-  test("a clean verdict is severity none", () => {
-    expect(
-      deriveSeverity(msg(), verdict({ status: "clean", severity: null })),
-    ).toBe("none");
-  });
-});
-
-describe("deriveRecommendedAction", () => {
-  // This is the rule that matters most: the model is conservative and often
-  // says "review" for genuinely severe content. Severity has to win.
-  test("flagged + high severity is always delete, whatever the model said", () => {
-    expect(
-      deriveRecommendedAction(
-        msg(),
-        verdict({ severity: "high", recommended_action: "review" }),
-      ),
-    ).toBe("delete");
-    expect(
-      deriveRecommendedAction(
-        msg(),
-        verdict({ severity: "critical", recommended_action: "monitor" }),
-      ),
-    ).toBe("delete");
-  });
-
-  test("flagged at medium severity keeps the model's answer", () => {
-    expect(
-      deriveRecommendedAction(
-        msg(),
-        verdict({ severity: "medium", recommended_action: "review" }),
-      ),
-    ).toBe("review");
-  });
-
-  // A warn verdict only reaches its own branch when severity is not
-  // high/critical — a warn at high severity is deliberately promoted to
-  // delete, the same rule flagged messages follow. Both cases below pass
-  // recommended_action: "review" explicitly, because the stored value wins
-  // when severity is not severe enough to override it.
-  test("warn at low severity keeps the model's answer", () => {
-    expect(
-      deriveRecommendedAction(
-        msg(),
-        verdict({
-          status: "warn",
-          severity: "low",
-          confidence: 0.3,
-          score: 0.3,
-          recommended_action: "review",
-        }),
-      ),
-    ).toBe("review");
-  });
-
-  test("warn with no stored action falls back to warn", () => {
-    expect(
-      deriveRecommendedAction(
-        msg(),
-        verdict({
-          status: "warn",
-          severity: "low",
-          confidence: 0.3,
-          score: 0.3,
-          recommended_action: null,
-        }),
-      ),
-    ).toBe("warn");
-  });
-
-  test("warn at high severity is promoted to delete", () => {
-    expect(
-      deriveRecommendedAction(
-        msg(),
-        verdict({
-          status: "warn",
-          severity: "high",
-          recommended_action: "review",
-        }),
-      ),
-    ).toBe("delete");
-  });
-});
-
-describe("isEligibleForAutoDelete", () => {
-  test("a flagged high-severity message is eligible", () => {
+describe("status alone decides eligibility", () => {
+  // This is the rule that matters most now: the model says "delete" or it does
+  // not, and the operator decided the pipeline is full auto. There is no tier
+  // that can hold a deletion back and no field that can promote one.
+  test("a deleted verdict is eligible once the evidence gates pass", () => {
     expect(isEligibleForAutoDelete(msg(), verdict())).toBe(true);
   });
 
-  test("a clean message is never eligible", () => {
+  test("a clean verdict is never eligible", () => {
     expect(isEligibleForAutoDelete(msg(), verdict({ status: "clean" }))).toBe(
       false,
     );
   });
 
+  // The middle tier is gone rather than merged into `deleted`. A verdict that
+  // says "warn" is not a soft deletion waiting for a review — it is a value the
+  // parser never emits, and the enforcer must not act on one if it ever sees it.
+  test("an unknown status is never eligible, not even a warn/flagged-shaped one", () => {
+    for (const status of ["warn", "flagged", "", "DELETED", "review"]) {
+      expect(isEligibleForAutoDelete(msg(), verdict({ status }))).toBe(false);
+    }
+  });
+
   test("an error verdict is never eligible", () => {
+    // "Could not judge" is not evidence of a violation, and deleting on it is
+    // unrecoverable: the content is gone and the judgement never happened.
     expect(isEligibleForAutoDelete(msg(), verdict({ status: "error" }))).toBe(
       false,
     );
   });
 
-  // The regression this guards: an `analyzed` message with a flagged verdict
+  // The regression this guards: an `analyzed` message with a deleted verdict
   // must still be deletable. After the rewrite `analyzed` is the pipeline's
   // terminal state, so gating on it (as the old code did) would silently stop
   // every deletion.
@@ -205,29 +108,76 @@ describe("isEligibleForAutoDelete", () => {
     expect(isEligibleForAutoDelete(m, verdict())).toBe(true);
   });
 
-  test("confidence below the threshold is rejected", () => {
+  // A confidence gate is not a severity tier: it does not decide WHETHER a
+  // violation occurred, only whether the model was sure enough for the removal
+  // to be automatic. So it must survive the removal of severity intact.
+  test("a deleted verdict at low confidence is not eligible", () => {
+    // This replaces the deleted `deriveSeverity` score-threshold suite. The
+    // question those tests asked — "is this bad enough?" — is answered by
+    // `status` alone now, so the surviving question is "was the model sure?",
+    // and the answer still has to gate the delete.
     expect(
       isEligibleForAutoDelete(
         msg(),
-        verdict({ confidence: 0, score: 0, severity: "high" }),
+        verdict({ confidence: 0.49, score: 0.49 }),
+      ),
+    ).toBe(false);
+    // Boundary: AUTO_DELETE_MIN_CONFIDENCE defaults to 0.5, and the gate is
+    // `< threshold`, so exactly at the bar still deletes.
+    expect(
+      isEligibleForAutoDelete(msg(), verdict({ confidence: 0.5, score: 0.5 })),
+    ).toBe(true);
+  });
+
+  test("confidence falls back to score when the verdict carries no confidence", () => {
+    expect(
+      isEligibleForAutoDelete(msg(), verdict({ confidence: null, score: 0.9 })),
+    ).toBe(true);
+    expect(
+      isEligibleForAutoDelete(msg(), verdict({ confidence: null, score: 0.1 })),
+    ).toBe(false);
+  });
+
+  test("a deleted verdict with neither confidence nor score is not eligible", () => {
+    expect(
+      isEligibleForAutoDelete(
+        msg(),
+        verdict({ confidence: null, score: null }),
       ),
     ).toBe(false);
   });
 
   test("falls back to legacy ai_* columns when no verdict row exists", () => {
+    // Legacy `messages.ai_*` is only consulted for rows the backfill has not
+    // reached. `readVerdict` maps `ai_status` onto `status`, so an
+    // already-analysed legacy row reads its judgement from `ai_status`.
     const legacy = msg({
-      ai_status: "flagged",
-      ai_severity: "high",
+      ai_status: "deleted",
       ai_confidence: 0.99,
-      ai_recommended_action: "delete",
+      ai_categories: "harassment",
     });
     expect(isEligibleForAutoDelete(legacy, null)).toBe(true);
+  });
+
+  test("a legacy row whose ai_status is not a deletion is not eligible", () => {
+    const legacy = msg({
+      ai_status: "analyzed",
+      ai_confidence: 0.99,
+      ai_categories: "harassment",
+    });
+    // `analyzed` is the queue state and says nothing about the outcome, so a
+    // legacy row that never got a real judgement must not delete on it.
+    expect(isEligibleForAutoDelete(legacy, null)).toBe(false);
   });
 
   test("a pending message with no verdict is not eligible", () => {
     expect(isEligibleForAutoDelete(msg({ ai_status: "pending" }), null)).toBe(
       false,
     );
+  });
+
+  test("a message with no verdict and no legacy columns is not eligible", () => {
+    expect(isEligibleForAutoDelete(msg(), null)).toBe(false);
   });
 });
 

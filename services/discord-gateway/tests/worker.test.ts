@@ -81,8 +81,6 @@ function responseFor(req: LlmRequest, mutate?: (r: unknown[]) => void): string {
     analysis: "Tidak ada indikasi pelanggaran.",
     score: 0.02,
     confidence: 0.95,
-    recommended_action: "none",
-    severity: "none",
   }));
   mutate?.(results);
   return JSON.stringify({ results });

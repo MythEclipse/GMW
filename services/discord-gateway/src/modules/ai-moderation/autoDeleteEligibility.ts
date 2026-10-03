@@ -1,36 +1,46 @@
 /**
  * Auto-delete eligibility.
  *
- * Ported from the pre-rewrite `autoDeleteEligibility.ts` (271 lines, deleted in
- * 2658b0dd). The gate order and the reasoning are preserved exactly — in
- * particular the rule that a flagged message at high/critical severity is
- * always eligible regardless of what `recommended_action` the LLM chose,
- * because that field is conservative and would let real harassment through.
+ * The gate order and the reasoning are preserved from the pre-rewrite
+ * `autoDeleteEligibility.ts` (271 lines, deleted in 2658b0dd) — the rules that
+ * survive are the ones protecting against a deletion the EVIDENCE cannot
+ * support (suppressed embeds, an unresolved bare-link preview, an excluded
+ * channel, a category outside the operator's allow-list), not ones re-litigating
+ * how serious the violation is.
  *
- * WHAT CHANGED: the input. The old code branched on `message.ai_status`, which
- * after the rewrite only ever means "the worker finished" — it no longer
- * carries the judgement. Eligibility now reads the `verdicts` row, which does.
- * Legacy `messages.ai_*` is only consulted for rows the backfill has not
- * reached, so behaviour is identical either way.
+ * WHAT CHANGED: the input, twice over. The old code branched on
+ * `message.ai_status`, which after the rewrite only ever means "the worker
+ * finished" — it no longer carries the judgement. Eligibility now reads the
+ * `verdicts` row, which does; legacy `messages.ai_*` is only consulted for rows
+ * the backfill has not reached. And the decision itself is now the single
+ * boolean `should_delete`: severity and the six-valued `recommended_action` are
+ * gone, so a message the model says to delete is deleted instead of waiting on
+ * a severity tier.
  */
 import { config } from "../../shared/config/index.js";
 import { createChildLogger } from "../../shared/logger/index.js";
-// `isLinkOnlyPost` reads messages.metadata's embed list, so it has to come
-// from the capture module that owns that shape rather than be reimplemented.
+// These read messages.metadata's embed list, so they have to come from the
+// capture module that owns that shape rather than be reimplemented.
 import {
   hasSuppressedEmbeds,
   isLinkOnlyPost,
+  pairLinksWithEmbeds,
 } from "../message-capture/messageMetadata.js";
 
 const logger = createChildLogger("auto-delete-eligibility");
 
-/** The judgement a message needs before any enforcement decision. */
+/**
+ * The judgement a message needs before any enforcement decision.
+ *
+ * `status` is the decision. There is no severity and no recommended_action: the
+ * model either says the message should be removed or it does not, and the
+ * operator decided the pipeline is full-auto, so there is no review tier to fall
+ * back to.
+ */
 export interface VerdictLike {
   status: string;
-  severity?: string | null;
   confidence?: number | null;
   score?: number | null;
-  recommended_action?: string | null;
   categories?: string[] | null;
   flags?: string[] | null;
   analysis?: string | null;
@@ -48,12 +58,10 @@ export interface MessageLike {
   metadata?: unknown;
   // Legacy columns, used only when no verdict row exists yet.
   ai_status?: string | null;
-  ai_severity?: string | null;
   ai_categories?: string | null;
   ai_moderation_flags?: string | null;
   ai_confidence?: number | null;
   ai_moderation_score?: number | null;
-  ai_recommended_action?: string | null;
   ai_analysis?: string | null;
 }
 
@@ -103,10 +111,8 @@ function readVerdict(
   if (verdict) return verdict;
   return {
     status: message.ai_status ?? "pending",
-    severity: message.ai_severity ?? null,
     confidence: message.ai_confidence ?? message.ai_moderation_score ?? null,
     score: message.ai_moderation_score ?? null,
-    recommended_action: message.ai_recommended_action ?? null,
     categories: parseStringList(message.ai_categories),
     flags: parseStringList(message.ai_moderation_flags),
     analysis: message.ai_analysis ?? null,
@@ -120,44 +126,6 @@ export function parseModerationFlags(
   const v = readVerdict(message, verdict);
   if (v.flags && v.flags.length > 0) return v.flags;
   return [];
-}
-
-/** Derive severity when a row has none stored. */
-export function deriveSeverity(
-  message: MessageLike,
-  verdict?: VerdictLike | null,
-): string {
-  const v = readVerdict(message, verdict);
-  if (v.severity) return v.severity;
-  const score = v.confidence ?? v.score ?? 0;
-  if (v.status === "flagged") {
-    return score >= 0.9 ? "critical" : score >= 0.7 ? "high" : "medium";
-  }
-  if (v.status === "warn") return score >= 0.6 ? "medium" : "low";
-  return "none";
-}
-
-/** Derive a recommended action when a row has none stored. */
-export function deriveRecommendedAction(
-  message: MessageLike,
-  verdict?: VerdictLike | null,
-): string {
-  const v = readVerdict(message, verdict);
-  const severity = deriveSeverity(message, verdict);
-  // A message at high/critical severity is always a delete, whatever the model
-  // suggested. The model's `recommended_action` is conservative and frequently
-  // says "review" even for genuinely severe content, which would let
-  // harassment and threats through undeleted.
-  //
-  // This applies to `warn` as well as `flagged`. Restricting it to `flagged`
-  // left a gap: a warn verdict at high severity kept the model's "review" and
-  // so was never eligible for deletion, despite severity being the strongest
-  // signal available.
-  if (severity === "critical" || severity === "high") return "delete";
-  if (v.recommended_action) return v.recommended_action;
-  if (v.status === "flagged") return "review";
-  if (v.status === "warn") return "warn";
-  return "none";
 }
 
 const USERNAME_ATTRIBUTABLE_FLAGS = new Set([
@@ -203,6 +171,11 @@ export function isNicknameOnlyViolation(
 
 /**
  * Whether a message qualifies for auto-deletion.
+ *
+ * The decision itself is `should_delete` — the model says delete or it does not,
+ * and there is no review tier to fall back to. Everything below the first gate
+ * exists to stop a deletion that the evidence cannot support, NOT to second-guess
+ * the model on judgement: a violation the operator's rules cover is deleted.
  */
 export function isEligibleForAutoDelete(
   message: MessageLike,
@@ -211,10 +184,13 @@ export function isEligibleForAutoDelete(
   const v = readVerdict(message, verdict);
   const status = v.status;
 
-  if (status !== "flagged" && status !== "warn") {
+  // The decision. `status` is the only thing that authorises a deletion, and
+  // `error` is a keep by construction — "could not judge" is not evidence of a
+  // violation. There is no second field to consult and no tier to reach for.
+  if (status !== "deleted") {
     logger.debug(
       { messageId: message.id, status },
-      "Message not eligible for auto-delete: status is not flagged or warn",
+      "Message not eligible for auto-delete: verdict is not a deletion",
     );
     return false;
   }
@@ -232,27 +208,15 @@ export function isEligibleForAutoDelete(
     return false;
   }
 
-  const severity = deriveSeverity(message, verdict);
-  const allowedSeverities = parseStringList(
-    config.AUTO_DELETE_ALLOWED_SEVERITIES,
-  );
-  if (allowedSeverities.length > 0 && !allowedSeverities.includes(severity)) {
-    logger.debug(
-      { messageId: message.id, severity, allowed: allowedSeverities },
-      "Message not eligible for auto-delete: severity not in allowed list",
-    );
-    return false;
-  }
-
   // A message the sender deliberately hid is one we cannot judge. `SUPPRESS_EMBEDS`
   // makes Discord omit the embed array, so there is nothing to read and nothing
   // that will arrive later. A model handed a blank still emits a confident
-  // `warn`/`spam`, and deleting on that is unrecoverable — this is the guard that
-  // would have saved the 6 wrongly-deleted Facebook shares. No severity exempts it.
+  // deletion, and deleting on that is unrecoverable — this is the guard that
+  // would have saved the 6 wrongly-deleted Facebook shares.
   const metadata = coerceMetadataJson(message.metadata);
   if (hasSuppressedEmbeds(metadata)) {
     logger.debug(
-      { messageId: message.id, severity },
+      { messageId: message.id },
       "Message not eligible for auto-delete: sender set SUPPRESS_EMBEDS, content is not judgeable",
     );
     return false;
@@ -260,50 +224,37 @@ export function isEligibleForAutoDelete(
 
   // A bare link post is judged almost entirely on the page it points to. The
   // pre-fix prompt never showed the model that page's preview, so an ordinary
-  // Facebook share came back `warn`/`spam` from the domain name alone and the
-  // message was deleted. The preview is in the prompt now, but this guard
-  // stays for the case where it genuinely could not be resolved
-  // (`link_preview_unavailable`): there the model is reasoning from nothing,
-  // and deleting on that is unrecoverable.
+  // Facebook share came back as a violation from the domain name alone and the
+  // message was deleted. The preview is in the prompt now, but this guard stays
+  // for the case where it genuinely could not be resolved: there the model is
+  // reasoning from nothing, and deleting on that is unrecoverable.
   //
-  // Only high/critical passes, because there severity is the strongest
-  // signal available and is usually grounded in the author's own text — not
-  // in a domain the model guessed about.
+  // It used to be "high/critical severity only", which meant a bare link below
+  // that tier could never be deleted at all. With the decision reduced to one
+  // boolean there is no tier to compare, so the guard is the EVIDENCE instead:
+  // a bare link post with no embed resolved for it is not judgeable, exactly
+  // like a suppressed embed above. `pairLinksWithEmbeds` is what decides that —
+  // `isLinkOnlyPost` only looks at the body.
   if (isLinkOnlyPost(message.content, metadata)) {
-    if (severity !== "high" && severity !== "critical") {
+    const pairs = pairLinksWithEmbeds(message.content, metadata);
+    const unresolved = pairs.filter((p) => p.embed === null);
+    if (pairs.length === 0 || unresolved.length > 0) {
       logger.debug(
-        { messageId: message.id, severity },
-        "Message not eligible for auto-delete: bare link post below high severity",
+        {
+          messageId: message.id,
+          links: pairs.length,
+          unresolved: unresolved.length,
+        },
+        "Message not eligible for auto-delete: bare link post with no resolved preview",
       );
       return false;
     }
   }
 
-  // High/critical severity is ALWAYS eligible, whatever the model's
-  // recommended_action says. That field is conservative and frequently emits
-  // "review" for genuinely severe content, which would let harassment and
-  // threats through undeleted. The action check only gates warn and
-  // flagged-medium, where a human review is legitimate.
-  //
-  // Severity is checked without a status guard: a `warn` verdict at high
-  // severity is just as severe as a `flagged` one.
-  if (severity === "high" || severity === "critical") {
-    logger.debug(
-      { messageId: message.id, status, severity },
-      "Message eligible for auto-delete: flagged with high/critical severity",
-    );
-  } else {
-    const recommendedAction = deriveRecommendedAction(message, verdict);
-    // Only auto-delete when model explicitly recommends delete/escalate
-    // for non-critical severities. Do not auto-delete for warn/monitor/review/none.
-    if (recommendedAction !== "delete" && recommendedAction !== "escalate") {
-      logger.debug(
-        { messageId: message.id, recommendedAction, severity },
-        "Message not eligible for auto-delete: recommended action not delete/escalate",
-      );
-      return false;
-    }
-  }
+  logger.debug(
+    { messageId: message.id, status },
+    "Message eligible for auto-delete: model requested deletion and evidence gates passed",
+  );
 
   const allowedCategories = parseStringList(
     config.AUTO_DELETE_ALLOWED_CATEGORIES,

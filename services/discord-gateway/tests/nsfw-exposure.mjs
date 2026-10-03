@@ -32,12 +32,12 @@ try {
       (SELECT count(*)::int FROM verdicts v
          JOIN messages m ON m.id = v.message_id
          JOIN nsfw_ch c ON c.channel_id = m.channel_id
-        WHERE v.status IN ('flagged','warn') AND m.deleted_at IS NULL
-      ) AS undecided_flagged_or_warn,
+        WHERE v.status = 'deleted' AND m.deleted_at IS NULL
+      ) AS undecided_deleted,
       (SELECT count(*)::int FROM verdicts v
          JOIN messages m ON m.id = v.message_id
          JOIN nsfw_ch c ON c.channel_id = m.channel_id
-        WHERE v.status IN ('flagged','warn') AND m.deleted_at IS NULL
+        WHERE v.status = 'deleted' AND m.deleted_at IS NULL
           AND (v.auto_delete_state IS NULL OR v.auto_delete_state = 'pending')
       ) AS still_claimable_by_enforcer
   `);
@@ -45,7 +45,7 @@ try {
   console.log("NSFW exposure in production:");
   console.log(`  nsfw channels              ${r.nsfw_channels}`);
   console.log(`  live messages in them      ${r.live_nsfw_messages}`);
-  console.log(`  flagged/warn verdicts      ${r.undecided_flagged_or_warn}`);
+  console.log(`  deleted verdicts           ${r.undecided_deleted}`);
   console.log(`  claimable by enforcer      ${r.still_claimable_by_enforcer}`);
 
   // The enforcer's own predicate, verbatim, so the number above is what the
@@ -55,7 +55,7 @@ try {
       SELECT v.message_id
       FROM verdicts v
       JOIN messages m ON m.id = v.message_id
-      WHERE v.status IN ('flagged', 'warn')
+      WHERE v.status = 'deleted'
         AND m.deleted_at IS NULL
         AND (v.auto_delete_state IS NULL OR v.auto_delete_state = 'pending')
         AND COALESCE((m.metadata::jsonb -> 'channel' ->> 'nsfw')::boolean, false) = false

@@ -100,17 +100,23 @@ const TEST_WORKER_CONFIG = {
   idlePollMs: 10,
 } as const;
 
+/**
+ * A verdict for the given ids.
+ *
+ * `reason` is present because a `deleted` verdict cannot be written without
+ * one — `verdicts_reason_check` rejects the row otherwise — and every
+ * `severity`/`recommended_action` field is gone, so `status` alone decides.
+ */
 const verdictFor = (ids: string[], status: string, category: string) =>
   JSON.stringify({
     results: ids.map((id) => ({
       message_id: id,
       status,
+      ...(status === "deleted" ? { reason: "test verdict" } : {}),
       flags: [category],
       categories: [category],
-      severity: status === "flagged" ? "high" : "none",
       confidence: 0.95,
       score: 0.9,
-      recommended_action: "delete",
       analysis: "test verdict",
       evidence: [],
       policy_version: "test",
@@ -142,7 +148,7 @@ describe("NSFW channels are never moderated", () => {
     const llm = scriptedGateway((req) => {
       // Echo back whichever ids the worker actually put in the prompt.
       const ids = [...req.user.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
-      return verdictFor(ids, "flagged", "nsfw");
+      return verdictFor(ids, "deleted", "nsfw");
     });
 
     const worker = new ModerationWorker(pool, llm, TEST_WORKER_CONFIG);
@@ -155,7 +161,11 @@ describe("NSFW channels are never moderated", () => {
     );
     expect(sent.rows.length).toBe(1);
 
-    // The NSFW message was released back to pending, not judged and not lost.
+    // The NSFW message is parked as 'skipped', never judged and never lost.
+    // 'skipped' is correct, not 'pending': a release back to pending was the
+    // queue-starvation defect — the claim function hands those rows back every
+    // tick forever. There are exactly two dispositions, reschedule (a message
+    // that should be judged again) and skip (one that never will be).
     const { rows } = await pool.query<{
       ai_status: string;
       attempts: number;
@@ -163,7 +173,7 @@ describe("NSFW channels are never moderated", () => {
     }>(
       "SELECT ai_status, attempts, worker_id FROM messages WHERE id = 'nsfw-1'",
     );
-    expect(rows[0].ai_status).toBe("pending");
+    expect(rows[0].ai_status).toBe("skipped");
     expect(rows[0].worker_id ?? null).toBeNull();
   });
 
@@ -172,7 +182,7 @@ describe("NSFW channels are never moderated", () => {
     await seed([{ id: "nsfw-2", channel: "chan-nsfw", nsfw: true }]);
 
     const llm = scriptedGateway(() =>
-      verdictFor(["nsfw-2"], "flagged", "nsfw"),
+      verdictFor(["nsfw-2"], "deleted", "nsfw"),
     );
     const worker = new ModerationWorker(pool, llm, TEST_WORKER_CONFIG);
     await worker.runOnce();

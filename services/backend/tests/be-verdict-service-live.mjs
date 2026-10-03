@@ -103,21 +103,21 @@ try {
   );
   check(
     "review rows carry the joined verdict detail",
-    review.results.some((r) => r.verdict_severity !== null || r.verdict_status !== null),
+    review.results.some((r) => r.verdict_recommended_action !== null || r.verdict_status !== null),
   );
 
   // ── messages.findById: verdict joined, plus attempt history ─────────────
   const sample = await getDatabase()
     .execute(
-      `SELECT message_id FROM verdicts WHERE status IN ('flagged','warn') ORDER BY updated_at DESC LIMIT 1`,
+      `SELECT message_id FROM verdicts WHERE status = 'deleted' ORDER BY updated_at DESC LIMIT 1`,
     );
   const sampleId = sample.rows[0]?.message_id;
-  check("found a flagged/warn message to inspect", Boolean(sampleId), String(sampleId));
+  check("found a deleted message to inspect", Boolean(sampleId), String(sampleId));
 
   if (sampleId) {
     const msg = await messagesRepository.findById(sampleId);
     check("findById returns the message", Boolean(msg));
-    check("findById joins the verdict", msg?.verdict_status === "flagged" || msg?.verdict_status === "warn", `verdict_status=${msg?.verdict_status}`);
+    check("findById joins the verdict", msg?.verdict_status === "deleted", `verdict_status=${msg?.verdict_status}`);
     check("findById exposes pipeline status", Boolean(msg?.ai_status), `ai_status=${msg?.ai_status}`);
     check("findById exposes retry bookkeeping", typeof msg?.ai_attempts === "number", `attempts=${msg?.ai_attempts}`);
 

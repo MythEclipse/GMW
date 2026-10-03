@@ -401,7 +401,7 @@ export async function attemptAutoDeleteFlaggedMessage(
   if (!isEligibleForAutoDelete(message, verdict)) {
     logger.debug(
       { messageId: message.id },
-      "Auto-delete skipped: not eligible (confidence/severity/action/category filter)",
+      "Auto-delete skipped: model did not decide to delete (or category blocked)",
     );
     const result: AutoDeleteResult = {
       deleted: false,

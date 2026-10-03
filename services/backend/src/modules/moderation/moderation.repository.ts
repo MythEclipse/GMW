@@ -80,14 +80,19 @@ export class ModerationRepository {
    */
   async getStats() {
     const db = getDatabase();
+    // Grouped by `status` alone. This used to also group by
+    // `v.recommended_action`, but that was a second copy of the same decision:
+    // it could only be 'clean' or 'deleted', so every group was already
+    // determined by the status sitting beside it, and a disagreement between
+    // them would only have split one verdict across two buckets. `status` is
+    // the decision; `reason` is the explanation and does not belong in a count.
     const result = await db.execute(sql`
       SELECT
         COALESCE(v.status, 'unjudged') AS status,
-        COALESCE(v.recommended_action, 'none') AS action_type,
         COUNT(*)::int AS c
       FROM messages m
       LEFT JOIN verdicts v ON v.message_id = m.id
-      GROUP BY 1, 2
+      GROUP BY 1
     `);
 
     const rows = (result.rows as Record<string, unknown>[]) || [];
@@ -95,26 +100,19 @@ export class ModerationRepository {
     let failed = 0; // errored verdicts
     let pending = 0; // nothing concluded yet
 
-    const byAction: Record<
-      string,
-      { executed: number; failed: number; pending: number }
-    > = {};
+    const byStatus: Record<string, number> = {};
 
     for (const r of rows) {
-      const actionType = String(r.action_type ?? "unknown");
       const status = String(r.status ?? "unjudged");
       const count = Number(r.c ?? 0);
-      byAction[actionType] ??= { executed: 0, failed: 0, pending: 0 };
+      byStatus[status] = (byStatus[status] ?? 0) + count;
 
       if (status === "error") {
         failed += count;
-        byAction[actionType].failed += count;
       } else if (status === "unjudged") {
         pending += count;
-        byAction[actionType].pending += count;
       } else {
         executed += count;
-        byAction[actionType].executed += count;
       }
     }
 
@@ -126,7 +124,7 @@ export class ModerationRepository {
       failed,
       pending,
       failed_rate: total > 0 ? Number(((failed / total) * 100).toFixed(1)) : 0,
-      by_action: byAction,
+      by_status: byStatus,
     };
   }
 
@@ -200,7 +198,6 @@ export class ModerationRepository {
         a.executed_at,
         a.flags,
         a.categories,
-        a.severity,
         a.confidence,
         a.score,
         a.evidence,
@@ -231,7 +228,6 @@ export class ModerationRepository {
       executed_at: r.executed_at ? Number(r.executed_at) : null,
       flags: parseJsonArray(r.flags),
       categories: parseJsonArray(r.categories),
-      severity: r.severity ? String(r.severity) : null,
       confidence: r.confidence != null ? Number(r.confidence) : null,
       score: r.score != null ? Number(r.score) : null,
       evidence: parseJsonArray(r.evidence),
@@ -251,9 +247,21 @@ export class ModerationRepository {
   /**
    * Aggregate moderation trends over the last `days` days.
    * - category counts (from the jsonb/text[] `categories` column, unnested)
-   * - severity distribution
+   * - decision distribution (ranked: what was decided, by action_type)
    * - action_type distribution
    * Read-only; powers the public Toxic Topic Trends panel.
+   *
+   * This panel used to chart a `severity` distribution. Severity is gone, and
+   * nothing took its place on `moderation_actions` — that table has no decision
+   * column, only `action_type` (what was done) and `status` (pending/executed/
+   * failed).
+   *
+   * It returns BOTH `decisions` and `actions`, and they are deliberately not the
+   * same thing: `decisions` is `action_type` with a force-ranked CASE order
+   * (ban > kick > mute > warn > delete), because `desc()` on a text enum sorts
+   * lexically and would present that as the ranking. `actions` is the plain
+   * count-descending breakdown. The dashboard's ranked panel reads `actions`, so
+   * neither key is dead and dropping either one empties a chart.
    */
   async getTrends(days: number) {
     const db = getDatabase();
@@ -274,13 +282,28 @@ export class ModerationRepository {
     `);
     const catRows = (cats.rows as Record<string, unknown>[]) || [];
 
-    const sev = await db.execute(sql`
-      SELECT severity, COUNT(*)::int AS c
+    // Ranked by the DECISION, because a bare `GROUP BY action_type` returns rows in
+    // an arbitrary order that is not a ranking. `action_type` is a text enum, so
+    // it needs the explicit CASE — `desc()` on it directly would sort lexically
+    // ("warn_user" > "mute_user" > "kick_user"), which is not the order of force
+    // the action represents. Count breaks ties within a decision.
+    const dec = await db.execute(sql`
+      SELECT action_type, COUNT(*)::int AS c
       FROM moderation_actions
-      WHERE created_at >= ${since} AND severity IS NOT NULL
-      GROUP BY severity
+      WHERE created_at >= ${since} AND action_type IS NOT NULL
+      GROUP BY action_type
+      ORDER BY
+        CASE action_type
+          WHEN 'ban_user' THEN 4
+          WHEN 'kick_user' THEN 3
+          WHEN 'mute_user' THEN 2
+          WHEN 'warn_user' THEN 1
+          WHEN 'delete_message' THEN 0
+          ELSE -1
+        END DESC,
+        c DESC
     `);
-    const sevRows = (sev.rows as Record<string, unknown>[]) || [];
+    const decRows = (dec.rows as Record<string, unknown>[]) || [];
 
     const act = await db.execute(sql`
       SELECT action_type, COUNT(*)::int AS c
@@ -296,8 +319,8 @@ export class ModerationRepository {
         name: String(r.cat),
         count: Number(r.c ?? 0),
       })),
-      severities: sevRows.map((r) => ({
-        level: String(r.severity),
+      decisions: decRows.map((r) => ({
+        level: String(r.action_type),
         count: Number(r.c ?? 0),
       })),
       actions: actRows.map((r) => ({
@@ -373,7 +396,7 @@ export class ModerationRepository {
 
   /**
    * Hour-of-day distribution of moderation actions over the last `days` days.
-   * 24 rows (hour 0..23), with total + flagged-by-severity counts.
+   * 24 rows (hour 0..23), with a total count per hour.
    * Powers the Moderation Heatmap by Hour panel.
    */
   async getHourlyModeration(days: number) {
@@ -414,7 +437,7 @@ export class ModerationRepository {
       sql`
         SELECT
           a.id, a.message_id, a.user_id, a.guild_id, a.action_type,
-          a.reason, a.status, a.created_at, a.severity, a.confidence, a.score,
+          a.reason, a.status, a.created_at, a.confidence, a.score,
           a.username, LEFT(m.content, 300) AS content
         FROM moderation_actions a
         LEFT JOIN messages m ON m.id = a.message_id
@@ -436,7 +459,6 @@ export class ModerationRepository {
       reason: r.reason ? String(r.reason) : null,
       status: String(r.status ?? "unknown"),
       created_at: r.created_at ? Number(r.created_at) : null,
-      severity: r.severity ? String(r.severity) : null,
       confidence: r.confidence != null ? Number(r.confidence) : null,
       score: r.score != null ? Number(r.score) : null,
       username: r.username ? String(r.username) : null,

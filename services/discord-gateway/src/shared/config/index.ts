@@ -123,7 +123,7 @@ export const configSchema = z
       .transform((v) => v.split(",").filter(Boolean)),
     WEBHOOK_EVENTS: z
       .string()
-      .default("message_flagged,auto_deleted,high_severity")
+      .default("message_flagged,auto_deleted,message_deleted")
       .transform((v) => v.split(",").filter(Boolean)),
     METRICS_PORT: z.coerce.number().positive().default(9090),
 
@@ -477,9 +477,6 @@ export const configSchema = z
       .default(false),
     AUTO_DELETE_FLAGGED_DELAY_MS: z.coerce.number().min(0).default(0),
     AUTO_DELETE_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.5),
-    AUTO_DELETE_ALLOWED_SEVERITIES: z
-      .string()
-      .default("critical,high,medium,low"),
     AUTO_DELETE_ALLOWED_CATEGORIES: z.string().default(""),
     AUTO_DELETE_EXCLUDED_CHANNEL_IDS: z.string().default(""),
     AUTO_DELETE_EXCLUDED_USER_IDS: z.string().default(""),

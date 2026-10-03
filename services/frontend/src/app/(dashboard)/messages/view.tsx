@@ -385,7 +385,7 @@ export function MessagesView({
 }
 
 /**
- * The review queue: verdicts of `warn` or `flagged`.
+ * The review queue: verdicts that called for the message to go.
  *
  * This is fed by `messages.review`, which filters on the VERDICT column. An
  * earlier version filtered `ai_status IN ('warn','flagged')` — values the
@@ -421,7 +421,7 @@ function ReviewQueue({
     return (
       <EmptyState
         title="Nothing needs review"
-        description="Messages judged warn or flagged appear here."
+        description="Messages the model called for deletion appear here."
       />
     );
   }

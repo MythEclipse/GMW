@@ -49,12 +49,11 @@ const logger = createChildLogger("messages.repository");
 const messageWithVerdict = {
   ...getTableColumns(pgMessagesTable),
   verdict_status: pgVerdictsTable.status,
-  verdict_severity: pgVerdictsTable.severity,
   verdict_score: pgVerdictsTable.score,
   verdict_confidence: pgVerdictsTable.confidence,
   verdict_flags: pgVerdictsTable.flags,
   verdict_categories: pgVerdictsTable.categories,
-  verdict_recommended_action: pgVerdictsTable.recommended_action,
+  verdict_reason: pgVerdictsTable.reason,
   verdict_analysis: pgVerdictsTable.analysis,
   verdict_evidence: pgVerdictsTable.evidence,
   verdict_model: pgVerdictsTable.model,
@@ -172,22 +171,13 @@ function nextCursorAt<T extends { created_at: unknown }>(
  * asserted by the tests rather than by the compiler.
  *
  * `actionRankOf` mirrors `reviewActionRank()`: ranking rather than sorting the
- * raw string is what puts `delete` above `escalate` above `review`, because
- * those are the tiers a moderator acts on. `none`/NULL lands in bucket 0 and
+ * raw string is what puts `deleted` above `clean`, because those are the two
+ * dispositions the model can reach. `NULL`/absent lands in bucket 0 and
  * therefore sorts last.
  */
 const ACTION_RANKS: Record<string, number> = {
-  delete: 3,
-  escalate: 2,
-  review: 1,
-};
-
-const SEVERITY_RANKS: Record<string, number> = {
-  critical: 5,
-  high: 4,
-  medium: 3,
-  low: 2,
-  none: 1,
+  deleted: 2,
+  clean: 1,
 };
 
 function actionRankOf(recommendedAction: unknown): number {
@@ -195,38 +185,41 @@ function actionRankOf(recommendedAction: unknown): number {
   return ACTION_RANKS[recommendedAction] ?? 0;
 }
 
-function severityRankOf(severity: unknown): number {
-  if (typeof severity !== "string") return 1;
-  return SEVERITY_RANKS[severity] ?? 1;
-}
-
 function reviewActionRank(): SQL {
-  return sql`CASE ${pgVerdictsTable.recommended_action}
-    WHEN 'delete' THEN 3
-    WHEN 'escalate' THEN 2
-    WHEN 'review' THEN 1
+  return sql`CASE ${pgVerdictsTable.status}
+    WHEN 'deleted' THEN 2
+    WHEN 'clean' THEN 1
     ELSE 0 END`;
 }
 
 /**
- * Severity as a comparable number. The column is a text enum, so `desc()` on it
- * would sort lexically ("none" > "low" > "critical" > "high"), which is why the
- * frontend re-sorts severity for display too.
+ * Score as a comparable integer, scaled by 100.
+ *
+ * This replaces the severity tier that used to sit between the action rank and
+ * `created_at` in the queue order: with severity gone, how bad the model thought
+ * something was IS the score, so that is what orders it.
+ *
+ * Scaled to an integer rather than carried as a raw float because the cursor
+ * comparison below tests this key for EQUALITY. The cast to `float8` is
+ * deliberate: `score` is `real` (float4), and widening to float8 happens
+ * identically in Postgres and in JS, so both sides of the comparison do
+ * bit-identical double arithmetic on the same input and cannot land on
+ * different sides of an integer boundary. `FLOOR` (not a plain int cast) matches
+ * `Math.floor` semantics, so a negative score would not diverge either.
  */
-function reviewSeverityKey(): SQL {
-  return sql`CASE ${pgVerdictsTable.severity}
-    WHEN 'critical' THEN 5
-    WHEN 'high' THEN 4
-    WHEN 'medium' THEN 3
-    WHEN 'low' THEN 2
-    ELSE 1 END`;
+function reviewScoreKey(): SQL {
+  return sql`FLOOR(COALESCE(${pgVerdictsTable.score}, 0)::float8 * 100)::int`;
+}
+
+function scoreRankOf(score: unknown): number {
+  return Math.floor(Number(score ?? 0) * 100);
 }
 
 /** The full review-queue sort key, ordered most-important first. */
 function reviewOrderBy(): SQL[] {
   return [
     desc(reviewActionRank()),
-    desc(reviewSeverityKey()),
+    desc(reviewScoreKey()),
     desc(pgMessagesTable.created_at),
     desc(pgMessagesTable.id),
   ];
@@ -236,13 +229,13 @@ function reviewOrderBy(): SQL[] {
  * A position in the review queue, resolved to the raw column values a row
  * comparison needs.
  *
- * Deliberately stores the RANK (`3` for delete), not the string, so the decode
+ * Deliberately stores the RANK (`2` for deleted), not the string, so the decode
  * side needs no CASE of its own — the same numbering is used on both sides of
  * the comparison, which is the whole point of the encoding.
  */
 interface ReviewCursor {
   action: number;
-  severity: number;
+  score: number;
   created_at: number;
   id: string;
 }
@@ -256,7 +249,7 @@ function decodeReviewCursor(cursor?: string): ReviewCursor | null {
     ) as Partial<ReviewCursor>;
     if (
       typeof raw.action !== "number" ||
-      typeof raw.severity !== "number" ||
+      typeof raw.score !== "number" ||
       typeof raw.created_at !== "number" ||
       typeof raw.id !== "string"
     ) {
@@ -264,7 +257,7 @@ function decodeReviewCursor(cursor?: string): ReviewCursor | null {
     }
     return {
       action: raw.action,
-      severity: raw.severity,
+      score: raw.score,
       created_at: raw.created_at,
       id: raw.id,
     };
@@ -349,7 +342,7 @@ export class MessagesRepository {
       conditions.push(eq(pgVerdictsTable.status, query.verdict));
     }
     if (query.needsReview) {
-      conditions.push(inArray(pgVerdictsTable.status, ["warn", "flagged"]));
+      conditions.push(eq(pgVerdictsTable.status, "deleted"));
     }
     if (query.cursor) {
       conditions.push(lt(pgMessagesTable.created_at, Number(query.cursor)));
@@ -607,9 +600,6 @@ export class MessagesRepository {
     if (data.aiCategories !== undefined) {
       setData.ai_categories = data.aiCategories;
     }
-    if (data.aiSeverity !== undefined) {
-      setData.ai_severity = data.aiSeverity;
-    }
     if (data.aiConfidence !== undefined) {
       setData.ai_confidence = data.aiConfidence;
     }
@@ -627,28 +617,31 @@ export class MessagesRepository {
   }
 
   /**
-   * Messages a human should look at: verdict in (warn, flagged), plus any that
-   * ran out of attempts (`dead`).
+   * Messages a human should look at: verdict `deleted` — the model decided the
+   * message should be removed — plus any that ran out of attempts (`dead`).
    *
    * This used to be `messages.ai_status IN ('warn','flagged')`, which returned
    * an empty list forever once the new worker started writing only `analyzed` to
-   * that column. The judgement lives in `verdicts.status` now.
+   * that column. The judgement lives in `verdicts.status` now. Of the statuses
+   * that survived the collapse, `deleted` is the only one that means "a human
+   * must decide": `clean` is a pass, and `error` is a failed analysis attempt,
+   * which the `dead` retry path already covers.
    *
    * CURSOR PAGINATION MUST MATCH THE ORDER BY
    *
-   * This query does not sort by recency — it sorts actionable-first, then
-   * severity, then newest, which is the order a moderator works the queue in. A
-   * `created_at`-only cursor would therefore be wrong here: every page re-sorts
-   * independently, so the same row reappears on page 2 while rows from page 1
-   * that fell below the cut are silently lost.
+   * This query does not sort by recency — it sorts actionable-first, then by how
+   * hard the model judged the message, then newest, which is the order a
+   * moderator works the queue in. A `created_at`-only cursor would therefore be
+   * wrong here: every page re-sorts independently, so the same row reappears on
+   * page 2 while rows from page 1 that fell below the cut are silently lost.
    *
-   * So the cursor carries the WHOLE sort key (action rank, severity, created_at,
+   * So the cursor carries the WHOLE sort key (action rank, score, created_at,
    * id) and the WHERE clause replays it as a nested lexicographic comparison
    * against the same key expressions the ORDER BY uses. Both sides read
-   * `reviewActionRank()` / `reviewSeverityKey()` — one definition each — so the
+   * `reviewActionRank()` / `reviewScoreKey()` — one definition each — so the
    * comparison cannot drift from the sort. `id` is the final tiebreak in the
    * ORDER BY precisely so that a cursor has a total order to resume from: two
-   * rows sharing (action, severity, created_at) would otherwise be returned in
+   * rows sharing (action, score, created_at) would otherwise be returned in
    * an arbitrary order and could be duplicated or skipped across pages.
    */
   async getReviewMessages(
@@ -658,7 +651,7 @@ export class MessagesRepository {
   ): Promise<ReviewPageResult> {
     const db = getDatabase();
     const needsReview = or(
-      inArray(pgVerdictsTable.status, ["warn", "flagged"]),
+      eq(pgVerdictsTable.status, "deleted"),
       eq(pgMessagesTable.ai_status, "dead"),
     );
     // or() returns undefined only if every branch is undefined, which cannot
@@ -674,8 +667,8 @@ export class MessagesRepository {
       conditions.push(
         sql`(${reviewActionRank()} < ${at.action}
              or (${reviewActionRank()} = ${at.action} and (
-               ${reviewSeverityKey()} < ${at.severity}
-               or (${reviewSeverityKey()} = ${at.severity} and (
+               ${reviewScoreKey()} < ${at.score}
+               or (${reviewScoreKey()} = ${at.score} and (
                  ${pgMessagesTable.created_at} < ${at.created_at}
                  or (${pgMessagesTable.created_at} = ${at.created_at}
                      and ${pgMessagesTable.id} < ${at.id})
@@ -701,7 +694,6 @@ export class MessagesRepository {
         // Legacy `messages.ai_*` — the new worker never writes these, so they
         // are null for anything judged after the rewrite. The live judgement is
         // the verdict_* columns below, joined from `verdicts`.
-        ai_severity: pgMessagesTable.ai_severity,
         ai_confidence: pgMessagesTable.ai_confidence,
         ai_analysis: pgMessagesTable.ai_analysis,
         is_reply: pgMessagesTable.is_reply,
@@ -716,12 +708,11 @@ export class MessagesRepository {
         attempts: pgMessagesTable.attempts,
         worker_id: pgMessagesTable.worker_id,
         verdict_status: pgVerdictsTable.status,
-        verdict_severity: pgVerdictsTable.severity,
         verdict_score: pgVerdictsTable.score,
         verdict_confidence: pgVerdictsTable.confidence,
         verdict_flags: pgVerdictsTable.flags,
         verdict_categories: pgVerdictsTable.categories,
-        verdict_recommended_action: pgVerdictsTable.recommended_action,
+        verdict_reason: pgVerdictsTable.reason,
         verdict_analysis: pgVerdictsTable.analysis,
         verdict_evidence: pgVerdictsTable.evidence,
         verdict_model: pgVerdictsTable.model,
@@ -747,8 +738,8 @@ export class MessagesRepository {
     const nextCursor =
       last && results.length === limit
         ? encodeReviewCursor({
-            action: actionRankOf(last.verdict_recommended_action),
-            severity: severityRankOf(last.verdict_severity),
+            action: actionRankOf(last.verdict_status),
+            score: scoreRankOf(last.verdict_score),
             created_at: Number(last.created_at),
             id: String(last.id),
           })

@@ -626,7 +626,6 @@ function toMemoryMessages(
       context: extractMemoryContext(m.metadata),
       analysis: v?.analysis ?? "",
       status: v?.status ?? "pending",
-      severity: v?.severity ?? "none",
       categories: v?.categories ?? [],
       mediaDescription: visionById.get(m.id)?.trim() || undefined,
     };
@@ -1299,39 +1298,35 @@ export class ModerationWorker {
     // The auto-delete marker is reset when the judgement materially changes.
     //
     // `auto_delete_state` is the enforcer's "I already looked at this" flag.
-    // Once a verdict is marked `done`, a re-judgement that RAISES the severity
-    // (warn -> flagged, review -> delete) would otherwise never be acted on:
-    // the enforcer's candidate query only reads NULL or 'pending', and its
-    // partial index `idx_verdicts_auto_delete_pending` has the same predicate,
-    // so the row is excluded from the index too. A message that gets worse is
-    // permanently unenforceable.
+    // Once a verdict is marked `done`, a re-judgement that turns a clean
+    // message into a deletion would otherwise never be acted on: the enforcer's
+    // candidate query only reads NULL or 'pending', and its partial index
+    // `idx_verdicts_auto_delete_pending` has the same predicate, so the row is
+    // excluded from the index too. A message that gets worse is permanently
+    // unenforceable.
     //
     // Reset only on a material change, so a routine re-analysis of an
     // unchanged verdict does not put a settled message back in the queue.
     await client.query(
       `INSERT INTO verdicts
-         (message_id, status, severity, score, confidence, flags, categories,
-          analysis, evidence, recommended_action, model)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
+         (message_id, status, reason, score, confidence, flags, categories,
+          analysis, evidence, model)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)
        ON CONFLICT (message_id) DO UPDATE SET
-         status = EXCLUDED.status, severity = EXCLUDED.severity,
+         status = EXCLUDED.status,
+         reason = EXCLUDED.reason,
          score = EXCLUDED.score, confidence = EXCLUDED.confidence,
          flags = EXCLUDED.flags, categories = EXCLUDED.categories,
          analysis = EXCLUDED.analysis, evidence = EXCLUDED.evidence,
-         recommended_action = EXCLUDED.recommended_action,
          model = EXCLUDED.model,
          auto_delete_state = CASE
            WHEN verdicts.status IS DISTINCT FROM EXCLUDED.status
-             OR verdicts.severity IS DISTINCT FROM EXCLUDED.severity
-             OR verdicts.recommended_action IS DISTINCT FROM EXCLUDED.recommended_action
              OR verdicts.score IS DISTINCT FROM EXCLUDED.score
            THEN NULL
            ELSE verdicts.auto_delete_state
          END,
          auto_delete_claimed_at = CASE
            WHEN verdicts.status IS DISTINCT FROM EXCLUDED.status
-             OR verdicts.severity IS DISTINCT FROM EXCLUDED.severity
-             OR verdicts.recommended_action IS DISTINCT FROM EXCLUDED.recommended_action
              OR verdicts.score IS DISTINCT FROM EXCLUDED.score
            THEN NULL
            ELSE verdicts.auto_delete_claimed_at
@@ -1340,14 +1335,13 @@ export class ModerationWorker {
       [
         msg.id,
         isError ? "error" : v.status,
-        v.severity,
+        v.reason ?? null,
         v.score,
         v.confidence,
         v.flags,
         v.categories,
         v.analysis,
         JSON.stringify(v.evidence),
-        v.recommendedAction,
         this.llm.modelLabel ?? null,
       ],
     );
@@ -1387,7 +1381,6 @@ export class ModerationWorker {
       trace: traceId(msg.id),
       messageId: msg.id,
       status: isError ? "error" : v.status,
-      recommendedAction: v.recommendedAction,
       score: v.score,
       attempts: msg.attempts,
       createdAt: msg.createdAt,

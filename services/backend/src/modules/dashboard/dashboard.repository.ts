@@ -23,12 +23,16 @@ export class DashboardRepository {
     // to that column, so every one of those counters was permanently 0 and the
     // dashboard reported a clean, quiet guild regardless of what the model
     // actually decided.
+    //
+    // `flagged`/`warned` both count the actionable verdict (`deleted`), which is
+    // the only non-pass outcome left now that the status enum is
+    // clean|deleted|error. The two response keys are kept so the frontend
+    // contract does not shift; they are the same number by construction.
     const msgResult = await db.execute(sql`
       SELECT
         COUNT(*)::int AS total_messages,
-        COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS total_flagged,
+        COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS total_flagged,
         COUNT(*) FILTER (WHERE v.status = 'clean')::int AS total_clean,
-        COUNT(*) FILTER (WHERE v.status = 'warn')::int AS total_warned,
         COUNT(*) FILTER (WHERE v.status = 'error')::int AS total_error,
         -- Pipeline states
         COUNT(*) FILTER (WHERE m.ai_status = 'pending')::int AS total_pending,
@@ -40,7 +44,7 @@ export class DashboardRepository {
         COUNT(*) FILTER (WHERE m.ai_status = 'skipped')::int AS total_skipped,
         COUNT(DISTINCT m.user_id)::int AS total_users,
         COUNT(*) FILTER (WHERE m.created_at >= ${oneDayAgo})::int AS today_messages,
-        COUNT(*) FILTER (WHERE v.status = 'flagged' AND m.created_at >= ${oneDayAgo})::int AS today_flagged,
+        COUNT(*) FILTER (WHERE v.status = 'deleted' AND m.created_at >= ${oneDayAgo})::int AS today_flagged,
         COUNT(DISTINCT m.user_id) FILTER (WHERE m.created_at >= ${oneDayAgo})::int AS active_users_24h
       FROM ${pgMessagesTable} m
       LEFT JOIN verdicts v ON v.message_id = m.id
@@ -75,7 +79,6 @@ export class DashboardRepository {
       total_users: msgRow?.total_users ?? 0,
       total_flagged: msgRow?.total_flagged ?? 0,
       total_clean: msgRow?.total_clean ?? 0,
-      total_warned: msgRow?.total_warned ?? 0,
       total_error: msgRow?.total_error ?? 0,
       // Pipeline states, hoisted to the top level so the dashboard can show
       // them without digging into moderation_overview.
@@ -121,7 +124,7 @@ export class DashboardRepository {
       SELECT
         to_char(to_timestamp(m.created_at / 1000), 'YYYY-MM-DD') AS day,
         COUNT(*)::int AS messages,
-        COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged,
+        COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged,
         COUNT(DISTINCT m.user_id)::int AS active_users
       FROM ${pgMessagesTable} m
       LEFT JOIN verdicts v ON v.message_id = m.id
@@ -135,7 +138,7 @@ export class DashboardRepository {
       SELECT
         EXTRACT(HOUR FROM to_timestamp(m.created_at / 1000))::int AS hour,
         COUNT(*)::int AS messages,
-        COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged
+        COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged
       FROM ${pgMessagesTable} m
       LEFT JOIN verdicts v ON v.message_id = m.id
       WHERE m.created_at >= ${dayAgoMs}
@@ -196,9 +199,8 @@ export class DashboardRepository {
           msg.username,
           msg.avatar_url,
           COUNT(*)::int AS total_messages,
-          COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged_count,
+          COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged_count,
           COUNT(*) FILTER (WHERE v.status = 'clean')::int AS clean_count,
-          COUNT(*) FILTER (WHERE v.status = 'warn')::int AS warn_count,
           MAX(msg.created_at) AS last_message_at
         FROM ${pgMessagesTable} msg
         LEFT JOIN verdicts v ON v.message_id = msg.id
@@ -269,7 +271,7 @@ export class DashboardRepository {
           msg.guild_id,
           COALESCE(NULLIF((msg.metadata::jsonb -> 'channel' ->> 'channelName'), ''), msg.channel_id) AS channel_name,
           COUNT(*)::int AS total_messages,
-          COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged_count,
+          COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged_count,
           MAX(msg.created_at) AS last_message_at
         FROM ${pgMessagesTable} msg
         LEFT JOIN verdicts v ON v.message_id = msg.id
@@ -322,7 +324,7 @@ export class DashboardRepository {
           msg.guild_id,
           COALESCE(NULLIF((msg.metadata::jsonb -> 'channel' ->> 'channelName'), ''), msg.channel_id) AS channel_name,
           COUNT(*)::int AS total_messages,
-          COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged_count,
+          COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged_count,
           COUNT(*) FILTER (WHERE v.status = 'clean')::int AS clean_count
         FROM ${pgMessagesTable} msg
         LEFT JOIN verdicts v ON v.message_id = msg.id
@@ -479,9 +481,8 @@ export class DashboardRepository {
           msg.username,
           msg.avatar_url,
           COUNT(*)::int AS total_messages,
-          COUNT(*) FILTER (WHERE v.status = 'flagged')::int AS flagged_count,
-          COUNT(*) FILTER (WHERE v.status = 'clean')::int AS clean_count,
-          COUNT(*) FILTER (WHERE v.status = 'warn')::int AS warn_count
+          COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged_count,
+          COUNT(*) FILTER (WHERE v.status = 'clean')::int AS clean_count
         FROM ${pgMessagesTable} msg
         LEFT JOIN verdicts v ON v.message_id = msg.id
         WHERE msg.user_id = ${userId}

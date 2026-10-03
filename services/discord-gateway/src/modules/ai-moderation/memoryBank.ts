@@ -153,7 +153,6 @@ export type MemoryMessage = {
   /** The moderation model's own reading of the message, for the bank. */
   analysis: string;
   status: string;
-  severity: string;
   categories: string[];
   mediaDescription?: string;
   /** Where the message sat in the conversation. Empty when nothing was captured. */
@@ -303,7 +302,7 @@ export function formatMemoryContent(m: MemoryMessage): string {
   }
 
   parts.push(
-    `Penilaian moderasi: status=${m.status}, severity=${m.severity}` +
+    `Penilaian moderasi: status=${m.status}` +
       (m.categories.length > 0 ? `, kategori=${m.categories.join(", ")}` : ""),
   );
   if (m.analysis.trim()) parts.push(`Analisis moderator: ${m.analysis.trim()}`);
