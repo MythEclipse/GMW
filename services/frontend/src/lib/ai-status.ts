@@ -103,8 +103,11 @@ export function verdictLabel(
   verdict: DisplayVerdict | null | undefined,
 ): string {
   switch (verdict) {
+    // The DECISION is called "flagged", not "deleted": deletion is a separate,
+    // downstream fact (see `deletedBy`). Labelling both "Deleted" printed the
+    // word twice on every bot-removed message and read as a stutter.
     case "deleted":
-      return "Deleted";
+      return "Flagged";
     case "error":
       return "Error";
     case "clean":
@@ -114,6 +117,35 @@ export function verdictLabel(
     default:
       return "Unknown";
   }
+}
+
+/**
+ * Who removed the message from Discord — the distinction a bare `deleted_at`
+ * cannot make.
+ *
+ * Discord's `messageDelete` event fires for EVERY deletion, moderator or bot,
+ * so `deleted_at` only records THAT something was deleted. It never says who.
+ * The bot's own deletions are recoverable from a second source: the gateway's
+ * auto-delete enforcer is the only writer of `verdicts.auto_delete_state`, and
+ * it always leaves a state behind — `done` on success, `failed` if Discord
+ * refused, `claimed`/`pending` while in flight.
+ *
+ * So:
+ *   bot    — deleted_at set AND auto_delete_state is non-null
+ *   human  — deleted_at set AND auto_delete_state is null
+ *   absent — nothing deleted; returns null so callers render no badge at all
+ *
+ * `pending`/`claimed` count as the bot: the bot DID act, and had a human beaten
+ * it to the message its Discord call would have failed, leaving `failed`.
+ */
+export type DeletedBy = "bot" | "human";
+
+export function deletedBy(message: {
+  deleted_at?: number | null;
+  auto_delete_state?: string | null;
+}): DeletedBy | null {
+  if (message.deleted_at == null) return null;
+  return message.auto_delete_state != null ? "bot" : "human";
 }
 
 /** Queue position as a label, with the meaning spelled out. */

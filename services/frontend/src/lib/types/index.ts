@@ -112,6 +112,11 @@ export interface Message extends VerdictFields {
   created_at: number;
   edited_at: number | null;
   deleted_at: number | null;
+  // Written only by the gateway's auto-delete enforcer, so a non-null value is
+  // what separates "the bot deleted this" from "a human did" — `deleted_at`
+  // alone cannot, because Discord's messageDelete fires for both. See
+  // `deletedBy()` in @/lib/ai-status for the full reasoning.
+  auto_delete_state?: string | null;
   type: string;
   metadata: string | null;
   is_reply: boolean | null;

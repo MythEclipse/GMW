@@ -615,6 +615,16 @@ export const pgVerdictsTable = pgTable(
     // Epoch millis, not a timestamp — every time column in this schema is.
     created_at: pgBigint("created_at", { mode: "number" }).notNull(),
     updated_at: pgBigint("updated_at", { mode: "number" }).notNull(),
+    // Auto-delete bookkeeping, written ONLY by the gateway's enforcer. This is
+    // how the dashboard tells "the bot removed this" from "a human moderator
+    // removed it in Discord": a bot deletion always leaves a state here, while
+    // a human one leaves the column untouched. `messages.deleted_at` cannot
+    // answer this on its own — Discord's messageDelete event fires for both,
+    // so it only records THAT something was deleted.
+    auto_delete_state: pgText("auto_delete_state"),
+    auto_delete_claimed_at: pgBigint("auto_delete_claimed_at", {
+      mode: "number",
+    }),
   },
   (table) => ({
     statusCreatedIdx: pgIndex("idx_verdicts_status_created").on(

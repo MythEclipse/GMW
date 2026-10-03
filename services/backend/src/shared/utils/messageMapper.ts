@@ -62,6 +62,9 @@ export interface MappedMessage {
   verdict_evidence?: unknown;
   verdict_model?: string | null;
   verdict_updated_at?: number | null;
+  // Written only by the gateway's auto-delete enforcer. Non-null here means
+  // THE BOT deleted the message; null plus a deleted_at means a human did.
+  auto_delete_state?: string | null;
   ai_moderation_flags: string | null;
   ai_moderation_score: number | null;
   ai_analysis: string | null;
@@ -118,6 +121,7 @@ export function mapMessageRow(row: Record<string, unknown>): MappedMessage {
     verdict_evidence: (row.verdict_evidence as unknown) ?? null,
     verdict_model: (row.verdict_model as string | null) ?? null,
     verdict_updated_at: (row.verdict_updated_at as number | null) ?? null,
+    auto_delete_state: (row.auto_delete_state as string | null) ?? null,
     // Legacy `messages.ai_*` columns. The new worker writes NOTHING here, so
     // these stay null for anything analysed after the rewrite; kept for older
     // rows and existing frontend code paths.

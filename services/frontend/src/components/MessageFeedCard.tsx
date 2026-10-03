@@ -6,6 +6,7 @@ import { Badge, type Tone } from "@/components/shared/tone";
 import {
   pipelineLabel,
   pipelineTone,
+  deletedBy as resolveDeletedBy,
   verdictLabel,
   verdictTone,
 } from "@/lib/ai-status";
@@ -177,6 +178,9 @@ export function MessageFeedCard({
     | VerdictStatus
     | "unjudged";
   const deleted = message.deleted_at != null;
+  // Discord's messageDelete fires for moderator AND bot deletions alike, so
+  // deleted_at alone cannot say which happened. The enforcer's state can.
+  const deletedBy = resolveDeletedBy(message);
   const edited = message.edited_at != null;
 
   return (
@@ -217,7 +221,11 @@ export function MessageFeedCard({
           </Badge>
         )}
 
-        {deleted && <Badge tone="danger">Deleted</Badge>}
+        {deletedBy !== null && (
+          <Badge tone={deletedBy === "bot" ? "danger" : "neutral"}>
+            {deletedBy === "bot" ? "Deleted by bot" : "Deleted by moderator"}
+          </Badge>
+        )}
         {edited && !deleted && <Badge tone="neutral">Edited</Badge>}
 
         {(message.verdict_flags ?? []).slice(0, 3).map((flag) => (

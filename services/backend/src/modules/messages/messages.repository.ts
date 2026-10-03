@@ -58,6 +58,10 @@ const messageWithVerdict = {
   verdict_evidence: pgVerdictsTable.evidence,
   verdict_model: pgVerdictsTable.model,
   verdict_updated_at: pgVerdictsTable.updated_at,
+  // Only the gateway's enforcer writes this, which is what lets the dashboard
+  // separate a bot deletion from a human one. `messages.deleted_at` cannot:
+  // Discord's messageDelete fires for both.
+  auto_delete_state: pgVerdictsTable.auto_delete_state,
 };
 
 export interface AttachmentResult {
@@ -717,6 +721,7 @@ export class MessagesRepository {
         verdict_evidence: pgVerdictsTable.evidence,
         verdict_model: pgVerdictsTable.model,
         verdict_updated_at: pgVerdictsTable.updated_at,
+        auto_delete_state: pgVerdictsTable.auto_delete_state,
       })
       .from(pgMessagesTable)
       .leftJoin(
