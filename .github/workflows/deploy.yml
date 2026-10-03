@@ -241,8 +241,44 @@ jobs:
             attic_push_vps_hop
           fi
 
-      # NOTE: env files /etc/gmw/backend.env & /etc/gmw/discord-gateway.env are
-      # managed MANUALLY on the VPS (source of truth). CI only builds & deploys.
+      # NOTE: service env (DATABASE_URL, AI_MEMORY_BASE_URL, …) comes from the
+      # Bitwarden Secrets Manager backend via /usr/local/bin/bws-exec, NOT from
+      # an EnvironmentFile. /etc/gmw/ is empty on the VPS — there is no env
+      # file to source. bws-exec fetches secrets, exports them, then execs the
+      # command, so invoking it here gives this script the same DATABASE_URL and
+      # AI_MEMORY_* the gateway itself runs with.
+      #
+      # Wipes runtime data after the new build is on disk but BEFORE the
+      # restart, so the service comes up against an empty schema. Scoped to
+      # `dcbot` (all public tables except the __drizzle_migrations ledger) and
+      # to the `gmw-moderation` Hindsight bank; every sibling database and the
+      # sibling `hermes-gemini` bank are left alone. scripts/reset-data.sh
+      # documents the blast radius and self-verifies that the ledger survived.
+      #
+      # `matrix.service == 'discord-gateway'` because this is a 4-way matrix:
+      # without the guard the wipe would fire four times per push.
+      - name: Reset runtime data (Postgres + Hindsight)
+        if: matrix.service == 'discord-gateway'
+        run: |
+          # Ship the script to the VPS and run it from a file. Feeding it over
+          # stdin (`bash -s`) would make the script text the child's stdin, so
+          # any command that reads stdin would consume the remainder of it.
+          #
+          # The script STOPS the writers first (a live gateway re-writes rows
+          # during the wipe) and leaves them down on success, so the restart in
+          # the following Deploy step is what brings them back. If the wipe
+          # fails, the explicit branch below restarts them so a failed reset can
+          # never leave prod dark.
+          scp -q scripts/reset-data.sh "$VPS_USER@$VPS_HOST:/tmp/reset-data.sh"
+          if ! ssh "$VPS_USER@$VPS_HOST" \
+            "sudo /usr/local/bin/bws-exec gmw bash /tmp/reset-data.sh"; then
+            echo "::error::runtime data reset FAILED — restarting writers"
+            ssh "$VPS_USER@$VPS_HOST" \
+              "sudo systemctl start gmw-discord-gateway-worker gmw-discord-gateway gmw-backend || true"
+            exit 1
+          fi
+          echo "✅ runtime data reset (dcbot + gmw-moderation bank)"
+
       - name: Deploy ${{ matrix.service }} to VPS
         run: |
           STORE_PATH="${{ steps.build.outputs.store-path }}"
