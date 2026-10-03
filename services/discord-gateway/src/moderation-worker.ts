@@ -16,6 +16,7 @@
  */
 
 import { ModerationWorker } from "@/modules/ai-moderation/index.js";
+import { KbbiDictionary } from "@/modules/ai-moderation/kbbiDictionary.js";
 import { createDefaultGateway } from "@/modules/ai-moderation/llmGateway.js";
 import { ModerationMemoryBank } from "@/modules/ai-moderation/memoryBank.js";
 import { config } from "@/shared/config/index";
@@ -59,6 +60,19 @@ async function main(): Promise<void> {
       "hindsight memory enabled for moderation context",
     );
   }
+  // KBBI grounds the model on what Indonesian words actually mean, so a slang
+  // term is judged from its dictionary sense instead of the model's guess. Off
+  // unless AI_DICTIONARY_ENABLED=true, and every failure inside it degrades to
+  // an ordinary batch — an unreachable dictionary costs grounding, not verdicts.
+  const dictionary = config.AI_DICTIONARY_ENABLED
+    ? KbbiDictionary.fromConfig()
+    : undefined;
+  if (dictionary) {
+    log.info(
+      { baseUrl: config.AI_DICTIONARY_BASE_URL },
+      "kbbi dictionary enabled for word grounding",
+    );
+  }
   const worker = new ModerationWorker(
     pool,
     gateway,
@@ -87,6 +101,7 @@ async function main(): Promise<void> {
     },
     undefined,
     memory,
+    dictionary,
   );
 
   let shuttingDown = false;
@@ -119,7 +134,15 @@ async function main(): Promise<void> {
   });
 
   log.info(
-    { workerId: worker.workerId, model: gateway.modelLabel },
+    {
+      workerId: worker.workerId,
+      model: gateway.modelLabel,
+      // Both enhancements are reported here because "the feature is not running"
+      // and "the feature is running but finding nothing" look identical from
+      // the dashboard. This line is the only place the difference is visible.
+      memory: memory !== undefined,
+      dictionary: dictionary !== undefined,
+    },
     "worker ready",
   );
   await worker.start();

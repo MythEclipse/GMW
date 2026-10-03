@@ -279,16 +279,44 @@ Blok itu adalah KONTEKS, bukan pesan yang sedang dinilai.
 - Riwayat bisa memuat pesan yang sudah dihapus atau dilewati. Jangan jadikan
   statusnya sebagai bukti.`;
 
+export const DICTIONARY_RULES = `## KAMUS (KBBI, definisi resmi)
+
+Blok <dictionary> berisi definisi resmi KBBI untuk kata-kata yang muncul di
+pesan yang sedang dinilai. Muncul DI DALAM blok <message> itu sendiri, jadi
+setiap definisi milik pesan itu, bukan milik pesan lain di batch.
+
+Definisi ini adalah satu-satunya rujukan makna yang boleh kamu pakai.
+
+- Pakai definisi untuk APA yang ditulis pengirim. Kalau pesan memakai kata
+  dengan makna yang berbeda dari kamus, itu informasi penting: kata itu dipakai
+  tidak lazim di sini, dan itu sendiri boleh jadi bagian dari penilaian.
+- JANGAN mengarang makna dari ingatanmu. Kalau sebuah kata tidak punya
+  <definition>, berarti kamus tidak mengetahuinya: itu kata tidak baku, slangan,
+  atau nama. Untuk kata seperti itu andalkan KONTEKS di pesan dan
+  <memory_context>, jangan mengarang definisi.
+- Jangan menghakimi kata karena isi kamusnya objectionable. KBBI mencatat
+  makna vulgar, teknis, dan yang tidak nyaman didengar bersama makna biasa.
+  Yang dinilai adalah PENGGUNAANNYA di pesan ini, bukan isi kamusnya. Kata
+  "kontol" tetap kata benda biasa di sini.
+- Atribut standard="false" berarti kata itu hanya tercatat sebagai bentuk tidak
+  baku. Makna resminya BUKAN makna yang dimaksud pengirim; baca dari konteks.
+- JANGAN mengulang definisi di field "analysis". Analisis menjelaskan PESAN,
+  bukan artinya.
+- Kalau definisi kamus bertentangan dengan kebiasaan pemakaian di tempat ini
+  (seperti "kelakuan" yang di sini berarti kebiasaan atau watak, bukan
+  "{{REDACTED}}"), kebiasaan pemakaian yang menang, dan <memory_context> adalah
+  buktinya.`;
+
 /**
  * Assemble the full system prompt.
  *
- * Memoised per (mode, culture, memory-rules) because the rules block is ~4k
- * tokens and a 25-message batch otherwise re-sends it for every sub-batch. The
- * memory toggle is part of the key because the rule block explaining
- * <memory_context> must not appear in a prompt that has none — and, more
+ * Memoised per (mode, culture, memory, history, dictionary) because the rules
+ * block is ~4k tokens and a 25-message batch otherwise re-sends it for every
+ * sub-batch. Each toggle is part of the key because the rule explaining how to
+ * read that block must not appear in a prompt that has none — and, more
  * importantly, must appear in a prompt that does. Without it in the key a
- * cached prompt from a memory-less batch would silently keep omitting the
- * whole feature.
+ * cached prompt from a memory-less batch would silently keep omitting the whole
+ * feature.
  */
 const cache = new Map<string, string>();
 
@@ -321,13 +349,25 @@ export type BuildPromptOptions = {
    * history — which would leave the rules describing a block that is not there.
    */
   history?: boolean;
+  /**
+   * Whether this batch's prompt carries any `<dictionary>` block.
+   *
+   * A flag rather than a count, for the same reason as `memory`. Most messages
+   * are short enough that nothing is worth a lookup, and the rule must not
+   * describe a dictionary that is not there. In the cache key for the same
+   * reason: a prompt cached without the rule must never be served to a batch
+   * that has definitions.
+   */
+  dictionary?: boolean;
 };
 
 const MAX_CULTURE_CHARS = 1200;
 
 export function buildSystemPrompt(opts: BuildPromptOptions): string {
   const culture = opts.channelCulture?.slice(0, MAX_CULTURE_CHARS).trim() ?? "";
-  const key = `${opts.mode}|${culture}|${opts.memory === true}|${opts.history === true}`;
+  const key =
+    `${opts.mode}|${culture}|${opts.memory === true}|` +
+    `${opts.history === true}|${opts.dictionary === true}`;
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
 
@@ -336,6 +376,7 @@ export function buildSystemPrompt(opts: BuildPromptOptions): string {
   if (opts.mode === "mixed") parts.push(MEDIA_RULES);
   if (opts.memory) parts.push(MEMORY_RULES);
   if (opts.history) parts.push(HISTORY_RULES);
+  if (opts.dictionary) parts.push(DICTIONARY_RULES);
 
   parts.push(EXAMPLES);
 

@@ -343,6 +343,64 @@ export const configSchema = z
     // an unbounded number of documents.
     AI_MEMORY_RETAIN_BATCH_SIZE: z.coerce.number().int().positive().default(40),
 
+    // ── KBBI dictionary (grounding for Indonesian words) ────────────────
+    //
+    // The model judges Indonesian slang by guessing. "kontol" as banter and
+    // "kontol" as sexual are the same bare word to a model with no dictionary,
+    // so it invents a meaning and then judges the message from the invention.
+    // The KBBI API returns the official senses, which is the difference between
+    // grounding and confabulation.
+    //
+    // Off by default, exactly like Hindsight: grounding is an enhancement and a
+    // dictionary outage must never cost a verdict. Every failure path degrades
+    // to no definitions rather than throwing.
+    AI_DICTIONARY_ENABLED: z
+      .string()
+      .optional()
+      .transform((v) => v === "true")
+      .default(false),
+    // The kbbi-api HTTP service, published on imrnes. Not Hermes's memory
+    // instance and not the public host: an internal read-only lookup.
+    AI_DICTIONARY_BASE_URL: z
+      .string()
+      .url()
+      .default("http://100.121.180.82:4020"),
+    // Deadline for one lookup. Counted against the moderation call's lease, so
+    // it stays well under AI_ANALYSIS_LLM_TIMEOUT_MS: a dictionary is not worth
+    // losing a batch of verdicts over.
+    AI_DICTIONARY_TIMEOUT_MS: z.coerce.number().int().positive().default(4000),
+    // Words per request. The API repeats `words=` per word, so this is a
+    // URL-length budget as much as a rate one.
+    AI_DICTIONARY_MAX_WORDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .max(128)
+      .default(24),
+    // Words taken from ONE message. A long message holds dozens of distinct
+    // words, and looking up all of them spends the budget on function words
+    // whose definitions teach the model nothing.
+    AI_DICTIONARY_MAX_WORDS_PER_MESSAGE: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(8),
+    // Rendered characters per word. A KBBI entry runs to thousands of chars
+    // across every homonym and sense; the first senses carry the meaning and
+    // the rest crowds out the messages themselves.
+    AI_DICTIONARY_MAX_CHARS_PER_WORD: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(300),
+    // Total rendered characters for the whole batch. This is the real ceiling
+    // on prompt growth: N messages x M words each, capped here.
+    AI_DICTIONARY_MAX_CHARS_PER_BATCH: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(2000),
+
     // ── AI Analysis Timing ──────────────────────────────────────────────
     // ── Moderation worker ──────────────────────────────────────────────
     //

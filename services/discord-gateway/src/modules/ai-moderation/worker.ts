@@ -37,6 +37,15 @@ import {
   formatChannelContextForPrompt,
   formatLinkEvidenceForPrompt,
 } from "../message-capture/messageMetadata.js";
+import {
+  selectBatchDictionaryWords,
+  selectDictionaryWords,
+} from "./dictionary-words.js";
+import {
+  type DictionaryEntry,
+  formatDefinitions,
+  type KbbiDictionary,
+} from "./kbbiDictionary.js";
 import type { LlmGateway } from "./llmGateway.js";
 import type { ModerationMemoryBank } from "./memoryBank.js";
 import {
@@ -639,6 +648,14 @@ export class ModerationWorker {
    * and a deployment without an instance must still produce verdicts.
    */
   private readonly memory: ModerationMemoryBank | undefined;
+  /**
+   * KBBI, grounding the model on what Indonesian words actually mean.
+   *
+   * Optional for the same reason `vision` and `memory` are: tests inject a stub,
+   * and a deployment without a dictionary must still produce verdicts. Left
+   * undefined the prompt is byte-identical to what it was before this existed.
+   */
+  private readonly dictionary: KbbiDictionary | undefined;
   private readonly config: WorkerConfig;
   readonly workerId: string;
   private stopped = false;
@@ -651,18 +668,24 @@ export class ModerationWorker {
     config?: Partial<WorkerConfig>,
     vision?: LlmGateway,
     memory?: ModerationMemoryBank,
+    dictionary?: KbbiDictionary,
   ) {
     this.pool = pool;
     this.llm = llm;
     this.vision = vision;
     this.memory = memory;
+    this.dictionary = dictionary;
     this.config = { ...DEFAULT_WORKER_CONFIG, ...config };
     assertLeaseCoversLlmTimeout(this.config);
     // A fresh id per process is the point: a restarted worker must not be able
     // to reclaim its own previous leases and reprocess them.
     this.workerId = `w-${randomUUID().slice(0, 8)}`;
     log.info(
-      { workerId: this.workerId, ...this.config },
+      {
+        workerId: this.workerId,
+        ...this.config,
+        dictionary: this.dictionary?.enabled ?? false,
+      },
       "moderation worker constructed",
     );
   }
@@ -976,12 +999,25 @@ export class ModerationWorker {
       this.config.contextWindow,
     );
 
-    // Built AFTER recall so `memory` reflects reality. See the note at the top
-    // of this method for why the obvious earlier spot is the wrong one.
+    // KBBI definitions, resolved BEFORE the prompt is assembled for the same
+    // reason as the vision descriptions and the recall above: the block has to
+    // be interpolated, not merely computed, or the feature is inert while every
+    // formatter test still passes.
+    //
+    // The lookup is per BATCH, not per message — "biji" in five messages is one
+    // request — and the results are then indexed back per message so each
+    // <message> carries only the definitions for the words IT used. A shared
+    // block would let "biji" (seed) explain a message about something else.
+    const definitionsById = await this.lookupDefinitions(messages);
+
+    // Built AFTER recall and the dictionary so `memory` and `dictionary`
+    // reflect reality. See the note at the top of this method for why the
+    // obvious earlier spot is the wrong one.
     const system = buildSystemPrompt({
       mode: hasMedia ? "mixed" : "text",
       memory: memoryContext.length > 0,
       history: historyBlock.length > 0,
+      dictionary: definitionsById.size > 0,
     });
 
     const body = messages
@@ -1016,10 +1052,14 @@ export class ModerationWorker {
         // Empty string on a row captured before these existed, so the tag
         // degrades to exactly what it was.
         const place = formatChannelContextForPrompt(m.metadata);
+        // Official senses for the words THIS message used, and no others. The
+        // block sits inside the <message> element precisely so a definition
+        // cannot drift onto an unrelated message.
+        const defs = formatDefinitions(definitionsById.get(m.id) ?? []);
         return (
           `<message id="${m.id}" author="${escapeXmlAttr(who)}" ` +
           `ts="${isoFromEpoch(m.createdAt)}"${place}>\n${vision}` +
-          `${escapeMessageBody(m.content)}\n${links}\n</message>`
+          `${escapeMessageBody(m.content)}\n${links}${defs}\n</message>`
         );
       })
       .join("\n");
@@ -1082,6 +1122,72 @@ export class ModerationWorker {
     // map, and passing a fresh empty Map there silently dropped every image
     // description from long-term recall.
     return { result, visionById };
+  }
+
+  /**
+   * Resolve KBBI definitions for a batch, indexed back to each message.
+   *
+   * Three steps, in this order for three reasons:
+   *
+   * 1. Select words across the WHOLE batch with the per-message cap applied
+   *    first. Selecting per message and concatenating would let one verbose
+   *    message take every slot, and the messages that follow it get no grounding
+   *    at all — which is backwards, since a long message is usually the one
+   *    that needed the help.
+   * 2. One `lookup` for all of them, deduplicated by the adapter.
+   * 3. Index the returned entries back onto the messages that actually used
+   *    each word, so a definition is never offered as an explanation of a
+   *    message that did not contain it.
+   *
+   * Returns an empty map when no dictionary is configured or the lookup yields
+   * nothing, which leaves the prompt byte-identical to its pre-dictionary form.
+   * The whole method is inside the moderation call's own budget and bounded by
+   * the adapter's timeout, so the lease arithmetic is untouched.
+   */
+  private async lookupDefinitions(
+    messages: readonly ClaimedMessage[],
+  ): Promise<Map<string, DictionaryEntry[]>> {
+    if (!this.dictionary?.enabled) return new Map();
+    const { maxWords, maxWordsPerMessage } = this.dictionary.limits;
+
+    const perMessage = new Map<string, string[]>();
+    for (const m of messages) {
+      const words = selectDictionaryWords(m.content, maxWordsPerMessage);
+      if (words.length > 0) perMessage.set(m.id, words);
+    }
+    if (perMessage.size === 0) return new Map();
+
+    const batch = selectBatchDictionaryWords(
+      messages.map((m) => m.content),
+      maxWordsPerMessage,
+      maxWords,
+    );
+    if (batch.length === 0) return new Map();
+
+    const found = await this.dictionary.lookup(batch);
+    if (found.length === 0) return new Map();
+
+    const byWord = new Map(found.map((e) => [e.word, e] as const));
+    const byMessage = new Map<string, DictionaryEntry[]>();
+    for (const [messageId, words] of perMessage) {
+      const entries: DictionaryEntry[] = [];
+      for (const word of words) {
+        const entry = byWord.get(word);
+        if (entry) entries.push(entry);
+      }
+      if (entries.length > 0) byMessage.set(messageId, entries);
+    }
+    log.info(
+      {
+        trace: traceId(messages[0].id),
+        requested: batch.length,
+        defined: found.length,
+        messages: byMessage.size,
+        chars: found.reduce((n, e) => n + e.definition.length, 0),
+      },
+      "kbbi definitions resolved",
+    );
+    return byMessage;
   }
 
   /**
