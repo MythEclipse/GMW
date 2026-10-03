@@ -230,15 +230,43 @@ export function selectBatchDictionaryWords(
   perMessageLimit: number,
   batchLimit: number,
 ): string[] {
+  return selectBatchDictionaryWordPlan(texts, perMessageLimit, batchLimit)
+    .batch;
+}
+
+/**
+ * Which words each message contributes, and the deduplicated batch to ask about.
+ *
+ * The per-message map is only ever populated with words that made it into
+ * `batch`. That coupling is the whole point of returning both together: a caller
+ * that records every message's candidates and then sends only the first
+ * `batchLimit` claims the dictionary "does not know" words it was never asked
+ * about, and `<not_in_dictionary>` renders that invention as an authoritative
+ * absence the model is then forbidden to explain.
+ */
+export function selectBatchDictionaryWordPlan(
+  texts: readonly (string | null | undefined)[],
+  perMessageLimit: number,
+  batchLimit: number,
+): { perMessage: Map<string, string[]>; batch: string[] } {
+  const perMessage = new Map<string, string[]>();
   const seen = new Set<string>();
-  const words: string[] = [];
-  for (const text of texts) {
+  const batch: string[] = [];
+  if (batchLimit <= 0) return { perMessage, batch };
+
+  texts.forEach((text, index) => {
+    const chosen: string[] = [];
     for (const word of selectDictionaryWords(text, perMessageLimit)) {
+      // Break, not filter: the budget must be consumed as the list is built,
+      // or every candidate of the message that fills it is admitted at once.
+      if (chosen.length >= batchLimit - batch.length) break;
       if (seen.has(word)) continue;
       seen.add(word);
-      words.push(word);
-      if (words.length >= batchLimit) return words;
+      batch.push(word);
+      chosen.push(word);
     }
-  }
-  return words;
+    if (chosen.length > 0) perMessage.set(String(index), chosen);
+  });
+
+  return { perMessage, batch };
 }

@@ -413,20 +413,21 @@ export const configSchema = z
     // Messages claimed per LLM call. Larger batches are cheaper per message
     // but risk a timeout that loses the whole batch's work.
     AI_ANALYSIS_MAX_BATCH_SIZE: z.coerce.number().int().positive().default(25),
-    // How long a claim is held. MUST exceed AI_ANALYSIS_LLM_TIMEOUT_MS, or a
-    // slow call outlives its lease and a second worker re-processes messages
-    // that are still in flight. The worker asserts this at construction.
-    // The claim lease. It must exceed the vision pre-pass PLUS the moderation
-    // call, because `analyze()` runs vision first for any batch containing
-    // media and both hold the same lease. The default was 120s against a
-    // 120s vision budget and a 90s moderation budget — a 210s worst case
-    // under a 120s lease, so every media batch was reclaimed and re-processed
-    // by a second worker mid-flight.
+    // How long a claim is held. The worker asserts at construction that this
+    // covers the WHOLE batch: the vision pre-pass plus the moderation call.
+    //
+    // The pre-pass runs at AI_LLM_MEDIA_MAX_CONCURRENT wide, so a fully-media
+    // batch pays visionTimeoutMs once PER WAVE, not once — the check below
+    // multiplies out ceil(batch / concurrency). Checking only one call was a
+    // 4.3x understatement at the old defaults (10 waves x 120s + 90s = 1290s
+    // under a 300s lease), which is the same duplicate-work failure the
+    // assertion exists to prevent, reintroduced through a smaller arithmetic
+    // mistake.
     AI_ANALYSIS_PROCESSING_TIMEOUT_MS: z.coerce
       .number()
       .int()
       .positive()
-      .default(300000),
+      .default(1500000),
     // Deadline for one LLM call.
     AI_ANALYSIS_LLM_TIMEOUT_MS: z.coerce
       .number()
@@ -543,25 +544,34 @@ export const configSchema = z
       });
     }
 
-    // A claim lease shorter than the LLM timeout means a slow call outlives
-    // its own claim: the sweeper hands the messages to a second worker while
-    // the first is still paying for them. That reintroduces exactly the
-    // duplicate-verdict class this design exists to make impossible, so it is
-    // rejected at boot rather than discovered in production.
-    // The lease must cover the WHOLE batch: the vision pre-pass and the
-    // moderation call both run under it, and a media batch pays both.
+    // A claim lease shorter than the worst-case batch time means a slow call
+    // outlives its own claim: the sweeper hands the messages to a second
+    // worker while the first is still paying for them. That reintroduces
+    // exactly the duplicate-verdict class this design exists to make
+    // impossible, so it is rejected at boot rather than discovered in
+    // production.
+    //
+    // The worst case covers the WHOLE batch: the vision pre-pass, which runs
+    // once per WAVE because it is capped at AI_LLM_MEDIA_MAX_CONCURRENT in
+    // flight, and then the single moderation call.
     if (value.AI_ANALYSIS_ENABLED) {
+      const waves = Math.ceil(
+        value.AI_ANALYSIS_MAX_BATCH_SIZE /
+          Math.max(1, value.AI_LLM_MEDIA_MAX_CONCURRENT),
+      );
       const worstCase =
-        value.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS +
+        waves * value.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS +
         value.AI_ANALYSIS_LLM_TIMEOUT_MS;
       if (value.AI_ANALYSIS_PROCESSING_TIMEOUT_MS <= worstCase) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["AI_ANALYSIS_PROCESSING_TIMEOUT_MS"],
           message:
-            "AI_ANALYSIS_PROCESSING_TIMEOUT_MS (the claim lease) must be greater than " +
-            "AI_LLM_VISION_ANALYSIS_TIMEOUT_MS + AI_ANALYSIS_LLM_TIMEOUT_MS " +
-            `(${value.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS} + ${value.AI_ANALYSIS_LLM_TIMEOUT_MS} = ${worstCase}), ` +
+            "AI_ANALYSIS_PROCESSING_TIMEOUT_MS (the claim lease) must be greater than the " +
+            "worst-case batch time: " +
+            `ceil(${value.AI_ANALYSIS_MAX_BATCH_SIZE} / ${value.AI_LLM_MEDIA_MAX_CONCURRENT}) ` +
+            `vision waves x ${value.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS}ms + ` +
+            `${value.AI_ANALYSIS_LLM_TIMEOUT_MS}ms = ${worstCase}ms, ` +
             "otherwise a media batch is reclaimed and reprocessed while still in flight",
         });
       }

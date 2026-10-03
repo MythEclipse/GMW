@@ -316,3 +316,63 @@ test("a non-standard word is marked, so the model knows the sense is not the int
   await pool?.end();
   pool = null;
 });
+
+test("no word is marked not_in_dictionary unless the service was actually asked", async () => {
+  if (!(await ensureDb())) return expect(true).toBe(true);
+  clearPromptCache();
+
+  // Five messages of eight lookable words against a 24-word budget. The stub
+  // records every `words=` it was sent, so the test can compare the prompt's
+  // <not_in_dictionary> claims against what actually reached the service.
+  const asked: string[] = [];
+  const spy = new KbbiDictionary(DICT_CFG, ((url: string | URL) => {
+    const words = new URL(String(url)).searchParams.getAll("words");
+    asked.push(...words);
+    // The service answers honestly: it defines none of them.
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          results: words.map((w) => ({
+            word: w,
+            status: "not_found",
+            entry: null,
+          })),
+        }),
+        { status: 200 },
+      ),
+    );
+  }) as typeof fetch);
+
+  await (pool as pg.Pool).query(
+    "TRUNCATE messages, verdicts, analysis_attempts, attachments",
+  );
+  // One shared table and these DB tests are not serialised against each other,
+  // so this seeds through the file's own helper and asserts only about the word
+  // it actually sent. The batch-overflow case — where the budget runs out
+  // mid-batch — is covered deterministically in kbbiEvidence.test.ts, where it
+  // does not depend on how many rows happen to survive a concurrent truncate.
+  await seed(
+    "1554472364094529000",
+    Array.from({ length: 8 }, (_, i) => `zzq0w${i}`).join(" "),
+  );
+
+  let prompt = "";
+  await recordingWorker((c) => {
+    prompt = c.user;
+  }, spy).runOnce();
+
+  expect(asked.length).toBeGreaterThan(0);
+
+  // Every absence the prompt asserts must be one the service really denied.
+  const asserted = [
+    ...prompt.matchAll(/<not_in_dictionary words="([^"]+)"/g),
+  ].flatMap((m) => (m[1] ?? "").split(" "));
+
+  expect(asserted.length).toBeGreaterThan(0);
+  for (const word of asserted) expect(asked).toContain(word);
+  // No duplicate bookkeeping: the batch was asked once about each word.
+  expect(new Set(asserted).size).toBe(asserted.length);
+
+  await pool?.end();
+  pool = null;
+});

@@ -192,6 +192,19 @@ function asStringArray(value: unknown): string[] {
  * behaviour (brace/bracket counting with string-escape handling).
  */
 export function extractJson(content: string): unknown {
+  const trimmed = content.trim();
+  if (
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+      /* fall through to fence and bracket scanner */
+    }
+  }
+
   const fence = /```(?:json)?\s*([\s\S]*?)\s*```/g;
   for (const match of content.matchAll(fence)) {
     try {

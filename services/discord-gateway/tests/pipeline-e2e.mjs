@@ -32,10 +32,19 @@ async function seed(n, { prefix = "e-", attachments = 0 } = {}) {
     [n, prefix],
   );
   if (attachments > 0) {
+    // The required-column set has grown under this fixture (`user_id`, `size`,
+    // `type`, `discord_url` are all NOT NULL), so it aborted and section 3
+    // never ran. `type` and `discord_url` are what make the worker route the
+    // row through the vision pre-pass, which is what section 3 is checking.
     await pool.query(
-      `INSERT INTO attachments (id, message_id, guild_id, channel_id, filename, upload_status, created_at)
-       SELECT $1||g, $2||g, 'g1', 'c1', 'img.png', 'completed', g
-         FROM generate_series(1,$3) g`,
+      `INSERT INTO attachments
+         (id, message_id, guild_id, channel_id, user_id, filename, size, type,
+          discord_url, upload_status, created_at)
+       SELECT $1||g, $2||g, m.guild_id, m.channel_id, m.user_id,
+              'img.png', 1024, 'image/png',
+              'https://cdn.discordapp.test/'||$1||g||'.png', 'completed', g
+         FROM generate_series(1,$3) g
+         JOIN messages m ON m.id = $2||g`,
       ["att-", prefix, attachments],
     );
   }
@@ -52,9 +61,20 @@ async function states(prefix) {
 const cfg = {
   leaseMs: 60_000,
   llmTimeoutMs: 10_000,
+  // This script seeds no attachments, so the vision pre-pass never runs. The
+  // budget is set small rather than omitted: the constructor's lease guard
+  // checks the FULLY-media worst case (ceil(25/4) x visionTimeoutMs + 10s), so
+  // inheriting the 120s default would demand an 850s lease and the script would
+  // refuse to construct the worker it is trying to exercise.
+  visionTimeoutMs: 1_000,
   idlePollMs: 10,
   claimBatchSize: 25,
   maxAttempts: 5,
+  // A requeued message waits `retryBackoffBaseMs * 2^(attempts-1)` before it is
+  // claimable again. This script requeues two omissions and expects the very
+  // next runOnce() to drain them, so the base has to be ~0 — at the 15s default
+  // they are still in the future and the batch never completes.
+  retryBackoffBaseMs: 1,
 };
 
 /**

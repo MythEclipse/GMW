@@ -20,11 +20,13 @@ import type {
 } from "../src/modules/ai-moderation/llmGateway.js";
 import {
   assertLeaseCoversLlmTimeout,
+  batchWorstCaseMs,
   DEFAULT_WORKER_CONFIG,
   escapeMessageBody,
   escapeXmlAttr,
   isoFromEpoch,
   ModerationWorker,
+  visionWaves,
   type WorkerConfig,
 } from "../src/modules/ai-moderation/worker.js";
 
@@ -426,8 +428,7 @@ describe("worker configuration guards", () => {
     // moderation 90s — a 210s worst case under a 120s lease, so every media
     // batch was reclaimed and re-processed by a second worker mid-flight.
     expect(DEFAULT_WORKER_CONFIG.leaseMs).toBeGreaterThan(
-      DEFAULT_WORKER_CONFIG.visionTimeoutMs +
-        DEFAULT_WORKER_CONFIG.llmTimeoutMs,
+      batchWorstCaseMs(DEFAULT_WORKER_CONFIG),
     );
     expect(() =>
       assertLeaseCoversLlmTimeout(DEFAULT_WORKER_CONFIG),
@@ -444,7 +445,53 @@ describe("worker configuration guards", () => {
         llmTimeoutMs: 90_000,
         visionTimeoutMs: 120_000,
       }),
-    ).toThrow(/visionTimeoutMs \+ llmTimeoutMs/);
+    ).toThrow(/vision wave/);
+  });
+
+  test("a lease covering ONE vision call is rejected when the batch needs waves", () => {
+    // The defect this guard under-corrected. The vision pre-pass is bounded by
+    // visionConcurrency, so a fully-media batch of `claimBatchSize` costs
+    // ceil(size / concurrency) ROUNDS of visionTimeoutMs. Checking a single call
+    // passed 300s against a real 1290s worst case — a 4.3x overrun that handed
+    // every slow media batch to a second worker while the first still held the
+    // lease, and `reclaim_expired_claims` reset those rows to `pending`.
+    const base = {
+      ...DEFAULT_WORKER_CONFIG,
+      claimBatchSize: 40,
+      visionConcurrency: 4,
+      visionTimeoutMs: 120_000,
+      llmTimeoutMs: 90_000,
+    };
+    // The old check: 120s + 90s = 210s, comfortably under this lease.
+    const leaseThatPassedTheOldCheck = 300_000;
+    expect(base.visionTimeoutMs + base.llmTimeoutMs).toBeLessThan(
+      leaseThatPassedTheOldCheck,
+    );
+    expect(() =>
+      assertLeaseCoversLlmTimeout({
+        ...base,
+        leaseMs: leaseThatPassedTheOldCheck,
+      }),
+    ).toThrow(/vision wave/);
+  });
+
+  test("the guard's worst case counts every vision wave, not one call", () => {
+    const four = {
+      ...DEFAULT_WORKER_CONFIG,
+      claimBatchSize: 40,
+      visionConcurrency: 4,
+      visionTimeoutMs: 1000,
+      llmTimeoutMs: 1000,
+    };
+    // 10 waves of 1s plus the 1s moderation call.
+    expect(visionWaves(four)).toBe(10);
+    expect(batchWorstCaseMs(four)).toBe(11_000);
+
+    // Widening the fan-out cuts the wall-clock budget, since at most
+    // `visionConcurrency` calls are in flight at any moment.
+    const wide = { ...four, visionConcurrency: 20 };
+    expect(visionWaves(wide)).toBe(2);
+    expect(batchWorstCaseMs(wide)).toBe(3_000);
   });
 });
 

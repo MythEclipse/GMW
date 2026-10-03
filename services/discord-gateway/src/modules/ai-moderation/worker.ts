@@ -37,10 +37,7 @@ import {
   formatChannelContextForPrompt,
   formatLinkEvidenceForPrompt,
 } from "../message-capture/messageMetadata.js";
-import {
-  selectBatchDictionaryWords,
-  selectDictionaryWords,
-} from "./dictionary-words.js";
+import { selectBatchDictionaryWordPlan } from "./dictionary-words.js";
 import {
   type DictionaryEntry,
   formatDefinitions,
@@ -136,9 +133,9 @@ export type ClaimedMessage = {
 export type WorkerConfig = {
   /** How many messages to pull per claim. */
   claimBatchSize: number;
-  /** Lease length. Must exceed the worst-case of a whole batch — the vision
-   *  pre-pass PLUS the moderation call — or work is reclaimed while still
-   *  running and two workers process the same message. */
+  /** Lease length. Must exceed `batchWorstCaseMs` — the WHOLE vision pre-pass
+   *  PLUS the moderation call — or work is reclaimed while still running and
+   *  two workers process the same message. */
   leaseMs: number;
   /** How often to poll when the queue is empty. */
   idlePollMs: number;
@@ -150,8 +147,9 @@ export type WorkerConfig = {
   llmTimeoutMs: number;
   /**
    * Deadline for the vision pre-pass, which runs BEFORE the moderation call
-   * and holds the same lease. A media batch pays both, so the lease has to
-   * cover their sum.
+   * and holds the same lease. A media batch pays this once PER WAVE — the
+   * pre-pass is capped at `visionConcurrency` in flight — so the lease has to
+   * cover `visionWaves() * visionTimeoutMs + llmTimeoutMs`.
    */
   visionTimeoutMs: number;
   /**
@@ -199,10 +197,11 @@ export type WorkerConfig = {
 
 export const DEFAULT_WORKER_CONFIG: WorkerConfig = {
   claimBatchSize: 40,
-  // Must exceed visionTimeoutMs + llmTimeoutMs (210s here). It was 120s — the
-  // value the config default used to carry — so every media batch outlived its
-  // own lease and was handed to a second worker mid-flight.
-  leaseMs: 300_000,
+  // Sized by `batchWorstCaseMs` for a FULLY-media batch: 10 waves x 120s of
+  // vision + 90s moderation = 1290s. It was 300s — which passed the old
+  // single-call check (120 + 90) and therefore shipped a 4.3x overrun, handing
+  // every slow media batch to a second worker while the first still held it.
+  leaseMs: 1_500_000,
   idlePollMs: 2_000,
   maxAttempts: 5,
   retryBackoffBaseMs: 15_000,
@@ -214,9 +213,37 @@ export const DEFAULT_WORKER_CONFIG: WorkerConfig = {
 };
 
 /**
+ * How many vision waves a fully-media batch pays, and the resulting budget.
+ *
+ * The vision pre-pass is bounded by `visionConcurrency`, not run all at once,
+ * so a batch of N media messages costs `ceil(N / visionConcurrency)` ROUNDS of
+ * `visionTimeoutMs` — not one. Modelling a single call was the bug this
+ * function existed to prevent in the first place: with the shipped defaults
+ * (40 messages, 4-wide, 120s each) the real worst case is 10 x 120s + 90s =
+ * 1290s against a 300s lease, so `reclaim_expired_claims` reset every row to
+ * `pending` while the first worker was still describing images, and a second
+ * worker claimed the same messages and paid for them again.
+ *
+ * At most `visionConcurrency` calls are in flight, so the waves genuinely do
+ * serialise: it is one wall-clock budget, not `N` parallel budgets.
+ */
+export function visionWaves(cfg: WorkerConfig): number {
+  const perWave = Math.max(1, cfg.visionConcurrency ?? 1);
+  return Math.ceil(cfg.claimBatchSize / perWave);
+}
+
+/**
+ * The longest a single claim can legitimately take: every message carrying
+ * media, described in waves, THEN the one moderation call for the batch.
+ */
+export function batchWorstCaseMs(cfg: WorkerConfig): number {
+  return visionWaves(cfg) * cfg.visionTimeoutMs + cfg.llmTimeoutMs;
+}
+
+/**
  * A lease shorter than the batch's worst case guarantees duplicate work.
  *
- * The worst case is the vision pre-pass PLUS the moderation call, because
+ * The worst case is the WHOLE vision pre-pass PLUS the moderation call, because
  * `analyze()` runs vision first for any batch containing media and both hold
  * the same lease. The shipped defaults were lease 120s / vision 120s /
  * moderation 90s — a 210s worst case against a 120s lease, so every media
@@ -224,14 +251,24 @@ export const DEFAULT_WORKER_CONFIG: WorkerConfig = {
  * vision and racing two workers on the same `verdicts` row. The guard that
  * exists to make duplicate verdicts impossible did not cover the path that
  * made them likely.
+ *
+ * It then under-corrected: it compared the lease against ONE vision call
+ * (120s + 90s = 210s < 300s, so the defaults passed) while the pre-pass runs
+ * `ceil(claimBatchSize / visionConcurrency)` waves. The arithmetic is now
+ * `assertLeaseCoversLlmTimeout`'s own subject rather than an assumption inside
+ * it, and the defaults are sized to it.
  */
 export function assertLeaseCoversLlmTimeout(cfg: WorkerConfig): void {
-  const worstCase = cfg.visionTimeoutMs + cfg.llmTimeoutMs;
+  const worstCase = batchWorstCaseMs(cfg);
   if (cfg.leaseMs <= worstCase) {
+    const waves = visionWaves(cfg);
     throw new Error(
-      `leaseMs (${cfg.leaseMs}) must exceed visionTimeoutMs + llmTimeoutMs ` +
-        `(${cfg.visionTimeoutMs} + ${cfg.llmTimeoutMs} = ${worstCase}); ` +
-        `otherwise a slow media batch outlives its lease and another worker re-processes the messages`,
+      `leaseMs (${cfg.leaseMs}) must exceed the worst-case batch time: ` +
+        `${waves} vision wave(s) x visionTimeoutMs + llmTimeoutMs ` +
+        `(${waves} x ${cfg.visionTimeoutMs} + ${cfg.llmTimeoutMs} = ${worstCase}); ` +
+        `otherwise a slow media batch outlives its lease and another worker re-processes the messages. ` +
+        `Raise leaseMs, lower visionTimeoutMs, or lower visionConcurrency so a fully-media ` +
+        `batch of claimBatchSize (${cfg.claimBatchSize}) fits`,
     );
   }
 }
@@ -310,35 +347,31 @@ async function generateVisionDescription(
   message: ClaimedMessage,
   visionTimeoutMs: number,
   visionGateway?: LlmGateway,
+  preloadedAttachments?: ReadonlyArray<{
+    discord_url: string | null;
+    type: string | null;
+  }>,
 ): Promise<string> {
-  // Lazy-import the client so config validation runs first. The gateway is
-  // injectable so tests do not depend on a live vision model — the
-  // description is the thing under test, not the network round trip.
-  //
-  // The timeout is passed in rather than read from ambient config, so it is
-  // the SAME number the lease assertion checked. Reading it here instead
-  // meant the assertion could pass while the call used a longer budget.
-  const { createDefaultVisionGateway } = await import("./llmGateway.js");
   try {
-    // MUST be the vision gateway, not the text one. The text model has no
-    // image capability, and the previous code used it, which is why every
-    // image message was judged on an empty description.
-    const vision = visionGateway ?? createDefaultVisionGateway();
-    // AttachmentsDb needs a NodePgDatabase; the worker only holds
-    // a Pool. Query attachments directly — same columns.
-    //
-    // Only image-ish attachments are sent to the model. A .zip or a .mp4
-    // passed as an image_url part makes the provider reject the WHOLE
-    // request, which would take down the batch's media description — and
-    // with it the moderation verdict for every message in the batch.
-    const rows = await pool.query<{
-      discord_url: string | null;
-      type: string | null;
-    }>(`SELECT discord_url, type FROM attachments WHERE message_id = $1`, [
-      message.id,
-    ]);
-    if (!rows.rows.length) return "";
-    const urls = rows.rows
+    let vision = visionGateway;
+    if (!vision) {
+      const { createDefaultVisionGateway } = await import("./llmGateway.js");
+      vision = createDefaultVisionGateway();
+    }
+
+    const attachmentRows =
+      preloadedAttachments ??
+      (
+        await pool.query<{
+          discord_url: string | null;
+          type: string | null;
+        }>(`SELECT discord_url, type FROM attachments WHERE message_id = $1`, [
+          message.id,
+        ])
+      ).rows;
+
+    if (!attachmentRows.length) return "";
+    const urls = attachmentRows
       .filter((a) => isVisionCapable(a.type, a.discord_url))
       .map((a) => a.discord_url as string)
       .filter((u) => typeof u === "string" && u.length > 0);
@@ -346,11 +379,6 @@ async function generateVisionDescription(
     const description = await vision.complete({
       system: VISION_SYSTEM_PROMPT,
       user: `Deskripsikan ${urls.length} gambar berikut.`,
-      // The image parts, NOT the URLs inlined in the text. A vision model
-      // given a URL as text answers "Tidak dapat memproses URL gambar" and
-      // describes nothing — verified against the production router. The
-      // moderation model then treats that sentence as a description and
-      // concludes the image is fine.
       images: urls.map((url) => ({ url })),
       timeoutMs: visionTimeoutMs,
     });
@@ -736,8 +764,9 @@ export class ModerationWorker {
 
     let result: ParseBatchResult;
     let visionById: Map<string, string>;
+    let llmMs = 0;
     try {
-      ({ result, visionById } = await this.analyze(messages));
+      ({ result, visionById, llmMs } = await this.analyze(messages));
     } catch (e) {
       // The whole LLM call failed (network, timeout, refusal). Every message
       // in the batch takes the same action, and attempts increments so a
@@ -759,7 +788,7 @@ export class ModerationWorker {
       return true;
     }
 
-    await this.persist(messages, result, visionById);
+    await this.persist(messages, result, visionById, llmMs);
     this.logCycle(before, cycleStart, trace, messages.length);
     return true;
   }
@@ -811,10 +840,9 @@ export class ModerationWorker {
               (m.metadata::jsonb -> 'channel' ->> 'nsfw')::boolean AS "channelIsNsfw"
          FROM claim_messages($1, $2, $3) AS c
          JOIN messages m ON m.id = c.id
-         LEFT JOIN (
-              SELECT message_id, count(*) AS n
-                FROM attachments GROUP BY message_id
-         ) a ON a.message_id = m.id`,
+         LEFT JOIN LATERAL (
+              SELECT 1 AS n FROM attachments a WHERE a.message_id = m.id LIMIT 1
+         ) a ON true`,
       [this.workerId, this.config.claimBatchSize, this.config.leaseMs],
     );
     if (claimed.length > 0) logClaimed(this.workerId, claimed);
@@ -939,9 +967,12 @@ export class ModerationWorker {
    * its text, and the missing description is noted in the trace.
    */
 
-  private async analyze(
-    messages: ClaimedMessage[],
-  ): Promise<{ result: ParseBatchResult; visionById: Map<string, string> }> {
+  private async analyze(messages: ClaimedMessage[]): Promise<{
+    result: ParseBatchResult;
+    visionById: Map<string, string>;
+    /** Wall-clock of the moderation call, for `verdicts.duration_ms`. */
+    llmMs: number;
+  }> {
     const requestedIds = messages.map((m) => m.id);
     const hasMedia = messages.some((m) => m.hasMedia);
 
@@ -967,6 +998,41 @@ export class ModerationWorker {
     // empty and that message is still judged on its text.
     const visionById = new Map<string, string>();
     if (hasMedia) {
+      const mediaMessages = messages.filter((m) => m.hasMedia);
+      let attachmentsByMsgId:
+        | Map<
+            string,
+            Array<{ discord_url: string | null; type: string | null }>
+          >
+        | undefined;
+
+      try {
+        const { rows } = await this.pool.query<{
+          message_id: string;
+          discord_url: string | null;
+          type: string | null;
+        }>(
+          `SELECT message_id, discord_url, type
+             FROM attachments
+            WHERE message_id = ANY($1::text[])`,
+          [mediaMessages.map((m) => m.id)],
+        );
+        attachmentsByMsgId = new Map();
+        for (const row of rows) {
+          let list = attachmentsByMsgId.get(row.message_id);
+          if (!list) {
+            list = [];
+            attachmentsByMsgId.set(row.message_id, list);
+          }
+          list.push({ discord_url: row.discord_url, type: row.type });
+        }
+      } catch (err) {
+        log.warn(
+          { err },
+          "failed to pre-fetch batch attachments; falling back to per-message queries",
+        );
+      }
+
       // Bounded, not one call per message at once. The concurrency ceiling keeps
       // a 40-message image batch from arriving at the provider as a 40-way
       // burst; p-limit preserves the "all descriptions resolved concurrently"
@@ -980,6 +1046,7 @@ export class ModerationWorker {
         messages.map((m) =>
           limit(async () => {
             if (!m.hasMedia) return [m.id, ""] as const;
+            const preloaded = attachmentsByMsgId?.get(m.id);
             return [
               m.id,
               await generateVisionDescription(
@@ -987,6 +1054,7 @@ export class ModerationWorker {
                 m,
                 this.config.visionTimeoutMs,
                 this.vision,
+                preloaded,
               ),
             ] as const;
           }),
@@ -1151,7 +1219,15 @@ export class ModerationWorker {
     });
 
     const parseStart = Date.now();
-    const result = parseVerdicts(raw, requestedIds, 1);
+    // The real attempt number, not a literal 1. Every message in a batch
+    // shares the same `attempts` value (claim_messages increments once per
+    // claim), so the first message carries it. It reaches the stored `analysis`
+    // of every error verdict, where it used to read "Percobaan 1" no matter how
+    // many times the message had actually been tried — so a message dying on its
+    // fifth attempt looked identical to one dying on its first, which is exactly
+    // the distinction an operator greps that column to make.
+    const attempt = Math.max(...messages.map((m) => m.attempts));
+    const result = parseVerdicts(raw, requestedIds, attempt);
     logBatchResult({
       trace,
       requested: requestedIds.length,
@@ -1167,7 +1243,7 @@ export class ModerationWorker {
     // the prompt, but the memory bank is written after the commit from the same
     // map, and passing a fresh empty Map there silently dropped every image
     // description from long-term recall.
-    return { result, visionById };
+    return { result, visionById, llmMs };
   }
 
   /**
@@ -1196,19 +1272,28 @@ export class ModerationWorker {
     if (!this.dictionary?.enabled) return EMPTY_DICTIONARY_LOOKUP;
     const { maxWords, maxWordsPerMessage } = this.dictionary.limits;
 
-    const perMessage = new Map<string, string[]>();
-    for (const m of messages) {
-      const words = selectDictionaryWords(m.content, maxWordsPerMessage);
-      if (words.length > 0) perMessage.set(m.id, words);
-    }
-    if (perMessage.size === 0) return EMPTY_DICTIONARY_LOOKUP;
-
-    const batch = selectBatchDictionaryWords(
+    // Only words that actually reach the batch are recorded against a message.
+    // Recording every message's candidates while the budget is full claimed the
+    // KBBI "does not know" words that were never sent, and `formatDefinitions`
+    // renders that claim as <not_in_dictionary>, which DICTIONARY_RULES tells the
+    // model to treat as an authoritative absence and forbids it from explaining
+    // at all. Six 8-word messages against a 24-word budget silently denied 24
+    // words the service was never asked about, and a real slang term sitting
+    // past the cutoff lost the grounding the feature exists to provide.
+    const { perMessage, batch } = selectBatchDictionaryWordPlan(
       messages.map((m) => m.content),
       maxWordsPerMessage,
       maxWords,
     );
-    if (batch.length === 0) return EMPTY_DICTIONARY_LOOKUP;
+    if (perMessage.size === 0 || batch.length === 0)
+      return EMPTY_DICTIONARY_LOOKUP;
+
+    // The plan is keyed by index; re-key onto message ids for the prompt.
+    const wordsById = new Map<string, string[]>();
+    messages.forEach((m, index) => {
+      const words = perMessage.get(String(index));
+      if (words) wordsById.set(m.id, words);
+    });
 
     const found = await this.dictionary.lookup(batch);
     // Read the client's own flag, not `found.length`: an empty reply from a
@@ -1227,13 +1312,13 @@ export class ModerationWorker {
     // for a batch that produced ONLY misses, since that block is exactly the
     // one that needs the rule.
     const unknownByMessage = new Map<string, string[]>();
-    for (const [messageId, words] of perMessage) {
+    for (const [messageId, words] of wordsById) {
       const missing = words.filter((w) => !byWord.has(w));
       if (missing.length > 0) unknownByMessage.set(messageId, missing);
     }
 
     const byMessage = new Map<string, DictionaryEntry[]>();
-    for (const [messageId, words] of perMessage) {
+    for (const [messageId, words] of wordsById) {
       const entries: DictionaryEntry[] = [];
       for (const word of words) {
         const entry = byWord.get(word);
@@ -1270,16 +1355,23 @@ export class ModerationWorker {
     messages: ClaimedMessage[],
     result: ParseBatchResult,
     visionById: ReadonlyMap<string, string>,
+    llmMs: number,
   ): Promise<void> {
     const byId = new Map(messages.map((m) => [m.id, m]));
     const client: PoolClient = await this.pool.connect();
     try {
       await client.query("BEGIN");
 
+      const validVerdicts: Array<{ msg: ClaimedMessage; v: ParsedVerdict }> =
+        [];
       for (const v of result.verdicts) {
         const msg = byId.get(v.messageId);
         if (!msg) continue;
-        await this.writeVerdict(client, msg, v);
+        validVerdicts.push({ msg, v });
+      }
+
+      if (validVerdicts.length > 0) {
+        await this.writeVerdictsBatch(client, validVerdicts, llmMs);
       }
 
       // Messages the model never mentioned stay queued — they are not judged.
@@ -1357,30 +1449,48 @@ export class ModerationWorker {
     }
   }
 
-  private async writeVerdict(
+  private async writeVerdictsBatch(
     client: PoolClient,
-    msg: ClaimedMessage,
-    v: ParsedVerdict,
+    items: ReadonlyArray<{ msg: ClaimedMessage; v: ParsedVerdict }>,
+    durationMs: number,
   ): Promise<void> {
-    const isError = v.status === "error";
+    if (items.length === 0) return;
 
-    // The auto-delete marker is reset when the judgement materially changes.
-    //
-    // `auto_delete_state` is the enforcer's "I already looked at this" flag.
-    // Once a verdict is marked `done`, a re-judgement that turns a clean
-    // message into a deletion would otherwise never be acted on: the enforcer's
-    // candidate query only reads NULL or 'pending', and its partial index
-    // `idx_verdicts_auto_delete_pending` has the same predicate, so the row is
-    // excluded from the index too. A message that gets worse is permanently
-    // unenforceable.
-    //
-    // Reset only on a material change, so a routine re-analysis of an
-    // unchanged verdict does not put a settled message back in the queue.
+    // 1. Batch upsert into verdicts table in a single query
+    const verdictRowsSql: string[] = [];
+    const verdictValues: unknown[] = [];
+    let vp = 1;
+
+    for (const { msg, v } of items) {
+      const isError = v.status === "error";
+      verdictRowsSql.push(
+        `($${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}::jsonb, $${vp++}, $${vp++}, $${vp++})`,
+      );
+      verdictValues.push(
+        msg.id,
+        isError ? "error" : v.status,
+        v.reason ?? null,
+        v.score,
+        v.confidence,
+        v.flags,
+        v.categories,
+        v.analysis,
+        JSON.stringify(v.evidence),
+        this.llm.modelLabel ?? null,
+        isError ? null : v.action,
+        // The batch's moderation-call latency. `verdicts.duration_ms` is the
+        // only place this exists: `verdictNotifier` reads it for the dashboard
+        // badge, and it has read NULL on every row since the column was created
+        // because nothing on the write path ever populated it.
+        durationMs,
+      );
+    }
+
     await client.query(
       `INSERT INTO verdicts
          (message_id, status, reason, score, confidence, flags, categories,
-          analysis, evidence, model, action)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
+          analysis, evidence, model, action, duration_ms)
+       VALUES ${verdictRowsSql.join(", ")}
        ON CONFLICT (message_id) DO UPDATE SET
          status = EXCLUDED.status,
          reason = EXCLUDED.reason,
@@ -1388,12 +1498,8 @@ export class ModerationWorker {
          flags = EXCLUDED.flags, categories = EXCLUDED.categories,
          analysis = EXCLUDED.analysis, evidence = EXCLUDED.evidence,
          model = EXCLUDED.model,
-         -- The disposition travels with the judgement. Without this column the
-         -- model's reset_nickname died HERE, and the enforcer — a DIFFERENT
-         -- process, reading this row back — could only infer the outcome from
-         -- the analysis prose, which is the defect the column exists to fix. An
-         -- error verdict keeps NULL: "could not judge" names no action.
          action = EXCLUDED.action,
+         duration_ms = EXCLUDED.duration_ms,
          auto_delete_state = CASE
            WHEN verdicts.status IS DISTINCT FROM EXCLUDED.status
              OR verdicts.score IS DISTINCT FROM EXCLUDED.score
@@ -1407,64 +1513,63 @@ export class ModerationWorker {
            ELSE verdicts.auto_delete_claimed_at
          END,
          updated_at = (extract(epoch from now())*1000)::bigint`,
-      [
-        msg.id,
-        isError ? "error" : v.status,
-        v.reason ?? null,
-        v.score,
-        v.confidence,
-        v.flags,
-        v.categories,
-        v.analysis,
-        JSON.stringify(v.evidence),
-        this.llm.modelLabel ?? null,
-        // NULL for an error verdict: "could not judge" names no action, and the
-        // enforcer treats NULL as "fall back to status", which for `error` is
-        // no enforcement at all.
-        isError ? null : v.action,
-      ],
+      verdictValues,
     );
 
-    await client.query(
-      `INSERT INTO analysis_attempts
-         (message_id, worker_id, attempt, outcome, error_code, error_message, model)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
+    // 2. Batch insert into analysis_attempts in a single query
+    const attemptRowsSql: string[] = [];
+    const attemptValues: unknown[] = [];
+    let ap = 1;
+
+    for (const { msg, v } of items) {
+      const isError = v.status === "error";
+      attemptRowsSql.push(
+        `($${ap++}, $${ap++}, $${ap++}, $${ap++}, $${ap++}, $${ap++}, $${ap++}, $${ap++})`,
+      );
+      attemptValues.push(
         msg.id,
         this.workerId,
-        // The real attempt number, which claim_messages() already incremented.
-        // Hardcoding 1 made the attempt log useless for spotting a message
-        // that keeps failing on retry.
         msg.attempts,
         isError ? "parse_error" : "success",
         v.perMessageError ?? null,
         v.perMessageError ? v.analysis : null,
         this.llm.modelLabel ?? null,
-      ],
+        durationMs,
+      );
+    }
+
+    await client.query(
+      `INSERT INTO analysis_attempts
+         (message_id, worker_id, attempt, outcome, error_code, error_message, model, duration_ms)
+       VALUES ${attemptRowsSql.join(", ")}`,
+      attemptValues,
     );
 
-    // An error verdict is a completed judgement ("cannot determine, needs a
-    // human"), so the message is terminal — not retried. Only a *batch*
-    // failure is retryable, and that path never reaches here.
+    // 3. Batch mark messages as analyzed in a single query
+    const messageIds = items.map(({ msg }) => msg.id);
     await client.query(
       `UPDATE messages
           SET ai_status = 'analyzed', worker_id = NULL, lease_until = NULL
-        WHERE id = $1 AND ai_status = 'claimed' AND worker_id = $2`,
-      [msg.id, this.workerId],
+        WHERE id = ANY($1::text[]) AND ai_status = 'claimed' AND worker_id = $2`,
+      [messageIds, this.workerId],
     );
 
-    if (isError) this.stats.skipped += 1;
-    else this.stats.analyzed += 1;
+    // 4. Update stats and write trace logs
+    for (const { msg, v } of items) {
+      const isError = v.status === "error";
+      if (isError) this.stats.skipped += 1;
+      else this.stats.analyzed += 1;
 
-    logVerdictWritten({
-      trace: traceId(msg.id),
-      messageId: msg.id,
-      status: isError ? "error" : v.status,
-      score: v.score,
-      attempts: msg.attempts,
-      createdAt: msg.createdAt,
-      perMessageError: v.perMessageError ?? null,
-    });
+      logVerdictWritten({
+        trace: traceId(msg.id),
+        messageId: msg.id,
+        status: isError ? "error" : v.status,
+        score: v.score,
+        attempts: msg.attempts,
+        createdAt: msg.createdAt,
+        perMessageError: v.perMessageError ?? null,
+      });
+    }
   }
 
   /**
@@ -1475,6 +1580,8 @@ export class ModerationWorker {
     messages: ClaimedMessage[],
     error: unknown,
   ): Promise<void> {
+    if (messages.length === 0) return;
+
     const detail = error instanceof Error ? error.message : String(error);
     // Every id in the failed batch, so the operator can grep any ONE of them and
     // find the model call that killed it. This is the line that makes a stuck
@@ -1498,53 +1605,61 @@ export class ModerationWorker {
       "failure detail for the failed batch",
     );
 
+    const messageIds = messages.map((m) => m.id);
+    const { rows } = await this.pool.query<{
+      id: string;
+      attempts: number;
+    }>(
+      `UPDATE messages
+          SET ai_status = CASE
+                WHEN attempts >= $3 THEN 'dead'
+                ELSE 'retry_wait'
+              END,
+              ready_for_work_at =
+                (extract(epoch from now())*1000)::bigint
+                + ($4::bigint * (1 << LEAST(GREATEST(attempts - 1, 0), 20))),
+              worker_id = NULL,
+              lease_until = NULL
+        WHERE id = ANY($1::text[]) AND ai_status = 'claimed' AND worker_id = $2
+        RETURNING id, attempts`,
+      [
+        messageIds,
+        this.workerId,
+        this.config.maxAttempts,
+        this.config.retryBackoffBaseMs,
+      ],
+    );
+
+    const attemptsById = new Map(rows.map((r) => [r.id, r.attempts]));
+
+    const attemptRowsSql: string[] = [];
+    const attemptValues: unknown[] = [];
+    let ap = 1;
     for (const msg of messages) {
-      // `attempts` is incremented by claim_messages at claim time, so by the
-      // time we get here it already counts this try. Incrementing again here
-      // would consume the retry budget twice per failure and halve the
-      // effective attempt cap.
-      const { rows } = await this.pool.query<{
-        attempts: number;
-      }>(
-        `UPDATE messages
-            SET ai_status = CASE
-                  WHEN attempts >= $3 THEN 'dead'
-                  ELSE 'retry_wait'
-                END,
-                ready_for_work_at =
-                  (extract(epoch from now())*1000)::bigint
-                  -- LEAST(...,20) caps the shift: 1 << n is an int4 shift
-                  -- and raises "integer out of range" at n >= 31. A message
-                  -- that reached a high attempt count (the omission path used
-                  -- to increment without ever parking) made this UPDATE
-                  -- throw, the run fail, and the row sit claimed with an
-                  -- expired lease — failing identically forever.
-                  + ($4::bigint * (1 << LEAST(GREATEST(attempts - 1, 0), 20))),
-                worker_id = NULL,
-                lease_until = NULL
-          WHERE id = $1 AND ai_status = 'claimed' AND worker_id = $2
-          RETURNING attempts`,
-        [
-          msg.id,
-          this.workerId,
-          this.config.maxAttempts,
-          this.config.retryBackoffBaseMs,
-        ],
+      const attempts = attemptsById.get(msg.id) ?? msg.attempts;
+      attemptRowsSql.push(
+        `($${ap++}, $${ap++}, $${ap++}, 'llm_error', 'llm_unavailable', $${ap++}, $${ap++})`,
       );
+      attemptValues.push(
+        msg.id,
+        this.workerId,
+        attempts,
+        detail.slice(0, 2000),
+        this.llm.modelLabel ?? null,
+      );
+    }
+
+    if (attemptRowsSql.length > 0) {
       await this.pool.query(
         `INSERT INTO analysis_attempts
            (message_id, worker_id, attempt, outcome, error_code, error_message, model)
-         VALUES ($1, $2,
-                 (SELECT attempts FROM messages WHERE id = $1),
-                 'llm_error', 'llm_unavailable', $3, $4)`,
-        [
-          msg.id,
-          this.workerId,
-          detail.slice(0, 2000),
-          this.llm.modelLabel ?? null,
-        ],
+         VALUES ${attemptRowsSql.join(", ")}`,
+        attemptValues,
       );
-      const attempts = rows[0]?.attempts ?? msg.attempts;
+    }
+
+    for (const msg of messages) {
+      const attempts = attemptsById.get(msg.id) ?? msg.attempts;
       const isDead = attempts >= this.config.maxAttempts;
       if (isDead) {
         this.stats.dead += 1;

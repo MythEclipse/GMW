@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  selectBatchDictionaryWordPlan,
   selectBatchDictionaryWords,
   selectDictionaryWords,
 } from "../src/modules/ai-moderation/dictionary-words.js";
@@ -133,19 +134,90 @@ describe("selectBatchDictionaryWords", () => {
   });
 
   it("applies the per-message cap before the batch cap, so one long message cannot starve the rest", () => {
-    // The first message alone holds more than 3 lookable words ("satu" and "dua"
-    // are numbers and drop out), so it exhausts the batch budget on its own.
-    // That is the documented order: per-message cap first, then batch cap. The
-    // assertion is that the batch cap is honoured and the batch is short, not
-    // that the second message survives — a batch-wide budget of 3 spent by the
-    // first message is the intended behaviour.
+    // "satu"/"dua" are in the stoplist, so the first message contributes
+    // "tiga"/"empat" and the budget of 3 carries into the second message. The
+    // assertion is that the batch cap is honoured across the batch, not that
+    // any one message keeps all its words.
     const out = selectBatchDictionaryWords(
-      ["satu dua tiga empat lima enam", "delapan sembilan"],
+      ["satu dua tiga empat", "lima enam tujuh"],
       8,
       3,
     );
     expect(out).toHaveLength(3);
     expect(out).toEqual(["tiga", "empat", "lima"]);
+  });
+});
+
+describe("selectBatchDictionaryWordPlan", () => {
+  it("records only the words each message contributed to the batch", () => {
+    // Six messages of eight candidates against a 24-word budget. The old
+    // selection recorded every message's candidates but only sent the first 24,
+    // so messages 4-6 were told the KBBI did not know words it was never asked
+    // about — rendered as <not_in_dictionary>, which DICTIONARY_RULES makes
+    // authoritative and forbids the model from explaining.
+    const texts = ["a", "b", "c", "d", "e", "f"].map((p) =>
+      Array.from({ length: 8 }, (_, i) => `wkw${p}zz${i}`).join(" "),
+    );
+    const { perMessage, batch } = selectBatchDictionaryWordPlan(texts, 8, 24);
+
+    expect(batch).toHaveLength(24);
+    const asked = new Set(batch);
+    // The invariant: every recorded word was actually sent, so every absence
+    // rendered as <not_in_dictionary> is one the service really answered. The
+    // old selection recorded all 48 candidates while sending 24, so 24 of them
+    // were absences nobody had verified.
+    let recorded = 0;
+    for (const words of perMessage.values()) {
+      for (const word of words) {
+        expect(asked.has(word)).toBe(true);
+        recorded += 1;
+      }
+    }
+    expect(recorded).toBe(batch.length);
+
+    // The budget runs out part-way through the fourth message; the ones after
+    // it contribute only what still fitted, and never more.
+    expect(perMessage.get("0")).toHaveLength(8);
+    expect(perMessage.get("3")).toEqual(["wkwdzz0", "wkwdzz1"]);
+    expect(perMessage.get("4")).toEqual(["wkwezz0"]);
+    expect(perMessage.get("5")).toEqual(["wkwfzz0"]);
+  });
+
+  it("keeps a word on the first message that used it", () => {
+    const { perMessage, batch } = selectBatchDictionaryWordPlan(
+      ["kucing lagi", "kucing makan"],
+      8,
+      24,
+    );
+    // "lagi" is in the stoplist. "kucing" is one lookup — the second message
+    // does not re-send it — but "makan" is new and still gets its place.
+    expect(batch).toEqual(["kucing", "makan"]);
+    expect(perMessage.get("0")).toEqual(["kucing"]);
+    expect(perMessage.get("1")).toEqual(["makan"]);
+  });
+
+  it("deduplicates a word already claimed by an earlier message", () => {
+    // "biji" in five messages is one lookup, and the definition must still land
+    // on every message that used the word — which the worker derives from this
+    // plan, so the second message must not be dropped for reusing it.
+    const { perMessage, batch } = selectBatchDictionaryWordPlan(
+      ["biji dressings", "biji lagi makan"],
+      8,
+      24,
+    );
+    expect(batch).toEqual(["biji", "dressings", "makan"]);
+    expect(perMessage.get("0")).toEqual(["biji", "dressings"]);
+    expect(perMessage.get("1")).toEqual(["makan"]);
+  });
+
+  it("returns nothing for a zero batch budget", () => {
+    const { perMessage, batch } = selectBatchDictionaryWordPlan(
+      ["kucing"],
+      8,
+      0,
+    );
+    expect(batch).toEqual([]);
+    expect(perMessage.size).toBe(0);
   });
 });
 
@@ -339,6 +411,87 @@ describe("KbbiDictionary.lookup", () => {
       maxWordsPerMessage: 8,
       maxCharsPerBatch: 2000,
     });
+  });
+
+  it("caches resolved words and avoids duplicate network requests", async () => {
+    let fetchCalls = 0;
+    const kbbi = new KbbiDictionary(CFG, (() => {
+      fetchCalls += 1;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                word: "biji",
+                status: "success",
+                entry: {
+                  data: { entri: [{ makna: [{ submakna: ["benih"] }] }] },
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+    }) as typeof fetch);
+
+    const first = await kbbi.lookup(["biji"]);
+    expect(first[0]?.definition).toBe("benih");
+    expect(fetchCalls).toBe(1);
+
+    // Second call for the same word must hit the cache without calling fetch
+    const second = await kbbi.lookup(["biji"]);
+    expect(second[0]?.definition).toBe("benih");
+    expect(fetchCalls).toBe(1);
+    expect(kbbi.consulted).toBe(true);
+  });
+
+  it("fetches only uncached words when batch contains mixed cached and new words", async () => {
+    const fetchedUrls: string[] = [];
+    const kbbi = new KbbiDictionary(CFG, ((url: string) => {
+      fetchedUrls.push(url);
+      const isMakan = url.includes("makan");
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            results: isMakan
+              ? [
+                  {
+                    word: "makan",
+                    status: "success",
+                    entry: {
+                      data: {
+                        entri: [{ makna: [{ submakna: ["mengunyah"] }] }],
+                      },
+                    },
+                  },
+                ]
+              : [
+                  {
+                    word: "biji",
+                    status: "success",
+                    entry: {
+                      data: { entri: [{ makna: [{ submakna: ["benih"] }] }] },
+                    },
+                  },
+                ],
+          }),
+          { status: 200 },
+        ),
+      );
+    }) as typeof fetch);
+
+    // First call caches "biji"
+    await kbbi.lookup(["biji"]);
+    expect(fetchedUrls.length).toBe(1);
+    expect(fetchedUrls[0]).toContain("words=biji");
+
+    // Second call requests ["biji", "makan"] -> only "makan" should be fetched
+    const combined = await kbbi.lookup(["biji", "makan"]);
+    expect(fetchedUrls.length).toBe(2);
+    expect(fetchedUrls[1]).toContain("words=makan");
+    expect(fetchedUrls[1]).not.toContain("words=biji");
+    expect(combined.map((e) => e.word)).toEqual(["biji", "makan"]);
   });
 });
 

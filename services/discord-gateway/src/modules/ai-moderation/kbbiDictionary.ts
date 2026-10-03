@@ -187,6 +187,8 @@ export class KbbiDictionary {
    * the same as "the dictionary has no such word" — see `lookup`.
    */
   consulted = false;
+  private readonly cache = new Map<string, DictionaryEntry | null>();
+  private readonly maxCacheSize = 5000;
 
   constructor(
     private readonly cfg: DictionaryConfig = DEFAULT_DICTIONARY_CONFIG,
@@ -219,6 +221,19 @@ export class KbbiDictionary {
     };
   }
 
+  /** Clear the word definition cache (used by tests or hot reloads). */
+  clearCache(): void {
+    this.cache.clear();
+  }
+
+  private cacheSet(word: string, entry: DictionaryEntry | null): void {
+    if (this.cache.size >= this.maxCacheSize) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey !== undefined) this.cache.delete(oldestKey);
+    }
+    this.cache.set(word, entry);
+  }
+
   /**
    * Look up words, returning only those the dictionary actually defines.
    *
@@ -246,9 +261,39 @@ export class KbbiDictionary {
       return [];
     }
 
+    // Check in-memory cache first to avoid repeating network requests for common words
+    const uncachedWords: string[] = [];
+    const resolvedByWord = new Map<string, DictionaryEntry>();
+
+    for (const word of batch) {
+      if (this.cache.has(word)) {
+        const cached = this.cache.get(word);
+        if (cached) {
+          resolvedByWord.set(word, cached);
+        }
+      } else {
+        uncachedWords.push(word);
+      }
+    }
+
+    // If every requested word is already resolved in cache, return immediately
+    if (uncachedWords.length === 0) {
+      this.consulted = true;
+      const ordered: DictionaryEntry[] = [];
+      let used = 0;
+      for (const word of batch) {
+        const entry = resolvedByWord.get(word);
+        if (!entry) continue;
+        if (used + entry.definition.length > this.cfg.maxCharsPerBatch) break;
+        ordered.push(entry);
+        used += entry.definition.length;
+      }
+      return ordered;
+    }
+
     const url =
       `${this.cfg.baseUrl.replace(/\/+$/, "")}/api/words` +
-      `?${batch.map((w) => `words=${encodeURIComponent(w)}`).join("&")}`;
+      `?${uncachedWords.map((w) => `words=${encodeURIComponent(w)}`).join("&")}`;
 
     try {
       const response = await this.fetchImpl(url, {
@@ -257,7 +302,7 @@ export class KbbiDictionary {
       });
       if (!response.ok) {
         log.warn(
-          { status: response.status, words: batch.length },
+          { status: response.status, words: uncachedWords.length },
           "kbbi lookup returned non-OK — analysing without definitions",
         );
         this.consulted = false;
@@ -275,10 +320,20 @@ export class KbbiDictionary {
       // this point an empty result means "we never found out".
       this.consulted = true;
 
-      const byWord = new Map<string, DictionaryEntry>();
+      const fetchedByWord = new Map<string, DictionaryEntry>();
       for (const raw of payload.results as ApiResult[]) {
         const entry = toEntry(raw, this.cfg.maxCharsPerWord);
-        if (entry && entry.word) byWord.set(entry.word, entry);
+        if (entry && entry.word) {
+          fetchedByWord.set(entry.word, entry);
+          this.cacheSet(entry.word, entry);
+        }
+      }
+
+      // Record words that were queried and confirmed not in dictionary as null
+      for (const word of uncachedWords) {
+        if (!fetchedByWord.has(word)) {
+          this.cacheSet(word, null);
+        }
       }
 
       // Re-emit in REQUESTED order so the block reads in the order the words
@@ -287,7 +342,7 @@ export class KbbiDictionary {
       const ordered: DictionaryEntry[] = [];
       let used = 0;
       for (const word of batch) {
-        const entry = byWord.get(word);
+        const entry = resolvedByWord.get(word) ?? fetchedByWord.get(word);
         if (!entry) continue;
         if (used + entry.definition.length > this.cfg.maxCharsPerBatch) break;
         ordered.push(entry);
@@ -298,7 +353,7 @@ export class KbbiDictionary {
       log.warn(
         {
           err: e instanceof Error ? e.message : String(e),
-          words: batch.length,
+          words: uncachedWords.length,
         },
         "kbbi lookup failed — analysing without definitions",
       );
