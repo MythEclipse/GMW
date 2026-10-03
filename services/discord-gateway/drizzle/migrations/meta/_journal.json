@@ -176,6 +176,13 @@
       "when": 1790765100001,
       "tag": "0025_severity_free_verdicts",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791081600000,
+      "tag": "0026_add_analysis_duration_ms",
+      "breakpoints": true
     }
   ]
 }

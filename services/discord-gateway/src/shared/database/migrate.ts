@@ -219,6 +219,14 @@ export async function seedDrizzleHistory(client: PoolClient): Promise<void> {
         SELECT FROM information_schema.columns
         WHERE table_name = 'verdicts' AND column_name = 'reason'
       )
+      -- 0026 adds messages.ai_analysis_duration_ms, which both Drizzle schemas
+      -- declare and the backend SELECTs on every message-feed read. Test for
+      -- PRESENCE: a database without it fails that read with 42703, which is
+      -- exactly how it presented — an oRPC "internal server error".
+      AND EXISTS (
+        SELECT FROM information_schema.columns
+        WHERE table_name = 'messages' AND column_name = 'ai_analysis_duration_ms'
+      )
       -- 0021 is DATA-ONLY: it creates no object, so nothing above can detect
       -- it. Its sentinel is the absence of the state it was written to fix —
       -- a judged message with no verdict row. Vacuously true where there is
