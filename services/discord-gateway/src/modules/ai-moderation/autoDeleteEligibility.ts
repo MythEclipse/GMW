@@ -139,9 +139,90 @@ const USERNAME_ATTRIBUTABLE_FLAGS = new Set([
 const CONTENT_CLEAN_PATTERN =
   /(?:isi pesan\s*(?:hanya|bersih|tidak (?:melanggar|ada)|membahas|berisi|bukan)|pesan\s*(?:bersih|tidak (?:melanggar|ada))|tidak ada (?:diskusi|konten|indikasi|pelanggaran))/i;
 
-/** Analysis text attributing the violation to the username. */
+/**
+ * Analysis text attributing the violation to the username.
+ *
+ * Deliberately ORDER-INSENSITIVE in practice: the trigger noun and the verb can
+ * appear in either order, because Indonesian puts the topic after the verb
+ * ("Pesan mengandung sindiran melalui nickname …") as often as before it
+ * ("nickname … mengandung"). Both are ordinary sentences; only one matched.
+ */
 const USERNAME_ATTRIBUTION_PATTERN =
-  /(?:username|nickname|nama pengguna)[\s\S]{0,40}?(?:mengandung|memiliki|berisi|melanggar|ofensif|mengecam|menyerang)/i;
+  /(?:username|nickname|nama pengguna)[\s\S]{0,60}?(?:mengandung|memiliki|berisi|melanggar|ofensif|mengecam|menyerang)|(?:mengandung|memiliki|berisi|melanggar|menyerang)[\s\S]{0,60}?(?:username|nickname|nama pengguna)/i;
+
+/**
+ * Terms that are insulting on their own, wherever they appear.
+ *
+ * Only used to decide WHERE a violation lives (the name vs the message), never
+ * to judge the message itself — that judgement is the model's. Kept small and
+ * unambiguous on purpose: a word that is only rude in context does not belong,
+ * because this decides whether a real message is spared or deleted.
+ */
+const INSULT_TERMS = [
+  "anjing",
+  "babi",
+  "bangsat",
+  "cuking",
+  "goblok",
+  "idiot",
+  "jancok",
+  "kampret",
+  "kontol",
+  "kret",
+  "memek",
+  "mulin",
+  "tenggelam",
+  "tolol",
+];
+
+function normaliseName(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Whether the member's own NICKNAME contains an insulting term, and the message
+ * body does not.
+ *
+ * This is the EVIDENCE-based counterpart to the prose patterns above. Those read
+ * the model's free-text summary, so any rephrasing defeats them — and in
+ * production it defeated them: a verdict whose flag was plain `harassment` and
+ * whose analysis placed "mengandung" before "nickname" fell through both paths
+ * and the MESSAGE was deleted, while the nickname (the actual violation) was
+ * left in place. Prose is not a reliable carrier of a safety decision.
+ *
+ * Here the claim is checked against the names themselves, which are already
+ * captured in `messages.metadata` and cannot be reworded by the model.
+ *
+ * Both halves are required. A body that itself contains the term is a real
+ * message-level violation and must still be deletable; only a violation that
+ * lives SOLELY in the name earns the nickname reset.
+ */
+function nicknameCarriesInsult(message: MessageLike): boolean {
+  const nick = readServerNickname(message);
+  if (!nick) return false;
+
+  const cleanNick = normaliseName(nick);
+  if (!INSULT_TERMS.some((term) => cleanNick.includes(term))) return false;
+
+  // The message must be clean of the same terms, or this is a message-level
+  // violation that happens to accompany a rude name — not a nickname-only one.
+  const body = normaliseName(message.content ?? "");
+  return !INSULT_TERMS.some((term) => body.includes(term));
+}
+
+/** The per-guild nickname as captured at message time, if any. */
+function readServerNickname(message: MessageLike): string | null {
+  const metadata = message.metadata;
+  if (!metadata || typeof metadata !== "object") return null;
+  const member = (
+    metadata as { member?: { nickname?: unknown; displayName?: unknown } }
+  ).member;
+  if (!member || typeof member !== "object") return null;
+  const nick = member.nickname ?? member.displayName;
+  return typeof nick === "string" && nick.trim().length > 0
+    ? nick.trim()
+    : null;
+}
 
 /**
  * True when the only problem is the server nickname, not the message.
@@ -151,6 +232,11 @@ export function isNicknameOnlyViolation(
   message: MessageLike,
   verdict?: VerdictLike | null,
 ): boolean {
+  // Path 0: the name itself carries the insult and the body does not. Checked
+  // FIRST and independent of the flags, because it is the only path that cannot
+  // be defeated by how the model chose to phrase its summary.
+  if (nicknameCarriesInsult(message)) return true;
+
   const flags = parseModerationFlags(message, verdict);
   if (flags.length === 0) return false;
 

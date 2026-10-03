@@ -225,3 +225,90 @@ describe("isNicknameOnlyViolation", () => {
     ).toBe(false);
   });
 });
+
+/**
+ * Regression: the guard existed but the model routed around it by WORDING.
+ *
+ * Prod row (user 1052035456688205854, nickname "adit cuking", body "Nandayo"):
+ * the verdict flagged plain `harassment`, cited the NICKNAME as the violation,
+ * and the pipeline DELETED THE MESSAGE instead of resetting the name.
+ *
+ * Both prose paths failed at once, for reasons that have nothing to do with
+ * severity:
+ *   - the flag was `harassment`, which is not in USERNAME_ATTRIBUTABLE_FLAGS
+ *   - "mengandung" came BEFORE "nickname", and the pattern required the reverse
+ *   - the analysis never volunteered that the message itself was clean
+ *
+ * So the decision is now also checked against the NICKNAME and BODY themselves,
+ * which the model cannot reword. Fixtures below are verbatim prod values.
+ */
+describe("isNicknameOnlyViolation — evidence-based path", () => {
+  const rudeNick = {
+    member: { nickname: "adit cuking", displayName: "adit cuking" },
+  };
+
+  test("prod case: rude nickname + clean body, however the verdict is phrased", () => {
+    // Verbatim prod analysis. Flag is what the feed card showed.
+    const analysis =
+      "Pesan mengandung sindiran pribadi melalui nickname 'adit cuking' yang sudah ditandai sebagai hinaan dalam memori kanal. Pengguna menggunakan nama panggilan yang sudah diketahui moderasi sebagai pelanggaran harassment tingkat medium. Pesan 'Nandayo' adalah cara mengekspresikan ketidakpuasan atau sindiran terhadap diri sendiri menggunakan kata 'cuking' yang merupakan hinaan pribadi.";
+
+    expect(
+      isNicknameOnlyViolation(
+        msg({ content: "Nandayo", metadata: rudeNick }),
+        verdict({ flags: ["harassment"], analysis }),
+      ),
+    ).toBe(true);
+  });
+
+  test("a rude body is still a deletable message violation", () => {
+    // The nickname is rude AND the message is rude. The message must remain
+    // deletable — the nickname reset is not a get-out-of-jail card.
+    expect(
+      isNicknameOnlyViolation(
+        msg({ content: "kamu kontol", metadata: rudeNick }),
+        verdict({
+          flags: ["harassment"],
+          analysis: "isi pesan mengandung kata kasar",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("a rude nickname with no insults in the body, empty flags", () => {
+    // No flags at all used to mean "cannot be a nickname violation". The
+    // evidence path must not depend on the model choosing a flag.
+    expect(
+      isNicknameOnlyViolation(
+        msg({ content: "halo semua", metadata: rudeNick }),
+        verdict({ flags: [], analysis: "" }),
+      ),
+    ).toBe(true);
+  });
+
+  test("a clean nickname and clean body stay deletable", () => {
+    expect(
+      isNicknameOnlyViolation(
+        msg({
+          content: "Nandayo",
+          metadata: { member: { nickname: "rama_adityo" } },
+        }),
+        verdict({
+          flags: ["harassment"],
+          analysis: "Pesan mengandung sindiran pribadi.",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("no captured nickname leaves the prose paths in charge", () => {
+    expect(
+      isNicknameOnlyViolation(
+        msg({ content: "Nandayo", metadata: { member: {} } }),
+        verdict({
+          flags: ["harassment"],
+          analysis: "Pesan mengandung sindiran pribadi.",
+        }),
+      ),
+    ).toBe(false);
+  });
+});
