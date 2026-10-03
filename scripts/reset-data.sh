@@ -249,4 +249,17 @@ if [ "$FAIL" = 0 ]; then
 else
   echo "=== reset FAILED (writers restored) ===" >&2
 fi
+
+# The reset succeeding says nothing about prod being up. The caller's next
+# step is the restart, so the one thing worth reporting from here is that the
+# writers ARE down — if any is still active, the wipe raced it and its result
+# is not to be trusted.
+if [ "$DRY_RUN" = 0 ]; then
+  echo "--- writers (must be down; the deploy step restarts them) ---"
+  for u in "${WRITERS[@]}"; do
+    state=$(systemctl is-active "$u" 2>/dev/null | tr -d '[:space:]' || true)
+    [ -n "$state" ] || state="unknown"
+    echo "  $u -> $state"
+  done
+fi
 exit "$FAIL"

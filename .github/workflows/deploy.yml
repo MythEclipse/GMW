@@ -257,6 +257,14 @@ jobs:
       #
       # `matrix.service == 'discord-gateway'` because this is a 4-way matrix:
       # without the guard the wipe would fire four times per push.
+      #
+      # The script STOPS three writers, not one: gmw-discord-gateway (re-writes
+      # rows during the wipe), gmw-discord-gateway-worker, and gmw-backend. The
+      # Deploy step that follows only restarts `gmw-discord-gateway`, so on
+      # success this step must bring the other two back itself. Leaving that to
+      # the matrix leg is what left gmw-backend in `failed` on prod: systemd
+      # treats an explicit `stop` as intentional, so Restart=always does not
+      # apply and NRestarts stayed 0.
       - name: Reset runtime data (Postgres + Hindsight)
         if: matrix.service == 'discord-gateway'
         run: |
@@ -264,20 +272,32 @@ jobs:
           # stdin (`bash -s`) would make the script text the child's stdin, so
           # any command that reads stdin would consume the remainder of it.
           #
-          # The script STOPS the writers first (a live gateway re-writes rows
-          # during the wipe) and leaves them down on success, so the restart in
-          # the following Deploy step is what brings them back. If the wipe
-          # fails, the explicit branch below restarts them so a failed reset can
+          # The script leaves the writers DOWN on success, deliberately: the
+          # wipe must not race a live gateway. Bringing them back is this
+          # step's job, on both the success and the failure path, so a reset can
           # never leave prod dark.
+          WRITERS="gmw-discord-gateway-worker gmw-discord-gateway gmw-backend"
           scp -q scripts/reset-data.sh "$VPS_USER@$VPS_HOST:/tmp/reset-data.sh"
           if ! ssh "$VPS_USER@$VPS_HOST" \
             "sudo /usr/local/bin/bws-exec gmw bash /tmp/reset-data.sh"; then
             echo "::error::runtime data reset FAILED — restarting writers"
-            ssh "$VPS_USER@$VPS_HOST" \
-              "sudo systemctl start gmw-discord-gateway-worker gmw-discord-gateway gmw-backend || true"
+            ssh "$VPS_USER@$VPS_HOST" "sudo systemctl start $WRITERS || true"
             exit 1
           fi
-          echo "✅ runtime data reset (dcbot + gmw-moderation bank)"
+          ssh "$VPS_USER@$VPS_HOST" "sudo systemctl start $WRITERS"
+          # Verify liveness, not just the exit code. `systemctl start` returns 0
+          # for a unit that then dies, and the unit reports `failed` for the
+          # full 90s TimeoutStopUSec during a forced shutdown — so read the
+          # state back and fail the deploy if any writer is not actually active.
+          for u in $WRITERS; do
+            state=$(ssh "$VPS_USER@$VPS_HOST" "systemctl is-active $u 2>/dev/null || echo inactive")
+            echo "  $u -> $state"
+            [ "$state" = "active" ] || {
+              echo "::error::$u is $state after the data reset — prod is degraded"
+              exit 1
+            }
+          done
+          echo "✅ runtime data reset (dcbot + gmw-moderation bank); writers active"
 
       - name: Deploy ${{ matrix.service }} to VPS
         run: |
