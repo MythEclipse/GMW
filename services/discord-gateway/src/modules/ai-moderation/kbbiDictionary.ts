@@ -180,6 +180,14 @@ function toEntry(row: ApiResult, maxChars: number): DictionaryEntry | null {
  * receives this like the LLM gateway, so nothing here needs a live service.
  */
 export class KbbiDictionary {
+  /**
+   * Whether the last `lookup` actually reached the service and read a reply.
+   *
+   * Read immediately after `lookup`. False means "we do not know", which is not
+   * the same as "the dictionary has no such word" — see `lookup`.
+   */
+  consulted = false;
+
   constructor(
     private readonly cfg: DictionaryConfig = DEFAULT_DICTIONARY_CONFIG,
     private readonly fetchImpl: typeof fetch = fetch,
@@ -217,14 +225,26 @@ export class KbbiDictionary {
    * Returns `[]` on every failure path and on an empty request. Never throws:
    * the caller interpolates the result straight into a prompt, so an empty array
    * must mean "say nothing", never "say something went wrong".
+   *
+   * `[]` is AMBIGUOUS on its own — "the service is down" and "the service says
+   * it has none of these words" are the same array. The caller needs the
+   * difference: only a real reply may render `<not_in_dictionary>`, because a
+   * timeout must not tell the model the KBBI denied words it was never asked
+   * about. `consulted` carries that.
    */
   async lookup(words: readonly string[]): Promise<DictionaryEntry[]> {
-    if (!this.cfg.enabled || words.length === 0) return [];
+    if (!this.cfg.enabled || words.length === 0) {
+      this.consulted = false;
+      return [];
+    }
 
     const batch = [...new Set(words)]
       .filter((w) => w.trim().length > 0)
       .slice(0, this.cfg.maxWords);
-    if (batch.length === 0) return [];
+    if (batch.length === 0) {
+      this.consulted = false;
+      return [];
+    }
 
     const url =
       `${this.cfg.baseUrl.replace(/\/+$/, "")}/api/words` +
@@ -240,11 +260,20 @@ export class KbbiDictionary {
           { status: response.status, words: batch.length },
           "kbbi lookup returned non-OK — analysing without definitions",
         );
+        this.consulted = false;
         return [];
       }
 
       const payload = (await response.json()) as { results?: unknown };
-      if (!Array.isArray(payload.results)) return [];
+      if (!Array.isArray(payload.results)) {
+        this.consulted = false;
+        return [];
+      }
+
+      // A well-formed reply: the service was asked and answered. Only now may
+      // a word missing from `byWord` be reported as genuinely unknown — before
+      // this point an empty result means "we never found out".
+      this.consulted = true;
 
       const byWord = new Map<string, DictionaryEntry>();
       for (const raw of payload.results as ApiResult[]) {
@@ -273,6 +302,7 @@ export class KbbiDictionary {
         },
         "kbbi lookup failed — analysing without definitions",
       );
+      this.consulted = false;
       return [];
     }
   }
@@ -304,12 +334,29 @@ export class KbbiDictionary {
  * dictionary form: the KBBI lists "bokap" as non-standard, and the model needs
  * to know the official sense is not what the speaker meant.
  */
-export function formatDefinitions(entries: readonly DictionaryEntry[]): string {
-  if (entries.length === 0) return "";
+export function formatDefinitions(
+  entries: readonly DictionaryEntry[],
+  unknownWords: readonly string[] = [],
+): string {
+  if (entries.length === 0 && unknownWords.length === 0) return "";
+
   const lines = entries.map(
     (e) =>
       `  <definition word="${escapeXmlAttr(e.word)}" standard="${e.standard}">` +
       `${e.definition}</definition>`,
   );
+
+  // Words we ASKED about and the dictionary does not have. Rendering them as an
+  // explicit absence is what stops the model filling the gap from its own
+  // memory: prod had "Cumyami" come back not_found, the row was dropped, and
+  // the verdict then asserted the word "berarti 'cuma yang'" — an invented
+  // definition, presented to a moderator as analysis. A named hole reads as a
+  // hole; a silent one reads as an oversight to be filled in.
+  if (unknownWords.length > 0) {
+    lines.push(
+      `  <not_in_dictionary words="${escapeXmlAttr(unknownWords.join(" "))}" />`,
+    );
+  }
+
   return `\n<dictionary>\n${lines.join("\n")}\n</dictionary>`;
 }

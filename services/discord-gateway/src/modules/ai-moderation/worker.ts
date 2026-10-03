@@ -632,6 +632,36 @@ function toMemoryMessages(
   });
 }
 
+/**
+ * What one batch's dictionary lookup produced: the words the KBBI defines, and
+ * the words it was asked about and does not carry.
+ *
+ * Both halves matter. Rendering only the hits leaves the model to infer that a
+ * missing word carried no information, and it fills the gap from memory — the
+ * prod case was "Cumyami", which the API answered `not_found` and the verdict
+ * then reported as "berarti 'cuma yang'". An absence has to be stated to be
+ * obeyed.
+ */
+type DictionaryLookup = {
+  entries: Map<string, DictionaryEntry[]>;
+  unknown: Map<string, string[]>;
+  /**
+   * False when the service could not be consulted at all (timeout, non-OK,
+   * malformed body). The prompt MUST stay byte-identical then: a dictionary
+   * outage is an infrastructure fault, and letting it inject
+   * `<not_in_dictionary>` for every word would tell the model the KBBI denied
+   * words it was never asked about. Only a successful reply may produce
+   * unknowns.
+   */
+  consulted: boolean;
+};
+
+const EMPTY_DICTIONARY_LOOKUP: DictionaryLookup = {
+  entries: new Map(),
+  unknown: new Map(),
+  consulted: false,
+};
+
 export class ModerationWorker {
   private readonly pool: Pool;
   private readonly llm: LlmGateway;
@@ -1008,6 +1038,13 @@ export class ModerationWorker {
     // <message> carries only the definitions for the words IT used. A shared
     // block would let "biji" (seed) explain a message about something else.
     const definitionsById = await this.lookupDefinitions(messages);
+    const dictionaryEntries = definitionsById.entries;
+    const unknownWordsById = definitionsById.unknown;
+    // An outage is not an absence. `lookupDefinitions` returns the empty lookup
+    // when the service never answered, so both maps are empty and the prompt
+    // stays byte-identical to a dictionary-less batch — which is exactly what
+    // kbbiWiring.test.ts asserts.
+    const dictionaryAnswered = definitionsById.consulted;
 
     // Built AFTER recall and the dictionary so `memory` and `dictionary`
     // reflect reality. See the note at the top of this method for why the
@@ -1016,7 +1053,14 @@ export class ModerationWorker {
       mode: hasMedia ? "mixed" : "text",
       memory: memoryContext.length > 0,
       history: historyBlock.length > 0,
-      dictionary: definitionsById.size > 0,
+      // True when EITHER map has anything in it AND the service actually answered.
+      // A batch of pure misses renders only `<not_in_dictionary>`, and that is
+      // precisely the batch that needs DICTIONARY_RULES — keying this off the
+      // hits alone left the rule out exactly when there was nothing to define.
+      // `consulted` keeps a dictionary OUTAGE byte-identical to no dictionary:
+      // the words were never asked about, so we cannot claim the KBBI lacks
+      // them.
+      dictionary: dictionaryEntries.size > 0 || unknownWordsById.size > 0,
     });
 
     const body = messages
@@ -1054,7 +1098,10 @@ export class ModerationWorker {
         // Official senses for the words THIS message used, and no others. The
         // block sits inside the <message> element precisely so a definition
         // cannot drift onto an unrelated message.
-        const defs = formatDefinitions(definitionsById.get(m.id) ?? []);
+        const defs = formatDefinitions(
+          dictionaryEntries.get(m.id) ?? [],
+          dictionaryAnswered ? (unknownWordsById.get(m.id) ?? []) : [],
+        );
         return (
           `<message id="${m.id}" author="${escapeXmlAttr(who)}" ` +
           `ts="${isoFromEpoch(m.createdAt)}"${place}>\n${vision}` +
@@ -1145,8 +1192,8 @@ export class ModerationWorker {
    */
   private async lookupDefinitions(
     messages: readonly ClaimedMessage[],
-  ): Promise<Map<string, DictionaryEntry[]>> {
-    if (!this.dictionary?.enabled) return new Map();
+  ): Promise<DictionaryLookup> {
+    if (!this.dictionary?.enabled) return EMPTY_DICTIONARY_LOOKUP;
     const { maxWords, maxWordsPerMessage } = this.dictionary.limits;
 
     const perMessage = new Map<string, string[]>();
@@ -1154,19 +1201,37 @@ export class ModerationWorker {
       const words = selectDictionaryWords(m.content, maxWordsPerMessage);
       if (words.length > 0) perMessage.set(m.id, words);
     }
-    if (perMessage.size === 0) return new Map();
+    if (perMessage.size === 0) return EMPTY_DICTIONARY_LOOKUP;
 
     const batch = selectBatchDictionaryWords(
       messages.map((m) => m.content),
       maxWordsPerMessage,
       maxWords,
     );
-    if (batch.length === 0) return new Map();
+    if (batch.length === 0) return EMPTY_DICTIONARY_LOOKUP;
 
     const found = await this.dictionary.lookup(batch);
-    if (found.length === 0) return new Map();
+    // Read the client's own flag, not `found.length`: an empty reply from a
+    // DOWN service and a reply saying "no such words" are both `[]`, and only
+    // the second one may render `<not_in_dictionary>`.
+    const consulted = this.dictionary.consulted;
+    if (!consulted) return EMPTY_DICTIONARY_LOOKUP;
 
     const byWord = new Map(found.map((e) => [e.word, e] as const));
+
+    // Words we asked about and the dictionary does not carry. Carried alongside
+    // the hits so the prompt can name the absence: with nothing rendered for a
+    // miss, the model reads a gap and fills it from memory — which is how
+    // "Cumyami" (not_found) came back as a verdict asserting the word "berarti
+    // 'cuma yang'". `dictionary: true` in the prompt cache key now also turns on
+    // for a batch that produced ONLY misses, since that block is exactly the
+    // one that needs the rule.
+    const unknownByMessage = new Map<string, string[]>();
+    for (const [messageId, words] of perMessage) {
+      const missing = words.filter((w) => !byWord.has(w));
+      if (missing.length > 0) unknownByMessage.set(messageId, missing);
+    }
+
     const byMessage = new Map<string, DictionaryEntry[]>();
     for (const [messageId, words] of perMessage) {
       const entries: DictionaryEntry[] = [];
@@ -1183,10 +1248,14 @@ export class ModerationWorker {
         defined: found.length,
         messages: byMessage.size,
         chars: found.reduce((n, e) => n + e.definition.length, 0),
+        unknown: [...unknownByMessage.values()].reduce(
+          (n, w) => n + w.length,
+          0,
+        ),
       },
       "kbbi definitions resolved",
     );
-    return byMessage;
+    return { entries: byMessage, unknown: unknownByMessage, consulted: true };
   }
 
   /**

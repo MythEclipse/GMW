@@ -26,6 +26,7 @@ import {
   buildSystemPrompt,
   clearPromptCache,
   DICTIONARY_RULES,
+  OUTPUT_CONTRACT,
 } from "../src/modules/ai-moderation/policy.js";
 
 /** A fetch stub that answers from a fixed word -> senses map. */
@@ -369,6 +370,55 @@ describe("formatDefinitions", () => {
 });
 
 // ── the prompt wiring ────────────────────────────────────────────────────────
+
+describe("the dictionary rule covers words the dictionary lacks", () => {
+  it("DICTIONARY_RULES explains the not_in_dictionary marker", () => {
+    // Without this the marker renders into the prompt as an unexplained tag,
+    // and a tag nobody explained is exactly what the model ignores.
+    expect(DICTIONARY_RULES).toContain("not_in_dictionary");
+  });
+
+  it("OUTPUT_CONTRACT forbids inventing a meaning at the point of writing", () => {
+    // The dictionary block is read early and the contract is read last. A ban
+    // that lives only in the early block was already violated once in prod.
+    // "JANGAN" and the verb are split across a line wrap, so assert the phrase
+    // that stays on one line.
+    expect(OUTPUT_CONTRACT).toContain("memberikannya arti");
+  });
+});
+
+/**
+ * The prod case: KBBI answered `not_found` for "Cumyami", GMW dropped the row
+ * exactly as designed, and the verdict then reported the word as "berarti
+ * 'cuma yang'" — an invented definition shown to a moderator as analysis.
+ *
+ * Rendering only hits left the model a gap with nothing saying it WAS a gap. A
+ * named absence is what makes it non-fillable, so these assert the marker
+ * reaches the prompt.
+ */
+describe("formatDefinitions — words the dictionary does not carry", () => {
+  const entry = (w: string, d: string): DictionaryEntry => ({
+    word: w,
+    definition: d,
+    standard: true,
+  });
+
+  it("names a word that was asked about and not found", () => {
+    const out = formatDefinitions([], ["cumyami"]);
+    expect(out).toContain("not_in_dictionary");
+    expect(out).toContain("cumyami");
+  });
+
+  it("keeps hits and misses in one block", () => {
+    const out = formatDefinitions([entry("biji", "isi buah")], ["cumyami"]);
+    expect(out).toContain("biji");
+    expect(out).toContain("cumyami");
+  });
+
+  it("renders nothing when there is neither a hit nor a miss", () => {
+    expect(formatDefinitions([], [])).toBe("");
+  });
+});
 
 describe("KBBI evidence reaches the prompt", () => {
   it("the system prompt carries the rule only when definitions exist", () => {
