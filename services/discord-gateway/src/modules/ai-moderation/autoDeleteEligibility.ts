@@ -25,6 +25,7 @@ import {
   hasSuppressedEmbeds,
   isLinkOnlyPost,
   pairLinksWithEmbeds,
+  parseRichMessageMetadata,
 } from "../message-capture/messageMetadata.js";
 
 const logger = createChildLogger("auto-delete-eligibility");
@@ -210,13 +211,30 @@ function nicknameCarriesInsult(message: MessageLike): boolean {
   return !INSULT_TERMS.some((term) => body.includes(term));
 }
 
-/** The per-guild nickname as captured at message time, if any. */
+/**
+ * The per-guild nickname as captured at message time, if any.
+ *
+ * `messages.metadata` is a TEXT column, so the enforcer hands this over as a
+ * JSON *string*. That is the whole reason this guard was inert in production:
+ * an earlier version tested `typeof metadata !== "object"` and returned null, so
+ * the nickname was never read, `isNicknameOnlyViolation` fell through to the
+ * delete path, and messages were deleted over a name while the name survived.
+ * The unit test passed because its fixture was a parsed object — a test that
+ * never sees the wire shape cannot catch this.
+ *
+ * `parseRichMessageMetadata` takes the string form, is already imported here for
+ * the embed helpers, and is what every other consumer of this column uses.
+ */
 function readServerNickname(message: MessageLike): string | null {
-  const metadata = message.metadata;
-  if (!metadata || typeof metadata !== "object") return null;
+  const raw = message.metadata;
+  if (!raw) return null;
+
+  // Accept both shapes: the wire gives a string, but a caller reaching this
+  // module directly may hand over the parsed object.
+  const parsed = typeof raw === "string" ? parseRichMessageMetadata(raw) : raw;
   const member = (
-    metadata as { member?: { nickname?: unknown; displayName?: unknown } }
-  ).member;
+    parsed as { member?: { nickname?: unknown; displayName?: unknown } } | null
+  )?.member;
   if (!member || typeof member !== "object") return null;
   const nick = member.nickname ?? member.displayName;
   return typeof nick === "string" && nick.trim().length > 0

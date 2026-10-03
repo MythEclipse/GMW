@@ -243,12 +243,19 @@ describe("isNicknameOnlyViolation", () => {
  * which the model cannot reword. Fixtures below are verbatim prod values.
  */
 describe("isNicknameOnlyViolation — evidence-based path", () => {
-  const rudeNick = {
+  /**
+   * STRING, not an object. `messages.metadata` is a `text` column, so the
+   * enforcer passes a JSON string. The first version of this suite passed a
+   * parsed object, so it proved the arithmetic while the real input silently
+   * returned null — the guard was inert in production and messages were deleted
+   * over a nickname that survived. Every fixture below is a string on purpose.
+   */
+  const rudeNick = JSON.stringify({
     member: { nickname: "adit cuking", displayName: "adit cuking" },
-  };
+  });
 
-  test("prod case: rude nickname + clean body, however the verdict is phrased", () => {
-    // Verbatim prod analysis. Flag is what the feed card showed.
+  test("a JSON STRING metadata on the wire is still read", () => {
+    // Verbatim prod analysis, and the verbatim prod flag: plain `harassment`.
     const analysis =
       "Pesan mengandung sindiran pribadi melalui nickname 'adit cuking' yang sudah ditandai sebagai hinaan dalam memori kanal. Pengguna menggunakan nama panggilan yang sudah diketahui moderasi sebagai pelanggaran harassment tingkat medium. Pesan 'Nandayo' adalah cara mengekspresikan ketidakpuasan atau sindiran terhadap diri sendiri menggunakan kata 'cuking' yang merupakan hinaan pribadi.";
 
@@ -256,6 +263,21 @@ describe("isNicknameOnlyViolation — evidence-based path", () => {
       isNicknameOnlyViolation(
         msg({ content: "Nandayo", metadata: rudeNick }),
         verdict({ flags: ["harassment"], analysis }),
+      ),
+    ).toBe(true);
+  });
+
+  test("a parsed object still works, for direct callers", () => {
+    expect(
+      isNicknameOnlyViolation(
+        msg({
+          content: "Nandayo",
+          metadata: { member: { nickname: "adit cuking" } },
+        }),
+        verdict({
+          flags: ["harassment"],
+          analysis: "Pesan mengandung sindiran.",
+        }),
       ),
     ).toBe(true);
   });
