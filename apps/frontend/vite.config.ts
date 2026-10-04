@@ -23,8 +23,8 @@ export default defineConfig({
     },
   },
   build: {
-    // The Nix derivation copies dist/ into the static server's tree, so the
-    // output must be self-contained and predictable.
+    // The systemd unit serves dist/ from the current release checkout, so
+    // the output must be self-contained and predictable.
     outDir: "dist",
     sourcemap: false,
     // Discord avatars/attachments come from cdn.discordapp.com as plain

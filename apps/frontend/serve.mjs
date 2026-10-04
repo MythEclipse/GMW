@@ -2,12 +2,12 @@
 /**
  * Static file server for the GMW dashboard SPA (Vite build output).
  *
- * Replaces `node .next/standalone/server.js`. The Nix `gmw-frontend`
- * derivation copies `dist/` next to this file and ExecStarts it on :4017
- * behind the gmw-proxy nginx (`GMW_FRONTEND_PORT` overrides the port).
+ * Replaces `node .next/standalone/server.js`. The `gmw-frontend` systemd
+ * unit ExecStarts this file on :4017 behind the gmw-proxy nginx
+ * (`GMW_FRONTEND_PORT` overrides the port).
  *
- * Node builtins only — no dependencies — so the Nix closure is just
- * `dist/` plus the node runtime, and there is nothing to install at
+ * Node builtins only — no dependencies — so the shipped runtime is just
+ * `dist/` plus the node binary, and there is nothing to install at
  * deploy time.
  *
  * Two behaviours nginx cannot provide on its own:

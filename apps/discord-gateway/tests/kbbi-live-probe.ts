@@ -1,9 +1,9 @@
 /**
  * Live probe: the real KBBI service, through the real built adapter.
  *
- * Runs against dist/ rather than src/ so it exercises the artifact the Nix
- * wrapper actually executes — the ESM rewrite in fix-imports.mjs is part of
- * what can break, and a source-only probe would miss it.
+ * Runs against dist/ rather than src/ so it exercises the artifact the
+ * deploy script actually ships (tsc + fix-imports), not the uncompiled
+ * source.
  *
  * Usage: bun tests/kbbi-live-probe.ts
  */

@@ -1,4 +1,4 @@
-name: Build & Deploy (Nix)
+name: Build & Deploy
 
 on:
   push:
@@ -11,7 +11,6 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -69,8 +68,6 @@ jobs:
         run: |
           bun install --frozen-lockfile
           ./node_modules/.bin/tsc --noEmit
-          # The Nix frontend derivation runs vite build; failing here catches a
-          # broken bundle in the fast test job instead of in the deploy matrix.
           ./node_modules/.bin/vite build
 
       - name: Biome + design lint (frontend)
@@ -81,54 +78,10 @@ jobs:
           # shadcn theme instead of raw colors and arbitrary values.
           ./node_modules/.bin/oxlint
 
-  build-and-deploy:
+  deploy:
     needs: test
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        service: [backend, discord-gateway, proxy, frontend]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          submodules: false
-
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v22
-        with:
-          determinate: false
-          extra-conf: |
-            sandbox = false
-            accept-flake-config = true
-            # Attic binary cache as substituter on the runner: lets CI pull the
-            # prebuilt attic client (and any cached deps/builds) over HTTPS,
-            # no SSH round-trip needed. extra-substituters (NOT
-            # extra-trusted-substituters) is required — Determinate Nix never
-            # merges trusted-* substituters for nix-store CLI clients.
-            extra-substituters = https://attic.asepharyana.my.id/gmw
-            extra-trusted-public-keys = gmw:Fq2Anzuhkb+T/hftWnPcveHSi21/RzIgIOeG8pCJa88=
-            # NOTE: nix-installer-action unconditionally injects
-            # 'build-provenance-tags' into /etc/nix/nix.conf (a Determinate
-            # Nix-only setting). With determinate:false the runner's upstream
-            # nix warns 'unknown setting build-provenance-tags' on every
-            # invocation — benign, cosmetic. Switching determinate:true would
-            # silence it but changes the runner's nix flavor.
-
-      - name: Cache Nix
-        uses: DeterminateSystems/magic-nix-cache-action@v14
-        with:
-          use-flakehub: false
-
-      - name: Build ${{ matrix.service }}
-        id: build
-        run: |
-          nix build .#${{ matrix.service }} --impure --option sandbox false --print-build-logs
-          STORE_PATH=$(readlink result)
-          echo "store-path=$STORE_PATH" >> "$GITHUB_OUTPUT"
-          echo "Build OK ${{ matrix.service }}: $STORE_PATH"
-
       - name: Setup SSH key
         env:
           SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -140,228 +93,31 @@ jobs:
           ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1 || { echo "SSH key invalid"; exit 1; }
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-      # Push build result to Attic binary cache (attic.asepharyana.my.id) so
-      # the VPS can substitute it instead of a single-stream `nix copy ssh://`.
-      #
-      # Fast path: push DIRECTLY from the runner to the public attic endpoint
-      # (validated 2026-08-10: token auth over public HTTPS works without
-      # Tailscale). This skips the ~794MB closure SSH copy to the VPS that
-      # used to take 25+ minutes per new store path.
-      #
-      # The attic client is NOT in nixpkgs anymore and has no prebuilt
-      # releases, so we pull the same prebuilt closure the VPS uses
-      # (/nix/store/fygyy3yk4rqdknxkiwkqambpnhyax0k4-attic-0.1.0, ~52MB).
-      # The closure itself lives in the attic cache (pushed once from the
-      # VPS), so the runner bootstraps it over HTTPS via the configured
-      # extra-substituters — no SSH round-trip. If that fails we fall back
-      # to `nix copy --from ssh://`, then the old VPS-hop flow (SSH copy to
-      # VPS, then attic push from the VPS over Tailscale) so the deploy step
-      # always has a working closure path.
-      - name: Push to Attic cache
-        env:
-          ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
+      - name: Deploy via scripts/deploy-direct.sh
+        # The heavy lifting lives in scripts/deploy-direct.sh on the VPS:
+        # clone the commit, bun install, prisma generate + compile, tsc build
+        # for each app, prune devDeps, install wrappers + systemd units +
+        # nginx config, switch the /opt/gmw/current symlink, restart, and
+        # run a stability-aware health check (systemctl + HTTP probes).
+        #
+        # NOTE: service env (DATABASE_URL, AI_MEMORY_BASE_URL, …) comes from
+        # the Bitwarden Secrets Manager backend via /usr/local/bin/bws-exec,
+        # NOT from an EnvironmentFile — /etc/gmw/ is empty on the VPS.
         run: |
-          if [ -z "$ATTIC_TOKEN" ]; then
-            echo "ATTIC_TOKEN not set; skipping attic push"
-            exit 0
-          fi
-          STORE_PATH="${{ steps.build.outputs.store-path }}"
-          ATTIC_DIR="/nix/store/fygyy3yk4rqdknxkiwkqambpnhyax0k4-attic-0.1.0"
-          ATTIC_BIN="$ATTIC_DIR/bin/attic"
+          echo "=== Deploying main to $VPS_HOST ==="
+          ssh "$VPS_USER@$VPS_HOST" \
+            "bash /opt/gmw/current/scripts/deploy-direct.sh main"
+          echo "✅ deploy finished"
 
-          attic_push_vps_hop() {
-            echo "Fallback: VPS-hop attic push"
-            # Recover the client binary BEFORE the fallback can use it: the
-            # bootstrap cascade below resets ATTIC_BIN="" and never restores it
-            # in the fallback branch, so `sudo $ATTIC_BIN push` used to run as
-            # `sudo  push` -> "sudo: 'push': command not found". On the VPS the
-            # closure lives at the canonical ATTIC_DIR path.
-            VPS_ATTIC="/nix/store/fygyy3yk4rqdknxkiwkqambpnhyax0k4-attic-0.1.0/bin/attic"
-            ssh "$VPS_USER@$VPS_HOST" "test -x '$VPS_ATTIC'" \
-              || ssh "$VPS_USER@$VPS_HOST" "sudo /nix/var/nix/profiles/default/bin/nix-store --realise '$ATTIC_DIR'"
-            # Copy closure to VPS (fast if attic already has it via substitute)
-            ssh "$VPS_USER@$VPS_HOST" "sudo /nix/var/nix/profiles/default/bin/nix-store --realise '$STORE_PATH'" 2>/dev/null \
-              || nix copy --to "ssh://***@$VPS_HOST" "$STORE_PATH"
-            # Push from VPS → Attic over Tailscale.
-            # --ignore-upstream-cache-filter is REQUIRED: without it, attic skips
-            # writing the narinfo to gmw when chunks exist in the upstream
-            # cache.nixos.org — leaving the path 404 on gmw so the VPS deploy's
-            # nix-store --realise can't find it and falls back to ssh copy.
-            # sudo: attic must read root's config (~/.config/attic), which has
-            # the imrnes-ts server → Tailscale. Non-root users' configs only
-            # have the public `pub` server → "Server imrnes-ts does not exist".
-            ssh "$VPS_USER@$VPS_HOST" "sudo $VPS_ATTIC push imrnes-ts:gmw '$STORE_PATH' --jobs 4 --ignore-upstream-cache-filter" \
-              || echo "attic push failed (non-fatal; ssh copy fallback below)"
-          }
-
-          # ── Get an attic client on the runner ────────────────────────────
-          # Order: PATH → pull the prebuilt closure from the attic cache
-          # itself (extra-substituters configured in Install Nix step, HTTPS
-          # only, no SSH) → pull over ssh from the VPS → VPS-hop.
-          # The attic client closure is stored in the attic cache (pushed
-          # once from the VPS), so the fast path never depends on SSH.
-          ATTIC_BIN=""
-          if command -v attic >/dev/null 2>&1; then
-            ATTIC_BIN="$(command -v attic)"
-          elif nix-store --realise "$ATTIC_DIR" 2>/tmp/attic-bootstrap.err; then
-            echo "✅ Pulled attic client from attic cache (HTTPS substituter)"
-            ATTIC_BIN="$ATTIC_DIR/bin/attic"
-          elif nix copy --from "ssh://$VPS_USER@$VPS_HOST" "$ATTIC_DIR" 2>>/tmp/attic-bootstrap.err; then
-            echo "✅ Pulled attic client from VPS over ssh"
-            ATTIC_BIN="$ATTIC_DIR/bin/attic"
-          else
-            echo "attic client unavailable on runner; using VPS-hop flow"
-            echo "--- bootstrap errors (stderr) ---"
-            tail -5 /tmp/attic-bootstrap.err 2>/dev/null || true
-            attic_push_vps_hop
-            exit 0
-          fi
-
-          # ── Direct push: runner → attic public endpoint ──────────────────
-          # --ignore-upstream-cache-filter forces the narinfo write even when
-          # the path's chunks already exist in upstream cache.nixos.org (which
-          # attic would otherwise skip, leaving the path 404 on the gmw cache).
-          mkdir -p "$HOME/.config/attic"
-          cat > "$HOME/.config/attic/config.toml" <<EOF
-          default-server = "pub"
-
-          [servers.pub]
-          endpoint = "https://attic.asepharyana.my.id"
-          token = "$ATTIC_TOKEN"
-          EOF
-          # Retry the direct push — a transient 502 (e.g. atticd restart,
-          # Traefik blip) must not abort the whole closure upload. attic push
-          # is idempotent, so re-running only uploads what's still missing.
-          push_ok=""
-          for attempt in 1 2 3; do
-            if "$ATTIC_BIN" push pub:gmw "$STORE_PATH" --jobs 4 --ignore-upstream-cache-filter; then
-              echo "✅ Pushed $STORE_PATH to attic directly from runner"
-              push_ok=1
-              break
-            fi
-            echo "⚠️ Direct attic push attempt $attempt/3 failed; retrying in 10s..."
-            sleep 10
-          done
-          if [ -z "$push_ok" ]; then
-            echo "Direct attic push failed after 3 attempts; using VPS-hop flow"
-            attic_push_vps_hop
-          fi
-
-      # NOTE: service env (DATABASE_URL, AI_MEMORY_BASE_URL, …) comes from the
-      # Bitwarden Secrets Manager backend via /usr/local/bin/bws-exec, NOT from
-      # an EnvironmentFile. /etc/gmw/ is empty on the VPS — there is no env
-      # file to source. bws-exec fetches secrets, exports them, then execs the
-      # command, so invoking it here gives this script the same DATABASE_URL and
-      # AI_MEMORY_* the gateway itself runs with.
-      #
-      # Wipes runtime data after the new build is on disk but BEFORE the
-      # restart, so the service comes up against an empty schema. Scoped to
-      # `dcbot` (all public tables except the __drizzle_migrations ledger) and
-      # to the `gmw-moderation` Hindsight bank; every sibling database and the
-      # sibling `hermes-gemini` bank are left alone. scripts/reset-data.sh
-      # documents the blast radius and self-verifies that the ledger survived.
-      #
-      # `matrix.service == 'discord-gateway'` because this is a 4-way matrix:
-      # without the guard the wipe would fire four times per push.
-      #
-      # The script STOPS three writers, not one: gmw-discord-gateway (re-writes
-      # rows during the wipe), gmw-discord-gateway-worker, and gmw-backend. The
-      # Deploy step that follows only restarts `gmw-discord-gateway`, so on
-      # success this step must bring the other two back itself. Leaving that to
-      # the matrix leg is what left gmw-backend in `failed` on prod: systemd
-      # treats an explicit `stop` as intentional, so Restart=always does not
-      # apply and NRestarts stayed 0.
-      - name: Reset runtime data (Postgres + Hindsight)
-        if: matrix.service == 'discord-gateway'
+      - name: Verify services
         run: |
-          # Ship the script to the VPS and run it from a file. Feeding it over
-          # stdin (`bash -s`) would make the script text the child's stdin, so
-          # any command that reads stdin would consume the remainder of it.
-          #
-          # The script leaves the writers DOWN on success, deliberately: the
-          # wipe must not race a live gateway. Bringing them back is this
-          # step's job, on both the success and the failure path, so a reset can
-          # never leave prod dark.
-          WRITERS="gmw-discord-gateway-worker gmw-discord-gateway gmw-backend"
-          scp -q scripts/reset-data.sh "$VPS_USER@$VPS_HOST:/tmp/reset-data.sh"
-          if ! ssh "$VPS_USER@$VPS_HOST" \
-            "sudo /usr/local/bin/bws-exec gmw bash /tmp/reset-data.sh"; then
-            echo "::error::runtime data reset FAILED — restarting writers"
-            ssh "$VPS_USER@$VPS_HOST" "sudo systemctl start $WRITERS || true"
-            exit 1
-          fi
-          ssh "$VPS_USER@$VPS_HOST" "sudo systemctl start $WRITERS"
-          # Verify liveness, not just the exit code. `systemctl start` returns 0
-          # for a unit that then dies, and the unit reports `failed` for the
-          # full 90s TimeoutStopUSec during a forced shutdown — so read the
-          # state back and fail the deploy if any writer is not actually active.
-          for u in $WRITERS; do
-            state=$(ssh "$VPS_USER@$VPS_HOST" "systemctl is-active $u 2>/dev/null || echo inactive")
-            echo "  $u -> $state"
-            [ "$state" = "active" ] || {
-              echo "::error::$u is $state after the data reset — prod is degraded"
-              exit 1
-            }
-          done
-          echo "✅ runtime data reset (dcbot + gmw-moderation bank); writers active"
-
-      - name: Deploy ${{ matrix.service }} to VPS
-        run: |
-          STORE_PATH="${{ steps.build.outputs.store-path }}"
-          echo "=== Copying ${{ matrix.service }}: $STORE_PATH ==="
-          if [ -n "${{ secrets.ATTIC_TOKEN }}" ] && ssh "$VPS_USER@$VPS_HOST" "sudo /nix/var/nix/profiles/default/bin/nix-store --realise '$STORE_PATH'" 2>/dev/null; then
-            echo "Substituted ${{ matrix.service }} from Attic cache"
-          else
-            echo "Attic substitute failed; falling back to ssh copy"
-            nix copy --to "ssh://$VPS_USER@$VPS_HOST" "$STORE_PATH"
-          fi
-
-          echo "=== Updating profile ==="
-          ssh "$VPS_USER@$VPS_HOST" "sudo /nix/var/nix/profiles/default/bin/nix-env --profile /nix/var/nix/profiles/gmw-${{ matrix.service }} --set '$STORE_PATH'"
-
-          echo "=== Restarting service ===\n"
-                    ssh "$VPS_USER@$VPS_HOST" \
-                      "sudo systemctl daemon-reload && sudo systemctl restart gmw-${{ matrix.service }} && for i in \$(seq 1 15); do state=\$(sudo systemctl is-active gmw-${{ matrix.service }} 2>/dev/null || echo inactive); [ \"\$state\" = \"active\" ] && break; sleep 2; done; echo \"final-state=\$state\"; [ \"\$state\" = \"active\" ]"
-                    echo "✅ gmw-${{ matrix.service }} deployed"
-
-          # The moderation worker is a SEPARATE process from the gateway — its
-          # own binary (gmw-discord-gateway-worker) and its own systemd unit
-          # (gmw-discord-gateway-worker.service, defined on the VPS outside
-          # this repo). Restarting gmw-discord-gateway does NOT restart it, so
-          # without this the worker keeps running the previous build and every
-          # change to ai-moderation/ ships dark. Same store path as the gateway,
-          # so no extra build is needed.
-          #
-          # Three outcomes, deliberately handled differently:
-          #   - unit absent         -> warn, deploy continues. A VPS that never
-          #     set the worker up must not be wedged by this.
-          #   - unit present, restart lands active -> fine.
-          #   - unit present, restart fails        -> FAIL the step. A worker
-          #     that is present but broken means moderation is silently stale
-          #     or dead, and a green run would report a deploy that did not
-          #     happen. Actions runs this under `bash -e`, so exiting 1 is
-          #     enough and needs no extra plumbing.
-          if [ "${{ matrix.service }}" = "discord-gateway" ]; then
-            echo "=== Restarting moderation worker ==="
-            ssh "$VPS_USER@$VPS_HOST" \
-              "if ! systemctl cat gmw-discord-gateway-worker.service >/dev/null 2>&1; then echo '⚠️ gmw-discord-gateway-worker.service not present — worker NOT restarted; ai-moderation changes will not take effect'; exit 0; fi; sudo systemctl restart gmw-discord-gateway-worker; for i in \$(seq 1 15); do wstate=\$(sudo systemctl is-active gmw-discord-gateway-worker 2>/dev/null || echo inactive); [ \"\$wstate\" = \"active\" ] && break; sleep 2; done; echo \"worker-state=\$wstate\"; [ \"\$wstate\" = \"active\" ]"
-          fi
-
-  cleanup:
-    # Bersihkan sampah Nix di VPS SETELAH semua deploy selesai: hapus generasi
-    # profile lama + nix store gc. Profil yang sedang dipakai tidak disentuh.
-    needs: build-and-deploy
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Nix GC on VPS
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh "$VPS_USER@$VPS_HOST" "sudo /usr/local/bin/nix-gc-vps.sh" || echo "⚠️ Nix GC gagal (non-fatal)"
+          ssh "$VPS_USER@$VPS_HOST" \
+            "for u in gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-frontend gmw-proxy; do \
+               state=\$(sudo systemctl is-active \$u 2>/dev/null || echo inactive); \
+               echo \"  \$u -> \$state\"; \
+             done; \
+             echo '--- HTTP ---'; \
+             for url in http://127.0.0.1:4001/api/health http://127.0.0.1:4017/ http://127.0.0.1:4009/ http://127.0.0.1:4009/api/health; do \
+               code=\$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 \$url); \
+               echo \"  \$url -> \$code\"; \
+             done"
