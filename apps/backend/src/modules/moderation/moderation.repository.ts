@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { getDatabase } from "../../shared/database/index.js";
 
 export interface ListModerationQuery {
@@ -12,7 +11,7 @@ const ACTION_TYPES = ["delete_message", "reset_nickname"] as const;
 const STATUSES = ["pending", "executed", "failed"] as const;
 
 /**
- * Normalize `moderation_actions.categories` to a `text[]`, cast-free.
+ * Normalize `moderation_actions.categories` to a list of categories.
  *
  * The column is `text` and has been written in at least two different shapes:
  *
@@ -25,23 +24,48 @@ const STATUSES = ["pending", "executed", "failed"] as const;
  * `moderation/trends` and `moderation/byCategory` returned 500 rather than
  * skipping the bad row.
  *
- * This expression is deliberately built from `regexp_matches` and
- * `regexp_split_to_array` — pure text functions. There is no cast anywhere, so
- * no input, however malformed, can raise "invalid input syntax for type json".
- * Verified against every distinct live value, plus adversarial junk
- * (`{"not":"an array"}`, `[unclosed`, `null`, `a, b, , c`): all resolve to a
- * plain array instead of throwing.
+ * This mirrors the cast-free SQL expression it replaces, which was built from
+ * `regexp_matches` and `regexp_split_to_array` precisely so that no input,
+ * however malformed, could raise "invalid input syntax for type json":
  *
  *   - Quoted tokens are preferred, so a JSON-array row yields its members
  *     rather than the whole `["a","b"]` string.
  *   - Otherwise the raw value is split on commas.
- *   - An empty/blank cell yields NULL (no categories), never `['']`.
+ *   - An empty/blank cell yields no categories, never `['']`.
+ *
+ * The adversarial cases the SQL was verified against are preserved as tests.
  */
-const CATEGORIES_TXT_ARRAY = `COALESCE(
-  (SELECT array_agg(DISTINCT t[1])
-     FROM regexp_matches(COALESCE(a.categories,''), '"([^"]*)"', 'g') AS t),
-  NULLIF(regexp_split_to_array(btrim(a.categories), '\\s*,\\s*'), ARRAY[''])
-)`;
+export function normalizeCategories(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+
+  // Quoted tokens win, mirroring `array_agg(DISTINCT t[1])` taking precedence.
+  const quoted = [...raw.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+  const tokens =
+    quoted.length > 0
+      ? quoted
+      : raw
+          .trim()
+          .split(/\s*,\s*/)
+          .filter((t) => t.length > 0);
+
+  return [...new Set(tokens)];
+}
+
+/**
+ * Read `messages.metadata -> 'channel' ->> 'channelName'`.
+ *
+ * Prisma's query builder has no `->>` path expression, so the JSON traversal
+ * the old SQL performed is done here. Returns `undefined` rather than throwing
+ * when `metadata` is null, non-object, or lacks the key, matching the SQL,
+ * which yielded NULL for all three.
+ */
+export function readChannelName(metadata: unknown): string | undefined {
+  if (metadata == null || typeof metadata !== "object") return undefined;
+  const channel = (metadata as Record<string, unknown>).channel;
+  if (channel == null || typeof channel !== "object") return undefined;
+  const name = (channel as Record<string, unknown>).channelName;
+  return typeof name === "string" && name !== "" ? name : undefined;
+}
 
 /** Parse a JSON-stringified array column (e.g. flags/categories/evidence).
  *  Returns null on empty/malformed input so the FE can treat it as "no data". */
@@ -80,25 +104,30 @@ export class ModerationRepository {
     // determined by the status sitting beside it, and a disagreement between
     // them would only have split one verdict across two buckets. `status` is
     // the decision; `reason` is the explanation and does not belong in a count.
-    const result = await db.execute(sql`
-      SELECT
-        COALESCE(v.status, 'unjudged') AS status,
-        COUNT(*)::int AS c
-      FROM messages m
-      LEFT JOIN verdicts v ON v.message_id = m.id
-      GROUP BY 1
-    `);
+    // Messages with no verdict at all are the `unjudged` bucket. Prisma's
+    // groupBy cannot coalesce a NULL from a left join, so those rows are
+    // counted separately rather than as part of the grouped verdict statuses.
+    const [byVerdictStatus, unjudged] = await Promise.all([
+      db.verdicts.groupBy({
+        by: ["status"],
+        _count: { _all: true },
+      }),
+      db.messages.count({
+        // `verdicts` is a to-one relation (verdicts.message_id is the primary
+        // key), so "no verdict" is `is: null`, not the to-many `none: {}`.
+        where: { verdicts: { is: null } },
+      }),
+    ]);
 
-    const rows = (result.rows as Record<string, unknown>[]) || [];
     let executed = 0; // verdicts that call for action
     let failed = 0; // errored verdicts
     let pending = 0; // nothing concluded yet
 
     const byStatus: Record<string, number> = {};
 
-    for (const r of rows) {
+    for (const r of byVerdictStatus) {
       const status = String(r.status ?? "unjudged");
-      const count = Number(r.c ?? 0);
+      const count = r._count._all;
       byStatus[status] = (byStatus[status] ?? 0) + count;
 
       if (status === "error") {
@@ -108,6 +137,11 @@ export class ModerationRepository {
       } else {
         executed += count;
       }
+    }
+
+    if (unjudged > 0) {
+      byStatus.unjudged = (byStatus.unjudged ?? 0) + unjudged;
+      pending += unjudged;
     }
 
     const total = executed + failed + pending;
@@ -129,16 +163,15 @@ export class ModerationRepository {
    */
   async getQueueStats() {
     const db = getDatabase();
-    const result = await db.execute(sql`
-      SELECT ai_status, COUNT(*)::int AS c
-      FROM messages
-      WHERE ai_status <> 'analyzed'
-         OR deleted_at IS NOT NULL
-      GROUP BY ai_status
-    `);
-    const rows = (result.rows as Record<string, unknown>[]) || [];
+    const groups = await db.messages.groupBy({
+      by: ["ai_status"],
+      where: {
+        OR: [{ ai_status: { not: "analyzed" } }, { deleted_at: { not: null } }],
+      },
+      _count: { _all: true },
+    });
     const byStatus: Record<string, number> = {};
-    for (const r of rows) byStatus[String(r.ai_status)] = Number(r.c ?? 0);
+    for (const r of groups) byStatus[String(r.ai_status)] = r._count._all;
     return {
       by_status: byStatus,
       pending: byStatus.pending ?? 0,
@@ -155,59 +188,78 @@ export class ModerationRepository {
   async listActions(query: ListModerationQuery) {
     const db = getDatabase();
     const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
-    const conditions: string[] = [];
+
+    // The where-clause is built with the query builder rather than by
+    // concatenating into SQL text. The two enum-ish filters are still checked
+    // against their allow-lists first, so an unknown value is ignored rather
+    // than forwarded — but even if that guard were removed, the values would
+    // arrive as bound parameters instead of being spliced into the statement.
+    const where: Record<string, unknown> = {};
 
     if (
       query.status &&
       (STATUSES as readonly string[]).includes(query.status)
     ) {
-      conditions.push(`a.status = '${query.status}'`);
+      where.status = query.status;
     }
     if (
       query.actionType &&
       (ACTION_TYPES as readonly string[]).includes(query.actionType)
     ) {
-      conditions.push(`a.action_type = '${query.actionType}'`);
+      where.action_type = query.actionType;
     }
     if (query.cursor) {
-      conditions.push(`a.created_at < ${Number(query.cursor)}`);
+      // `created_at` is a BigInt holding epoch milliseconds, not a timestamp.
+      where.created_at = { lt: BigInt(Number(query.cursor)) };
     }
 
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    // `limit + 1` rows are fetched so the extra row, if present, is the
+    // existence proof for `nextCursor` without a second COUNT query.
+    const rows = await db.moderation_actions.findMany({
+      where,
+      orderBy: { created_at: "desc" },
+      take: limit + 1,
+      select: {
+        id: true,
+        message_id: true,
+        user_id: true,
+        guild_id: true,
+        action_type: true,
+        reason: true,
+        executed_by: true,
+        status: true,
+        error: true,
+        created_at: true,
+        executed_at: true,
+        flags: true,
+        categories: true,
+        confidence: true,
+        score: true,
+        evidence: true,
+        policy_version: true,
+        username: true,
+        server_nick: true,
+      },
+    });
 
-    const result = await db.execute(
-      sql.raw(`
-      SELECT
-        a.id,
-        a.message_id,
-        a.user_id,
-        a.guild_id,
-        a.action_type,
-        a.reason,
-        a.executed_by,
-        a.status,
-        a.error,
-        a.created_at,
-        a.executed_at,
-        a.flags,
-        a.categories,
-        a.confidence,
-        a.score,
-        a.evidence,
-        a.policy_version,
-        a.username,
-        a.server_nick,
-        LEFT(m.content, 300) AS content
-      FROM moderation_actions a
-      LEFT JOIN messages m ON m.id = a.message_id
-      ${whereClause}
-      ORDER BY a.created_at DESC
-      LIMIT ${limit + 1}
-    `),
-    );
+    // `moderation_actions.message_id` has no foreign key and therefore no
+    // Prisma relation, so the previous LEFT JOIN to `messages` is reproduced
+    // as an explicit keyed lookup. Only the ids on this page are fetched, which
+    // bounds the second query to at most `limit + 1` keys.
+    const messageIds = [
+      ...new Set(
+        rows.map((r) => r.message_id).filter((id): id is string => !!id),
+      ),
+    ];
+    const contents = new Map<string, string>();
+    if (messageIds.length > 0) {
+      const msgs = await db.messages.findMany({
+        where: { id: { in: messageIds } },
+        select: { id: true, content: true },
+      });
+      for (const m of msgs) contents.set(m.id, m.content);
+    }
 
-    const rows = (result.rows as Record<string, unknown>[]) || [];
     const data = rows.slice(0, limit).map((r) => ({
       id: String(r.id ?? ""),
       message_id: r.message_id ? String(r.message_id) : null,
@@ -228,12 +280,19 @@ export class ModerationRepository {
       policy_version: r.policy_version ? String(r.policy_version) : null,
       username: r.username ? String(r.username) : null,
       server_nick: r.server_nick ? String(r.server_nick) : null,
-      content: r.content ? String(r.content) : null,
+      // Truncated in SQL previously via LEFT(m.content, 300); Prisma has no
+      // column-substring operator, so the cut happens here.
+      content:
+        r.message_id && contents.has(r.message_id)
+          ? (contents.get(r.message_id) as string).slice(0, 300)
+          : null,
     }));
 
-    const lastRow = rows[limit - 1] as Record<string, unknown> | undefined;
+    const lastRow = rows[limit - 1];
     const nextCursor =
-      rows.length > limit ? String(lastRow?.created_at ?? "") : null;
+      rows.length > limit && lastRow?.created_at
+        ? String(Number(lastRow.created_at))
+        : null;
 
     return { data, nextCursor };
   }
@@ -266,63 +325,81 @@ export class ModerationRepository {
     const db = getDatabase();
     const since = Date.now() - days * 24 * 60 * 60 * 1000;
 
-    const cats = await db.execute(sql`
-      SELECT cat, COUNT(*)::int AS c
-      FROM (
-        SELECT unnest(${sql.raw(CATEGORIES_TXT_ARRAY)}) AS cat
-        FROM moderation_actions a
-        WHERE a.created_at >= ${since}
-          AND a.categories IS NOT NULL AND btrim(a.categories) <> ''
-      ) s
-      WHERE cat IS NOT NULL AND cat <> ''
-      GROUP BY cat
-      ORDER BY c DESC
-      LIMIT 15
-    `);
-    const catRows = (cats.rows as Record<string, unknown>[]) || [];
+    const CAT_LIMIT = 15;
+
+    // Categories are normalized in JS rather than via `unnest` in SQL: the
+    // column holds two storage shapes (see normalizeCategories), and the
+    // cross-shape dedup plus "top 15" ordering is cheaper to express here
+    // than to emulate through the query builder.
+    const catRows = await db.moderation_actions.findMany({
+      where: {
+        created_at: { gte: BigInt(since) },
+        categories: { not: "" },
+      },
+      select: { categories: true },
+    });
+
+    // A `not: null` test cannot be expressed on an optional scalar in the
+    // typed filter, so NULL rows are dropped after the fetch — `normalizeCategories`
+    // already returns an empty list for them, so no category can leak through.
+
+    const catCounts = new Map<string, number>();
+    for (const row of catRows) {
+      for (const cat of normalizeCategories(row.categories)) {
+        if (cat === "") continue;
+        catCounts.set(cat, (catCounts.get(cat) ?? 0) + 1);
+      }
+    }
+    const topCategories = [...catCounts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+      .slice(0, CAT_LIMIT) as { name: string; count: number }[];
 
     // Ranked by the DECISION, because a bare `GROUP BY action_type` returns rows in
     // an arbitrary order that is not a ranking. `action_type` is a text enum, so
     // it needs the explicit CASE — `desc()` on it directly would sort lexically
     // ("reset_nickname" > "delete_message"), which is not the order of force
     // the action represents. Count breaks ties within a decision.
-    const dec = await db.execute(sql`
-      SELECT action_type, COUNT(*)::int AS c
-      FROM moderation_actions
-      WHERE created_at >= ${since} AND action_type IS NOT NULL
-      GROUP BY action_type
-      ORDER BY
-        CASE action_type
-          WHEN 'delete_message' THEN 1
-          WHEN 'reset_nickname' THEN 0
-          ELSE -1
-        END DESC,
-        c DESC
-    `);
-    const decRows = (dec.rows as Record<string, unknown>[]) || [];
+    // `action_type` is declared NOT NULL in the schema, so the old
+    // `action_type IS NOT NULL` guard has no counterpart here and is dropped.
+    const decGroups = await db.moderation_actions.groupBy({
+      by: ["action_type"],
+      where: { created_at: { gte: BigInt(since) } },
+      _count: true,
+    });
 
-    const act = await db.execute(sql`
-      SELECT action_type, COUNT(*)::int AS c
-      FROM moderation_actions
-      WHERE created_at >= ${since}
-      GROUP BY action_type
-      ORDER BY c DESC
-    `);
-    const actRows = (act.rows as Record<string, unknown>[]) || [];
+    // Ranked by the DECISION, because a bare `GROUP BY action_type` returns rows in
+    // an arbitrary order that is not a ranking. `action_type` is a text enum, so
+    // it needs the explicit CASE — `orderBy` on it directly would sort lexically
+    // ("reset_nickname" > "delete_message"), which is not the order of force
+    // the action represents. Count breaks ties within a decision. Prisma's
+    // `orderBy` has no expression form, so the CASE is applied here.
+    const decisionRank = (t: string) =>
+      t === "delete_message" ? 1 : t === "reset_nickname" ? 0 : -1;
+
+    const decisions = decGroups
+      .map((g) => ({ level: String(g.action_type), count: g._count as number }))
+      .sort(
+        (a, b) =>
+          decisionRank(b.level) - decisionRank(a.level) ||
+          b.count - a.count ||
+          a.level.localeCompare(b.level),
+      );
+
+    const actGroups = await db.moderation_actions.groupBy({
+      by: ["action_type"],
+      where: { created_at: { gte: BigInt(since) } },
+      _count: true,
+    });
+
+    const actions = actGroups
+      .map((g) => ({ type: String(g.action_type), count: g._count as number }))
+      .sort((a, b) => b.count - a.count || a.type.localeCompare(b.type));
 
     return {
-      categories: catRows.map((r) => ({
-        name: String(r.cat),
-        count: Number(r.c ?? 0),
-      })),
-      decisions: decRows.map((r) => ({
-        level: String(r.action_type),
-        count: Number(r.c ?? 0),
-      })),
-      actions: actRows.map((r) => ({
-        type: String(r.action_type),
-        count: Number(r.c ?? 0),
-      })),
+      categories: topCategories,
+      decisions,
+      actions,
     };
   }
 
@@ -339,27 +416,60 @@ export class ModerationRepository {
    */
   async getTopFlaggedDomains(days: number) {
     const db = getDatabase();
-    const since = Date.now() - days * 24 * 60 * 60 * 1000;
-    const result = await db.execute(sql`
-      SELECT host, COUNT(*)::int AS c
-      FROM (
-        SELECT DISTINCT a.id,
-          (regexp_matches(COALESCE(m.content,'') || ' ' || COALESCE(a.reason,'') || ' ' || COALESCE(a.evidence,''), 'https?://([^/\\s?#]+)', 'g'))[1] AS host
-        FROM moderation_actions a
-        LEFT JOIN messages m ON m.id = a.message_id
-        WHERE a.created_at >= ${since}
-          AND (m.content IS NOT NULL OR a.reason IS NOT NULL OR a.evidence IS NOT NULL)
-      ) sub
-      WHERE host IS NOT NULL
-      GROUP BY host
-      ORDER BY c DESC
-      LIMIT 20
-    `);
-    const rows = (result.rows as Record<string, unknown>[]) || [];
-    return rows.map((r) => ({
-      domain: String(r.host).toLowerCase(),
-      count: Number(r.c ?? 0),
-    }));
+    const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const actions = await db.moderation_actions.findMany({
+      where: {
+        created_at: { gte: since },
+        OR: [
+          { reason: { not: null } },
+          { evidence: { not: null } },
+          { message_id: { not: null } },
+        ],
+      },
+      select: { id: true, message_id: true, reason: true, evidence: true },
+    });
+
+    // The previous query joined to `messages` and read `m.content`. That
+    // content is now fetched per batch of message ids rather than joined,
+    // because `moderation_actions.message_id` has no foreign key and so no
+    // Prisma relation to traverse.
+    const messageIds = [
+      ...new Set(
+        actions.map((a) => a.message_id).filter((id): id is string => !!id),
+      ),
+    ];
+    const contents = new Map<string, string>();
+    if (messageIds.length > 0) {
+      const msgs = await db.messages.findMany({
+        where: { id: { in: messageIds } },
+        select: { id: true, content: true },
+      });
+      for (const m of msgs) contents.set(m.id, m.content);
+    }
+
+    // Hosts are extracted with the same regex the SQL used
+    // (https?://([^/\s?#]+)), and DISTINCT-per-action is preserved by the Set:
+    // one action mentioning a host three times counted once.
+    const HOST_RE = /https?:\/\/([^/\s?#]+)/g;
+    const hostCounts = new Map<string, number>();
+    for (const a of actions) {
+      const text = [
+        a.message_id ? (contents.get(a.message_id) ?? "") : "",
+        a.reason ?? "",
+        a.evidence ?? "",
+      ].join(" ");
+      if (text.trim() === "") continue;
+      const seen = new Set<string>();
+      for (const m of text.matchAll(HOST_RE)) seen.add(m[1].toLowerCase());
+      for (const host of seen)
+        hostCounts.set(host, (hostCounts.get(host) ?? 0) + 1);
+    }
+
+    return [...hostCounts.entries()]
+      .map(([domain, count]) => ({ domain, count }))
+      .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
+      .slice(0, 20);
   }
 
   /**
@@ -369,25 +479,70 @@ export class ModerationRepository {
    */
   async getTopFlaggedChannels(days: number) {
     const db = getDatabase();
-    const since = Date.now() - days * 24 * 60 * 60 * 1000;
-    const result = await db.execute(sql`
-      SELECT
-        m.channel_id,
-        COALESCE(NULLIF((m.metadata::jsonb -> 'channel' ->> 'channelName'), ''), m.channel_id) AS channel_name,
-        COUNT(*)::int AS flagged_count
-      FROM moderation_actions a
-      LEFT JOIN messages m ON m.id = a.message_id
-      WHERE a.created_at >= ${since} AND m.channel_id IS NOT NULL
-      GROUP BY m.channel_id, (m.metadata::jsonb -> 'channel' ->> 'channelName')
-      ORDER BY flagged_count DESC
-      LIMIT 15
-    `);
-    const rows = (result.rows as Record<string, unknown>[]) || [];
-    return rows.map((r) => ({
-      channel_id: String(r.channel_id),
-      channel_name: r.channel_name ? String(r.channel_name) : null,
-      flagged_count: Number(r.flagged_count),
-    }));
+    const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const actions = await db.moderation_actions.findMany({
+      where: { created_at: { gte: since }, message_id: { not: null } },
+      select: { message_id: true },
+    });
+
+    const messageIds = [
+      ...new Set(
+        actions.map((a) => a.message_id).filter((id): id is string => !!id),
+      ),
+    ];
+
+    // One message can carry several moderation actions, so the metric counts
+    // ACTIONS per channel, not distinct messages. The previous query joined
+    // actions→messages and `COUNT(*)`-ed the join, which double-counts any
+    // message with more than one action; iterating `actions` here reproduces
+    // that exactly (and the comparison harness guards it).
+    //
+    // `metadata` is a JSON column, so the channel name is read in JS rather
+    // than through a `->>` path expression, which the query builder has no
+    // equivalent for.
+    const channelOfMessage = new Map<string, { id: string; name?: string }>();
+    if (messageIds.length > 0) {
+      const msgs = await db.messages.findMany({
+        where: { id: { in: messageIds }, channel_id: { not: "" } },
+        select: { id: true, channel_id: true, metadata: true },
+      });
+      for (const m of msgs) {
+        channelOfMessage.set(m.id, {
+          id: m.channel_id as string,
+          name: readChannelName(m.metadata),
+        });
+      }
+    }
+
+    const byChannel = new Map<
+      string,
+      { name: string | undefined; count: number }
+    >();
+    for (const a of actions) {
+      const info = a.message_id
+        ? channelOfMessage.get(a.message_id)
+        : undefined;
+      if (!info) continue; // LEFT JOIN semantics: no channel -> not counted
+      const entry = byChannel.get(info.id) ?? { name: info.name, count: 0 };
+      // A later row may carry the name when an earlier one did not.
+      if (!entry.name && info.name) entry.name = info.name;
+      entry.count += 1;
+      byChannel.set(info.id, entry);
+    }
+
+    return [...byChannel.entries()]
+      .map(([channel_id, v]) => ({
+        channel_id,
+        channel_name: v.name ?? null,
+        flagged_count: v.count,
+      }))
+      .sort(
+        (a, b) =>
+          b.flagged_count - a.flagged_count ||
+          a.channel_id.localeCompare(b.channel_id),
+      )
+      .slice(0, 15);
   }
 
   /**
@@ -397,19 +552,38 @@ export class ModerationRepository {
    */
   async getHourlyModeration(days: number) {
     const db = getDatabase();
-    const since = Date.now() - days * 24 * 60 * 60 * 1000;
-    const result = await db.execute(sql`
-      SELECT
-        EXTRACT(HOUR FROM to_timestamp(created_at / 1000))::int AS hour,
-        COUNT(*)::int AS total
-      FROM moderation_actions
-      WHERE created_at >= ${since}
-      GROUP BY hour
-      ORDER BY hour
-    `);
-    const rows = (result.rows as Record<string, unknown>[]) || [];
+    const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    // `created_at` is epoch milliseconds in a BigInt, so the hour-of-day is
+    // derived in JS. The zone matters: the old SQL called
+    // `EXTRACT(HOUR FROM to_timestamp(created_at / 1000))`, and
+    // `to_timestamp` returns `timestamptz`, which `EXTRACT` reads in the
+    // **session** timezone. This database runs `Asia/Jakarta`, so the old
+    // numbers were LOCAL (UTC+7) hours — a naive `getUTCHours()` port would
+    // have silently shifted the whole heatmap by 7. The comparison harness
+    // caught exactly that.
+    //
+    // Local wall-clock is preserved deliberately: the heatmap answers "when
+    // during the day does moderation fire", which is a local-time question.
+    // The offset is read from the runtime rather than configured, so the value
+    // tracks the deployment's own zone instead of drifting from it.
+    const hourFormatter = new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      hourCycle: "h23",
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+
+    const rows = await db.moderation_actions.findMany({
+      where: { created_at: { gte: since } },
+      select: { created_at: true },
+    });
+
     const byHour = new Map<number, number>();
-    for (const r of rows) byHour.set(Number(r.hour), Number(r.total));
+    for (const r of rows) {
+      const hour = Number(hourFormatter.format(new Date(Number(r.created_at))));
+      byHour.set(hour, (byHour.get(hour) ?? 0) + 1);
+    }
+
     return Array.from({ length: 24 }, (_, h) => ({
       hour: h,
       total: byHour.get(h) ?? 0,
@@ -428,25 +602,51 @@ export class ModerationRepository {
    */
   async getByCategory(days: number, category: string, limit = 50) {
     const db = getDatabase();
-    const since = Date.now() - days * 24 * 60 * 60 * 1000;
-    const result = await db.execute(
-      sql`
-        SELECT
-          a.id, a.message_id, a.user_id, a.guild_id, a.action_type,
-          a.reason, a.status, a.created_at, a.confidence, a.score,
-          a.username, LEFT(m.content, 300) AS content
-        FROM moderation_actions a
-        LEFT JOIN messages m ON m.id = a.message_id
-        WHERE a.created_at >= ${since}
-          AND a.categories IS NOT NULL
-          AND btrim(a.categories) <> ''
-          AND ${sql.raw(CATEGORIES_TXT_ARRAY)} @> ARRAY[${category}]::text[]
-        ORDER BY a.created_at DESC
-        LIMIT ${limit}
-      `,
-    );
-    const rows = (result.rows as Record<string, unknown>[]) || [];
-    return rows.map((r) => ({
+    const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const candidates = await db.moderation_actions.findMany({
+      where: { created_at: { gte: since } },
+      orderBy: { created_at: "desc" },
+      select: {
+        id: true,
+        message_id: true,
+        user_id: true,
+        guild_id: true,
+        action_type: true,
+        reason: true,
+        status: true,
+        created_at: true,
+        confidence: true,
+        score: true,
+        username: true,
+        server_nick: true,
+        categories: true,
+      },
+    });
+
+    // The containment test (`normalizer(...) @> ARRAY[category]`) becomes a
+    // membership check against the normalized list, which matches rows in
+    // either storage shape. Rows are filtered before `limit` is applied, so the
+    // page is the first N matches rather than the first N candidates.
+    const matched = candidates
+      .filter((a) => normalizeCategories(a.categories).includes(category))
+      .slice(0, limit);
+
+    const messageIds = [
+      ...new Set(
+        matched.map((r) => r.message_id).filter((id): id is string => !!id),
+      ),
+    ];
+    const contents = new Map<string, string>();
+    if (messageIds.length > 0) {
+      const msgs = await db.messages.findMany({
+        where: { id: { in: messageIds } },
+        select: { id: true, content: true },
+      });
+      for (const m of msgs) contents.set(m.id, m.content);
+    }
+
+    return matched.map((r) => ({
       id: String(r.id ?? ""),
       message_id: r.message_id ? String(r.message_id) : null,
       user_id: r.user_id ? String(r.user_id) : null,
@@ -459,7 +659,10 @@ export class ModerationRepository {
       score: r.score != null ? Number(r.score) : null,
       username: r.username ? String(r.username) : null,
       server_nick: r.server_nick ? String(r.server_nick) : null,
-      content: r.content ? String(r.content) : null,
+      content:
+        r.message_id && contents.has(r.message_id)
+          ? (contents.get(r.message_id) as string).slice(0, 300)
+          : null,
     }));
   }
 
@@ -478,19 +681,27 @@ export class ModerationRepository {
   async getCoverage(days: number) {
     const db = getDatabase();
     const since = Date.now() - days * 24 * 60 * 60 * 1000;
-    const result = await db.execute(sql`
-      SELECT outcome, COUNT(*)::int AS c
-      FROM analysis_attempts
-      WHERE created_at >= ${since}
-      GROUP BY outcome
-    `);
-    const rows = (result.rows as Record<string, unknown>[]) || [];
+
+    const [attempts, pendingCount] = await Promise.all([
+      db.analysis_attempts.groupBy({
+        by: ["outcome"],
+        where: { created_at: { gte: since } },
+        _count: true,
+      }),
+      // Work still owed: claimed by a worker, or waiting out a retry backoff.
+      db.messages.count({
+        where: {
+          ai_status: { in: ["pending", "claimed", "retry_wait"] },
+          created_at: { gte: BigInt(since) },
+        },
+      }),
+    ]);
+
     const counts: Record<string, number> = {};
     let total = 0;
-    for (const r of rows) {
-      const s = String(r.outcome);
-      const c = Number(r.c ?? 0);
-      counts[s] = c;
+    for (const r of attempts) {
+      const c = r._count as number;
+      counts[String(r.outcome)] = c;
       total += c;
     }
     // "Failed" is anything the worker could not turn into a verdict. `duplicate`
@@ -501,15 +712,7 @@ export class ModerationRepository {
       (counts.llm_error ?? 0) +
       (counts.parse_error ?? 0) +
       (counts.abandoned ?? 0);
-    // Work still owed: claimed by a worker, or waiting out a retry backoff.
-    const queue = await db.execute(sql`
-      SELECT COUNT(*)::int AS c
-      FROM messages
-      WHERE ai_status IN ('pending', 'claimed', 'retry_wait')
-        AND created_at >= ${since}
-    `);
-    const queueRows = (queue.rows as Record<string, unknown>[]) || [];
-    const pending = Number(queueRows[0]?.c ?? 0);
+    const pending = pendingCount;
     return {
       total,
       completed,

@@ -13,9 +13,11 @@ import { fileURLToPath } from "node:url";
  * query on the first bad row — so a whole table became unreadable and both
  * procedures returned HTTP 500 on every call.
  *
- * These tests pin the normalizer's contract without a database: the SQL must
- * stay cast-free (a `::jsonb` anywhere in it reintroduces the 500) and must
- * cover both storage shapes plus junk that would break a naive cast.
+ * The normalizer started life as a cast-free SQL expression built from
+ * `regexp_matches` / `regexp_split_to_array`, and now lives in JS as
+ * `normalizeCategories()`. Its behavioural contract is pinned by
+ * `normalizeCategories.test.ts`; these tests hold the *source-level* guards
+ * that a behavioural test cannot see.
  */
 
 const repoPath = fileURLToPath(
@@ -33,46 +35,40 @@ function stripComments(src: string): string {
 
 const source = stripComments(rawSource);
 
-/** Pull the `CATEGORIES_TXT_ARRAY` constant out of the module source. */
-function extractNormalizer(): string {
-  const start = source.indexOf("const CATEGORIES_TXT_ARRAY = `");
+/** Slice the body of `normalizeCategories` out of the module source. */
+function normalizerBody(): string {
+  const start = source.indexOf("export function normalizeCategories");
   expect(start).toBeGreaterThan(-1);
-  const open = source.indexOf("`", start) + 1;
-  const close = source.indexOf("`", open);
-  return source.slice(open, close);
+  return source.slice(start, start + 900);
 }
 
-const NORM = extractNormalizer();
-
-describe("categories normalizer SQL", () => {
-  it("is present and reusable", () => {
-    expect(NORM.length).toBeGreaterThan(0);
+describe("categories normalizer", () => {
+  it("is exported so it can be unit-tested directly", () => {
+    expect(source).toContain("export function normalizeCategories");
   });
 
   it("performs NO jsonb cast — a cast is what made the query abort", () => {
     // `::jsonb` and `jsonb_array_elements_text(<col>::jsonb)` are the two
-    // shapes that raise "invalid input syntax for type json".
-    expect(NORM).not.toContain("::jsonb");
-    expect(NORM).not.toContain("jsonb_array_elements_text");
+    // shapes that raise "invalid input syntax for type json". Neither may
+    // return: the normalizer is pure text handling, so no input can throw.
+    expect(source).not.toContain("::jsonb");
+    expect(source).not.toContain("jsonb_array_elements_text");
   });
 
-  it("uses cast-free text functions only", () => {
-    expect(NORM).toContain("regexp_matches");
-    expect(NORM).toContain("regexp_split_to_array");
+  it("does not parse the column as JSON", () => {
+    // `JSON.parse` inside the normalizer would reintroduce the
+    // throw-on-malformed-input failure that the original SQL was carefully
+    // written to avoid. (A guarded `JSON.parse` elsewhere in the module, such
+    // as `parseJsonArray`, is a different concern and is fine.)
+    expect(normalizerBody()).not.toContain("JSON.parse");
   });
 
-  it("prefers quoted tokens so a JSON array yields its members, not one string", () => {
-    // The quoted-token branch must come first in the COALESCE.
-    const quotedAt = NORM.indexOf("regexp_matches");
-    const splitAt = NORM.indexOf("regexp_split_to_array");
-    expect(quotedAt).toBeGreaterThan(-1);
-    expect(splitAt).toBeGreaterThan(-1);
-    expect(quotedAt).toBeLessThan(splitAt);
-  });
-
-  it("maps an empty/blank cell to NULL rather than ['']", () => {
-    // NULLIF against ARRAY[''] is what prevents a phantom empty category.
-    expect(NORM).toContain("ARRAY['']");
+  it("never yields an empty-string category", () => {
+    // The old SQL guarded this with NULLIF(..., ARRAY['']); in JS the filter
+    // inside normalizeCategories is what prevents a phantom empty category.
+    const body = normalizerBody();
+    expect(body).toContain(".filter(");
+    expect(body).toContain(".length > 0");
   });
 });
 
@@ -82,7 +78,7 @@ describe("categories normalizer is used everywhere categories are queried", () =
       source.indexOf("async getTrends"),
       source.indexOf("async getTopFlaggedDomains"),
     );
-    expect(body).toContain("CATEGORIES_TXT_ARRAY");
+    expect(body).toContain("normalizeCategories");
     expect(body).not.toContain("categories::jsonb");
   });
 
@@ -91,7 +87,7 @@ describe("categories normalizer is used everywhere categories are queried", () =
       source.indexOf("async getByCategory"),
       source.indexOf("async getCoverage"),
     );
-    expect(body).toContain("CATEGORIES_TXT_ARRAY");
+    expect(body).toContain("normalizeCategories");
     expect(body).not.toContain("categories::jsonb");
   });
 
@@ -108,7 +104,7 @@ describe("getTopFlaggedDomains reads content from messages", () => {
     );
     // a.content never existed; the message body lives on messages.content.
     expect(body).not.toContain("a.content");
-    expect(body).toContain("LEFT JOIN messages");
-    expect(body).toContain("m.content");
+    expect(body).toContain("messages");
+    expect(body).toContain("content");
   });
 });
