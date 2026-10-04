@@ -162,8 +162,6 @@ export type MemoryMessage = {
 export type MemoryBankConfig = {
   baseUrl: string;
   bankId: string;
-  /** Master switch. When false nothing here constructs a client. */
-  enabled: boolean;
   /** Token budget for one recall. Small: this is prompt context, not a report. */
   recallMaxTokens: number;
   /** Recall retrieval budget. `low` keeps latency near the measured 0.7s. */
@@ -177,7 +175,6 @@ export type MemoryBankConfig = {
 export const DEFAULT_MEMORY_BANK_CONFIG: MemoryBankConfig = {
   baseUrl: "http://127.0.0.1:8890",
   bankId: "gmw-moderation",
-  enabled: true,
   recallMaxTokens: 1200,
   recallBudget: "low",
   recallTimeoutMs: 8_000,
@@ -449,10 +446,6 @@ export class ModerationMemoryBank {
     private readonly cfg: MemoryBankConfig = DEFAULT_MEMORY_BANK_CONFIG,
   ) {}
 
-  get enabled(): boolean {
-    return this.cfg.enabled;
-  }
-
   /**
    * The Hindsight client, built once and kept.
    *
@@ -497,7 +490,7 @@ export class ModerationMemoryBank {
    * mean "say nothing", never "say something went wrong".
    */
   async recallChannelContext(messages: MemoryMessage[]): Promise<string> {
-    if (!this.cfg.enabled || messages.length === 0) return "";
+    if (messages.length === 0) return "";
 
     // One query per batch, scoped to the places in it. A batch spans channels
     // (claim_messages does not group), so the tags are the union — and the
@@ -572,7 +565,7 @@ export class ModerationMemoryBank {
    * untouched.
    */
   retainBatch(messages: MemoryMessage[]): void {
-    if (!this.cfg.enabled || messages.length === 0) return;
+    if (messages.length === 0) return;
 
     const items = messages.slice(0, this.cfg.retainBatchSize).map((m) => ({
       content: formatMemoryContent(m),
@@ -628,7 +621,6 @@ export class ModerationMemoryBank {
     return new ModerationMemoryBank({
       baseUrl: config.AI_MEMORY_BASE_URL,
       bankId: config.AI_MEMORY_BANK_ID,
-      enabled: config.AI_MEMORY_ENABLED,
       recallMaxTokens: config.AI_MEMORY_RECALL_MAX_TOKENS,
       recallBudget: config.AI_MEMORY_RECALL_BUDGET,
       recallTimeoutMs: config.AI_MEMORY_RECALL_TIMEOUT_MS,

@@ -537,17 +537,18 @@ test("a recall that overruns its deadline ABORTS the request", async () => {
   }
 });
 
-test("disabled memory constructs no client and recalls nothing", async () => {
+test("an unreachable instance recalls nothing instead of throwing", async () => {
+  // Memory is always on now, so an unreachable instance is the ONLY failure
+  // mode left to prove: recall must degrade to "" and never reject, because a
+  // thrown promise here fails the whole moderation batch.
   const bank = new ModerationMemoryBank({
     baseUrl: "http://127.0.0.1:9",
     bankId: "gmw-moderation",
-    enabled: false,
     recallMaxTokens: 500,
     recallBudget: "low",
     recallTimeoutMs: 2_000,
     retainBatchSize: 10,
   });
-  expect(bank.enabled).toBe(false);
   expect(await bank.recallChannelContext([baseMessage])).toBe("");
 });
 

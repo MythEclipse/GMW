@@ -455,8 +455,6 @@ export interface AppConfig {
   backlogSyncBatchSize: number;
   retentionMessagesDays: number;
   retentionAttachmentsDays: number;
-  autoDeleteFlaggedEnabled: boolean;
-  aiAnalysisEnabled: boolean;
   logLevel: string;
 }
 

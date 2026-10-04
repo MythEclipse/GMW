@@ -59,7 +59,6 @@ export type DictionaryEntry = {
 
 export type DictionaryConfig = {
   baseUrl: string;
-  enabled: boolean;
   timeoutMs: number;
   /** Words per request. The API repeats `words=`, so this bounds URL length. */
   maxWords: number;
@@ -80,7 +79,6 @@ export type DictionaryConfig = {
 
 export const DEFAULT_DICTIONARY_CONFIG: DictionaryConfig = {
   baseUrl: "http://100.121.180.82:4020",
-  enabled: false,
   timeoutMs: 4_000,
   maxWords: 24,
   maxWordsPerMessage: 8,
@@ -195,10 +193,6 @@ export class KbbiDictionary {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
-  get enabled(): boolean {
-    return this.cfg.enabled;
-  }
-
   /**
    * The selection budgets, for the caller that picks the words.
    *
@@ -248,7 +242,7 @@ export class KbbiDictionary {
    * about. `consulted` carries that.
    */
   async lookup(words: readonly string[]): Promise<DictionaryEntry[]> {
-    if (!this.cfg.enabled || words.length === 0) {
+    if (words.length === 0) {
       this.consulted = false;
       return [];
     }
@@ -366,7 +360,6 @@ export class KbbiDictionary {
   static fromConfig(): KbbiDictionary {
     return new KbbiDictionary({
       baseUrl: config.AI_DICTIONARY_BASE_URL,
-      enabled: config.AI_DICTIONARY_ENABLED,
       timeoutMs: config.AI_DICTIONARY_TIMEOUT_MS,
       maxWords: config.AI_DICTIONARY_MAX_WORDS,
       maxWordsPerMessage: config.AI_DICTIONARY_MAX_WORDS_PER_MESSAGE,

@@ -324,8 +324,6 @@ const configRouter = {
     backlogSyncBatchSize: config.BACKLOG_SYNC_BATCH_SIZE,
     retentionMessagesDays: config.RETENTION_MESSAGES_DAYS,
     retentionAttachmentsDays: config.RETENTION_ATTACHMENTS_DAYS,
-    autoDeleteFlaggedEnabled: config.AUTO_DELETE_FLAGGED_ENABLED,
-    aiAnalysisEnabled: config.AI_ANALYSIS_ENABLED,
     logLevel: config.LOG_LEVEL,
   })),
 };

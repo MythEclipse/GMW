@@ -888,7 +888,8 @@ export class ModerationWorker {
       {
         workerId: this.workerId,
         ...this.config,
-        dictionary: this.dictionary?.enabled ?? false,
+        dictionary: this.dictionary !== undefined,
+        memory: this.memory !== undefined,
       },
       "moderation worker constructed",
     );
@@ -1449,7 +1450,7 @@ export class ModerationWorker {
   private async lookupDefinitions(
     messages: readonly ClaimedMessage[],
   ): Promise<DictionaryLookup> {
-    if (!this.dictionary?.enabled) return EMPTY_DICTIONARY_LOOKUP;
+    if (!this.dictionary) return EMPTY_DICTIONARY_LOOKUP;
     const { maxWords, maxWordsPerMessage } = this.dictionary.limits;
 
     // Only words that actually reach the batch are recorded against a message.

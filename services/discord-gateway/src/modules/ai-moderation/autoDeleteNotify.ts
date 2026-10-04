@@ -12,9 +12,8 @@ import type { MessageLike, VerdictLike } from "./autoDeleteEligibility.js";
 const logger = createChildLogger("auto-delete-notify");
 
 /**
- * DM the user whose message was deleted. No-op when AUTO_DELETE_NOTIFY_USER is
- * off. DM failures are swallowed at debug level — a closed DM box must not fail
- * the deletion that already succeeded.
+ * DM the user whose message was deleted. DM failures are swallowed at debug
+ * level — a closed DM box must not fail the deletion that already succeeded.
  */
 export async function sendDeletionNotification(
   client: Client,
@@ -22,8 +21,6 @@ export async function sendDeletionNotification(
   verdict: VerdictLike | null | undefined,
   guildName: string,
 ): Promise<void> {
-  if (!config.AUTO_DELETE_NOTIFY_USER) return;
-
   try {
     const targetUser = await client.users.fetch(message.user_id);
     if (targetUser) {

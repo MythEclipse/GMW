@@ -257,13 +257,13 @@ describe("KbbiDictionary.lookup", () => {
     expect(got[0]?.standard).toBe(false);
   });
 
-  it("returns nothing when disabled, and never calls fetch", async () => {
+  it("returns nothing for an empty word list, and never calls fetch", async () => {
     let called = false;
-    const kbbi = new KbbiDictionary({ ...CFG, enabled: false }, (() => {
+    const kbbi = new KbbiDictionary(CFG, (() => {
       called = true;
       return Promise.resolve(new Response("{}"));
     }) as typeof fetch);
-    expect(await kbbi.lookup(["biji"])).toEqual([]);
+    expect(await kbbi.lookup([])).toEqual([]);
     expect(called).toBe(false);
   });
 

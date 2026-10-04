@@ -233,10 +233,6 @@ async function tick(): Promise<void> {
 }
 
 export function startVerdictNotifier(broadcasterArg: EventBroadcaster): void {
-  if (!config.VERDICT_NOTIFY_ENABLED) {
-    logger.info("Verdict notifications disabled by config");
-    return;
-  }
   if (timer) return;
   broadcaster = broadcasterArg;
   logger.info(

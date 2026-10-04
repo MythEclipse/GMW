@@ -101,10 +101,7 @@ export const configSchema = z
         "Thread IDs to skip AI analysis for (captured, never analyzed)",
       ),
 
-    AVATAR_SIZE: z.coerce.number().positive().default(64),
-
     // ── Server ───────────────────────────────────────────────────────────
-    WEBSERVER_PORT: z.coerce.number().positive().default(3001),
     METRICS_PORT: z.coerce.number().positive().default(9090),
 
     WEBHOOK_URLS: z

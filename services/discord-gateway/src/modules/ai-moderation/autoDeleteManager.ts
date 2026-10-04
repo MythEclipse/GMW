@@ -376,11 +376,7 @@ export async function attemptAutoDeleteFlaggedMessage(
           "overridden to nickname reset, message kept",
       );
     }
-    if (
-      !config.AUTO_DELETE_FLAGGED_DRY_RUN &&
-      config.AUTO_NICKNAME_RESET_ENABLED !== false &&
-      !isNicknameResetInCooldown(message.guild_id, message.user_id)
-    ) {
+    if (!isNicknameResetInCooldown(message.guild_id, message.user_id)) {
       const resetOk = await resetOffensiveNickname(
         client,
         message.guild_id,
@@ -458,11 +454,10 @@ export async function attemptAutoDeleteFlaggedMessage(
         "Model chose reset_nickname but the message body violates too — " +
           "nickname reset AND message delete both applied",
       );
-    } else if (
-      !config.AUTO_DELETE_FLAGGED_DRY_RUN &&
-      config.AUTO_NICKNAME_RESET_ENABLED !== false &&
-      !isNicknameResetInCooldown(message.guild_id, message.user_id)
-    ) {
+    } else if (!isNicknameResetInCooldown(message.guild_id, message.user_id)) {
+      // Computed ONCE. This is the ambiguity resolver for the check above, and
+      // asking twice invites the two answers to drift apart the moment either
+      // predicate changes.
       const resetOk = await resetOffensiveNickname(
         client,
         message.guild_id,
@@ -612,21 +607,6 @@ export async function attemptAutoDeleteFlaggedMessage(
         reason: "missing_manage_messages",
       };
       await logAutoDeleteAttempt(message, verdict, result);
-      return result;
-    }
-
-    // ── Dry run mode ───────────────────────────────────────────────
-    if (config.AUTO_DELETE_FLAGGED_DRY_RUN) {
-      const result: AutoDeleteResult = {
-        deleted: false,
-        skipped: true,
-        reason: "dry_run",
-      };
-      await logAutoDeleteAttempt(message, verdict, result);
-      logger.info(
-        { messageId: message.id, channelId },
-        "Auto-delete dry-run: would delete flagged message",
-      );
       return result;
     }
 
