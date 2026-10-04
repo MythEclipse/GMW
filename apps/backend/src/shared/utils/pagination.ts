@@ -45,5 +45,3 @@ export function pageResult<T extends { created_at: number; id: string }>(
 
   return { data, nextCursor };
 }
-
-
