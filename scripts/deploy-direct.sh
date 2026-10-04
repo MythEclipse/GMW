@@ -60,6 +60,24 @@ bun install --frozen-lockfile
 log "Generating Prisma client"
 (cd packages/db && bunx prisma generate)
 
+# Node's native ESM loader resolves `import ... from "./enums"` inside the
+# generated .ts files by looking for a literal `.js` sibling (it does not
+# rewrite the specifier to .ts). The Prisma generator emits extension-less
+# relative imports, so we compile the generated TypeScript to JavaScript in
+# place; the runtime then finds the .js files it asks for.
+log "Compiling Prisma generated client to JS"
+TSC_BIN=$(find "$RELEASE_DIR/node_modules/.bun" -path '*/typescript/bin/tsc' -type f | head -1)
+if [ -z "$TSC_BIN" ]; then
+  echo "FATAL: typescript compiler not found in release node_modules" >&2
+  exit 1
+fi
+(cd packages/db && "$TSC_BIN" --ignoreConfig \
+  --module esnext --target es2022 --moduleResolution bundler \
+  --outDir prisma/generated \
+  --declaration false --sourceMap false --skipLibCheck --esModuleInterop \
+  --noEmit false \
+  prisma/generated/*.ts prisma/generated/internal/*.ts)
+
 log "Building backend"
 (cd apps/backend && bun run build)
 
