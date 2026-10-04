@@ -88,21 +88,23 @@
           pname = "gmw-backend";
           version = "1.0.0";
 
-          src = ./apps/backend;
+          src = ./.;
 
           nativeBuildInputs = [ nodejs bun pkgs.python3 pkgs.gnumake pkgs.gcc pkgs.cacert ];
 
           buildPhase = bunInstall + ''
-            echo "=== Compiling TypeScript ==="
-            ./node_modules/.bin/tsc 2>&1
-            echo "=== Fixing @/ path aliases + extensionless relative imports for node ESM ==="
-            node scripts/fix-imports.mjs
+            echo "=== Generating Prisma client ==="
+            (cd packages/db && ../../node_modules/.bin/prisma generate)
+            echo "=== Compiling TypeScript ===="
+            (cd apps/backend && ../../node_modules/.bin/tsc 2>&1 && node scripts/fix-imports.mjs)
             echo "=== Build complete ==="
           '' + pruneProd;
 
           installPhase = ''
             mkdir -p $out/lib/gmw-backend
-            cp -r dist node_modules package.json tsconfig.json $out/lib/gmw-backend/
+            cp -r apps/backend/dist apps/backend/package.json apps/backend/tsconfig.json $out/lib/gmw-backend/
+            cp -rL node_modules $out/lib/gmw-backend/
+            cp -rL packages $out/lib/gmw-backend/
 
             mkdir -p $out/bin
             cat > $out/bin/gmw-backend << WRAPPER
@@ -124,7 +126,7 @@ WRAPPER
           pname = "gmw-discord-gateway";
           version = "1.0.0";
 
-          src = ./apps/discord-gateway;
+          src = ./.;
 
           # cmake + rust/cargo were inherited for node-datachannel-style native
           # deps — that's 9router/omniroute, NOT GMW. GMW's only native deps
@@ -170,20 +172,16 @@ WRAPPER
 
           buildPhase = bunInstall + ''
             echo "=== Rebuilding @discordjs/opus (prebuilt download) ==="
-            bun pm rebuild @discordjs/opus 2>&1 || true
+            (cd apps/discord-gateway && bun pm rebuild @discordjs/opus 2>&1 || true)
             echo "=== Compiling TypeScript ===="
-            ./node_modules/.bin/tsc 2>&1
-            echo "=== Fixing @/ path aliases + extensionless relative imports for node ESM ==="
-            node scripts/fix-imports.mjs
+            (cd apps/discord-gateway && ../../node_modules/.bin/tsc 2>&1 && node scripts/fix-imports.mjs)
             echo "=== Build complete ==="
           '' + pruneProd;
 
           installPhase = ''
             mkdir -p $out/lib/gmw-discord-gateway
-            cp -r dist node_modules package.json tsconfig.json $out/lib/gmw-discord-gateway/
-
-            # Also include drizzle migrations if they exist
-            cp -r drizzle $out/lib/gmw-discord-gateway/ 2>/dev/null || true
+            cp -r apps/discord-gateway/dist apps/discord-gateway/package.json apps/discord-gateway/tsconfig.json apps/discord-gateway/drizzle $out/lib/gmw-discord-gateway/
+            cp -rL node_modules $out/lib/gmw-discord-gateway/
 
             mkdir -p $out/bin
             cat > $out/bin/gmw-discord-gateway << WRAPPER
