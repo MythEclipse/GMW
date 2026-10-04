@@ -37,6 +37,10 @@ jobs:
         with:
           bun-version: 1.4.2
 
+      - name: Generate Prisma client
+        working-directory: packages/db
+        run: bun run generate
+
       - name: Install deps + test (backend)
         working-directory: apps/backend
         run: |
