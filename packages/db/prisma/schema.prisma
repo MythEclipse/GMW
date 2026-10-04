@@ -1,0 +1,362 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "./generated"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model ai_analysis_runs {
+  id                      String  @id
+  conversation_key        String
+  target_message_ids      String
+  model                   String
+  request_tokens_estimate Int?
+  response_raw            String?
+  status                  String  @default("pending")
+  error                   String?
+  created_at              BigInt
+  completed_at            BigInt?
+
+  @@index([conversation_key], map: "idx_ai_analysis_runs_conversation_key")
+  @@index([created_at], map: "idx_ai_analysis_runs_created_at")
+  @@index([status], map: "idx_ai_analysis_runs_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model analysis_attempts {
+  id            BigInt   @id @default(autoincrement())
+  message_id    String
+  worker_id     String?
+  attempt       Int
+  outcome       String
+  error_code    String?
+  error_message String?
+  duration_ms   Int?
+  model         String?
+  prompt_tokens Int?
+  created_at    BigInt   @default(dbgenerated("((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint"))
+  messages      messages @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([message_id, attempt(sort: Desc)], map: "idx_attempts_message")
+  @@index([outcome, created_at(sort: Desc)], map: "idx_attempts_outcome_created")
+}
+
+model attachments {
+  id            String   @id
+  message_id    String
+  guild_id      String
+  channel_id    String
+  thread_id     String?
+  user_id       String
+  filename      String
+  size          Int
+  type          String
+  discord_url   String
+  uploaded_url  String?
+  upload_status String   @default("pending")
+  upload_error  String?
+  created_at    BigInt
+  uploaded_at   BigInt?
+  messages      messages @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_attachments_message_id")
+
+  @@index([channel_id], map: "idx_attachments_channel")
+  @@index([channel_id, created_at, id], map: "idx_attachments_channel_created")
+  @@index([message_id], map: "idx_attachments_message")
+  @@index([upload_status], map: "idx_attachments_status")
+  @@index([thread_id, created_at, id], map: "idx_attachments_thread_created")
+}
+
+model channel_cultures {
+  channel_id       String @id
+  guild_id         String
+  culture_summary  String
+  last_analyzed_at BigInt
+
+  @@index([guild_id], map: "idx_channel_cultures_guild_id")
+}
+
+model chatbot_messages {
+  id           String   @id(map: "mascot_chat_messages_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id      String
+  user_message String
+  bot_response String
+  context      Json     @default("{}")
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([user_id, created_at(sort: Desc)], map: "idx_chatbot_messages_user_created")
+}
+
+model corrected_moderations {
+  id               String  @id
+  message_id       String
+  original_flags   String
+  corrected_flags  String
+  correction_notes String?
+  content_snippet  String
+  created_at       BigInt
+
+  @@index([created_at], map: "idx_corrected_moderations_created_at")
+  @@index([message_id], map: "idx_corrected_moderations_message_id")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+
+model message_edits {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  message_id  String
+  old_content String
+  edited_at   BigInt
+
+  @@index([edited_at], map: "idx_message_edits_edited_at")
+  @@index([message_id], map: "idx_message_edits_message_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model message_reactions {
+  id            String  @id
+  message_id    String
+  channel_id    String
+  guild_id      String
+  user_id       String
+  username      String
+  emoji         String
+  emoji_id      String?
+  animated      Boolean @default(false)
+  reaction_type String
+  created_at    BigInt
+
+  @@index([guild_id, created_at], map: "idx_reactions_guild_created")
+  @@index([message_id], map: "idx_reactions_message_id")
+  @@index([user_id], map: "idx_reactions_user_id")
+}
+
+model message_reviews {
+  id          String  @id
+  message_id  String
+  guild_id    String
+  channel_id  String
+  reviewer_id String?
+  status      String  @default("pending")
+  notes       String?
+  created_at  BigInt
+  reviewed_at BigInt?
+
+  @@index([created_at], map: "idx_message_reviews_created_at")
+  @@index([guild_id, status, created_at], map: "idx_message_reviews_guild_status")
+  @@index([message_id], map: "idx_message_reviews_message_id")
+  @@index([status], map: "idx_message_reviews_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model messages {
+  id                   String              @id
+  guild_id             String
+  channel_id           String
+  thread_id            String?
+  user_id              String
+  username             String
+  avatar_url           String?
+  content              String
+  edited_content       String?
+  created_at           BigInt
+  edited_at            BigInt?
+  deleted_at           BigInt?
+  type                 String              @default("text")
+  metadata             String?
+  ai_status            String              @default("pending")
+  ai_moderation_flags  String?
+  ai_moderation_score  Float?              @db.Real
+  ai_analysis          String?
+  ai_categories        String?
+  ai_confidence        Float?              @db.Real
+  ai_analyzed_at       BigInt?
+  ai_analysis_duration_ms BigInt?
+  ai_error             String?
+  is_reply             Boolean?
+  is_forward           Boolean?
+  is_crosspost         Boolean?
+  reference_message_id String?
+  reference_channel_id String?
+  reference_guild_id   String?
+  lease_until          BigInt?
+  attempts             Int                 @default(0)
+  ready_for_work_at    BigInt              @default(0)
+  worker_id            String?
+  last_error           String?
+  owner                String              @default("worker")
+  content_hash         String?
+  context_key          String?
+  analysis_attempts    analysis_attempts[]
+  attachments          attachments[]
+  verdicts             verdicts?
+
+  @@index([ai_status, created_at, id], map: "idx_messages_ai_status_created")
+  @@index([content_hash, context_key], map: "idx_messages_cache", where: raw("(content_hash IS NOT NULL)"))
+  @@index([channel_id], map: "idx_messages_channel")
+  @@index([channel_id, ai_status, created_at, id], map: "idx_messages_channel_ai_status_created")
+  @@index([channel_id, created_at, id], map: "idx_messages_channel_created")
+  @@index([created_at], map: "idx_messages_claim", where: raw("((ai_status = ANY (ARRAY['pending'::text, 'retry_wait'::text])) AND (deleted_at IS NULL))"))
+  @@index([created_at], map: "idx_messages_created")
+  @@index([guild_id, ai_status, created_at, id], map: "idx_messages_guild_ai_status_created")
+  @@index([guild_id, created_at, deleted_at, id], map: "idx_messages_guild_created_deleted")
+  @@index([lease_until], map: "idx_messages_lease", where: raw("(ai_status = 'claimed'::text)"))
+  @@index([ai_status, created_at(sort: Desc)], map: "idx_messages_status_created")
+  @@index([thread_id], map: "idx_messages_thread")
+  @@index([thread_id, ai_status, created_at, id], map: "idx_messages_thread_ai_status_created")
+  @@index([thread_id, created_at, id], map: "idx_messages_thread_created")
+  @@index([user_id], map: "idx_messages_user")
+}
+
+model moderation_actions {
+  id             String  @id
+  message_id     String?
+  user_id        String?
+  guild_id       String
+  action_type    String
+  reason         String?
+  executed_by    String?
+  status         String  @default("pending")
+  error          String?
+  created_at     BigInt
+  executed_at    BigInt?
+  flags          String?
+  categories     String?
+  confidence     Float?  @db.Real
+  score          Float?  @db.Real
+  evidence       String?
+  policy_version String?
+  username       String?
+  server_nick    String?
+
+  @@index([guild_id, status, created_at], map: "idx_moderation_actions_guild_status")
+  @@index([message_id], map: "idx_moderation_actions_message_id")
+  @@index([status], map: "idx_moderation_actions_status")
+  @@index([user_id], map: "idx_moderation_actions_user_id")
+}
+
+model muxer_jobs {
+  id          String  @id
+  data        String
+  status      String  @default("pending")
+  attempts    Int     @default(0)
+  maxAttempts Int     @default(3)
+  createdAt   BigInt
+  updatedAt   BigInt
+  error       String?
+
+  @@index([createdAt], map: "idx_muxer_jobs_createdAt")
+  @@index([status], map: "idx_muxer_jobs_status")
+}
+
+model retention_policies {
+  id             String  @id
+  guild_id       String
+  channel_id     String?
+  retention_days Int     @default(90)
+  apply_to_media Boolean @default(true)
+  apply_to_voice Boolean @default(true)
+  enabled        Boolean @default(true)
+  created_at     BigInt
+  updated_at     BigInt
+
+  @@index([enabled], map: "idx_retention_policies_enabled")
+  @@index([guild_id], map: "idx_retention_policies_guild_id")
+}
+
+model sticker_cache {
+  name       String @id
+  mime_type  String
+  fetched_at BigInt
+  image_url  String @default("")
+
+  @@index([fetched_at], map: "idx_sticker_cache_fetched_at")
+}
+
+model term_glossary_cache {
+  term        String @id
+  definition  String
+  source_url  String @default("")
+  resolved_at BigInt
+  hit_count   Int    @default(0)
+
+  @@index([resolved_at], map: "idx_term_glossary_cache_resolved_at")
+}
+
+model text_analysis_cache {
+  text          String @id
+  flags         String @default("[]")
+  source        String @default("local")
+  analyzed_at   BigInt
+  expires_at    BigInt
+  hit_count     Int    @default(0)
+  model_version String @default("v1")
+
+  @@index([expires_at], map: "idx_text_analysis_cache_expires_at")
+  @@index([model_version], map: "idx_text_analysis_cache_model_version")
+  @@index([source], map: "idx_text_analysis_cache_source")
+  @@index([source, model_version], map: "idx_text_analysis_cache_source_model_version")
+}
+
+model ui_state {
+  key        String @id
+  value      String
+  updated_at BigInt
+}
+
+model user_profiles {
+  user_id          String @id
+  guild_id         String
+  profile_summary  String
+  last_analyzed_at BigInt
+
+  @@index([guild_id], map: "idx_user_profiles_guild_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model verdicts {
+  message_id             String   @id
+  status                 String
+  flags                  String[] @default([])
+  categories             String[] @default([])
+  confidence             Float    @default(0)
+  score                  Float?
+  analysis               String   @default("")
+  evidence               Json     @default("[]")
+  policy_version         String?
+  model                  String?
+  duration_ms            Int?
+  created_at             BigInt   @default(dbgenerated("((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint"))
+  updated_at             BigInt   @default(dbgenerated("((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint"))
+  auto_delete_state      String?
+  auto_delete_claimed_at BigInt?
+  reason                 String?
+  action                 String?
+  messages               messages @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_verdicts_auto_delete_pending", where: raw("((auto_delete_state IS NULL) AND (status = 'deleted'::text))"))
+  @@index([status, created_at(sort: Desc)], map: "idx_verdicts_status_created")
+}
+
+model voice_recordings {
+  id            String  @id
+  user_id       String
+  username      String
+  avatar_url    String?
+  guild_id      String?
+  channel_id    String?
+  channel_name  String?
+  filename      String
+  size_bytes    Int
+  download_url  String?
+  upload_status String  @default("pending")
+  upload_error  String?
+  created_at    BigInt
+  uploaded_at   BigInt?
+
+  @@index([channel_id], map: "idx_voice_recordings_channel_id")
+  @@index([created_at], map: "idx_voice_recordings_created_at")
+  @@index([user_id], map: "idx_voice_recordings_user_id")
+}

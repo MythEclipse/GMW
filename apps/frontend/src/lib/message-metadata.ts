@@ -8,7 +8,7 @@
  * Facebook photo. The resolved embed was captured in `messages.metadata` the
  * whole time.
  *
- * This mirrors `services/discord-gateway/src/modules/message-capture/messageMetadata.ts`
+ * This mirrors `apps/discord-gateway/src/modules/message-capture/messageMetadata.ts`
  * and is deliberately duplicated rather than shared: the two services are
  * deployed and versioned separately, and the gateway's copy pulls in Drizzle,
  * the config singleton and discord.js types, none of which belong in a

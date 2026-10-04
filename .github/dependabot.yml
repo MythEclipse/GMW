@@ -1,7 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: "bun"
-    directory: "/services/backend"
+    directory: "/apps/backend"
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
@@ -13,7 +13,7 @@ updates:
         dependency-type: "development"
         update-types: ["minor", "patch"]
   - package-ecosystem: "bun"
-    directory: "/services/discord-gateway"
+    directory: "/apps/discord-gateway"
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
@@ -25,7 +25,7 @@ updates:
         dependency-type: "development"
         update-types: ["minor", "patch"]
   - package-ecosystem: "bun"
-    directory: "/services/frontend"
+    directory: "/apps/frontend"
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10

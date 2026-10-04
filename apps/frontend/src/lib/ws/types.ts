@@ -2,7 +2,7 @@
  * Event types broadcast on the `/ws` socket.
  *
  * The backend's redis bridge maps each gateway Redis channel to one of these
- * names (see `DISCORD_CHANNEL_TO_WS_EVENT` in services/backend). Two extra
+ * names (see `DISCORD_CHANNEL_TO_WS_EVENT` in apps/backend). Two extra
  * socket-originated frames exist alongside the gateway events:
  *
  *  - `message_snapshot` / `message_snapshot_end` — replayed by the backend when

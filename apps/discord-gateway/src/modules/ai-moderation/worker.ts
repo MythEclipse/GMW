@@ -1527,10 +1527,13 @@ export class ModerationWorker {
   /**
    * Write verdicts and transition state, in ONE transaction.
    *
-   * The verdict row must be visible before `ai_status='analyzed'`, because
-   * the deferred trigger rejects an analyzed message with no verdict. Both
-   * statements therefore share a transaction, and the trigger only fires at
-   * COMMIT.
+   * The verdict row must be visible before `ai_status='analyzed'`. Both
+   * statements therefore share a transaction.
+   *
+   * This used to be enforced by a deferred constraint trigger
+   * (`messages_analyzed_has_verdict`), removed in migration 0028 because Prisma
+   * cannot represent triggers. The invariant is now asserted here instead —
+   * same transaction, so a violation aborts rather than half-writing.
    */
   private async persist(
     messages: ClaimedMessage[],
@@ -1728,12 +1731,22 @@ export class ModerationWorker {
 
     // 3. Batch mark messages as analyzed in a single query
     const messageIds = items.map(({ msg }) => msg.id);
-    await client.query(
+    const updated = await client.query(
       `UPDATE messages
           SET ai_status = 'analyzed', worker_id = NULL, lease_until = NULL
         WHERE id = ANY($1::text[]) AND ai_status = 'claimed' AND worker_id = $2`,
       [messageIds, this.workerId],
     );
+
+    // Replaces the deferred trigger dropped in 0028: every row we just flipped
+    // to `analyzed` must correspond to a verdict we wrote above.
+    if (updated.rowCount !== messageIds.length) {
+      throw new Error(
+        `invariant violated: ${messageIds.length} verdicts written but ` +
+          `${updated.rowCount} messages marked analyzed — a claimed message ` +
+          `was taken by another worker mid-batch`,
+      );
+    }
 
     // 4. Update stats and write trace logs
     for (const { msg, v } of items) {

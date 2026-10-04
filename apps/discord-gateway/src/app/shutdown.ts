@@ -46,7 +46,7 @@ export function createGracefulShutdown(
       await options.commandHandler.close();
 
       // NOTE: there is no worker pool to tear down here. Moderation runs in
-      // its own process (services/discord-gateway/src/moderation-worker.ts),
+      // its own process (apps/discord-gateway/src/moderation-worker.ts),
       // and its queue lives in Postgres. This gateway only captures messages;
       // it holds no moderation state, so a gateway shutdown can never strand
       // an in-flight analysis. The worker releases its own leases on SIGTERM,

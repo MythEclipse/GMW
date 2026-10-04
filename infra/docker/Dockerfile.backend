@@ -11,7 +11,13 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source + manifests
-COPY services/backend/ ./
+# The backend imports @gmw/db from packages/db, so the whole workspace has to
+# be copied — copying just this app leaves the workspace link dangling.
+COPY package.json ./
+COPY packages/ ./packages/
+COPY apps/backend/ ./apps/backend/
+
+WORKDIR /build/apps/backend
 
 # Install ALL deps (devDeps needed for TypeScript build)
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
@@ -28,9 +34,9 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-COPY --from=builder --chown=node:node /build/dist ./dist
+COPY --from=builder --chown=node:node /build/apps/backend/dist ./dist
 COPY --from=builder --chown=node:node /build/node_modules ./node_modules
-COPY --from=builder --chown=node:node /build/package.json ./
+COPY --from=builder --chown=node:node /build/apps/backend/package.json ./
 
 USER node
 EXPOSE 4001
