@@ -77,10 +77,13 @@
           # already ran `bun install` (full, scripts on), prune dev-only top
           # entries that were only pulled by devDeps (typescript, biome, vitest,
           # drizzle-kit, tsx, @types/*).
-          find node_modules -maxdepth 2 -type d \( -name 'typescript' -o -name '@biomejs' -o -name 'vitest' -o -name 'drizzle-kit' -o -name 'tsx' -o -name 'esbuild' \) -prune -exec rm -rf {} + 2>/dev/null || true
-          rm -rf node_modules/.bin/tsc node_modules/.bin/vitest node_modules/.bin/biome node_modules/.bin/drizzle-kit 2>/dev/null || true
+          for app_dir in apps/* packages/*; do
+            find $app_dir/node_modules -maxdepth 2 -type d \( -name 'typescript' -o -name '@biomejs' -o -name 'vitest' -o -name 'drizzle-kit' -o -name 'tsx' -o -name 'esbuild' \) -prune -exec rm -rf {} + 2>/dev/null || true
+            rm -rf $app_dir/node_modules/.bin/tsc $app_dir/node_modules/.bin/vitest $app_dir/node_modules/.bin/biome $app_dir/node_modules/.bin/drizzle-kit 2>/dev/null || true
+            find $app_dir/node_modules -type l ! -exec test -e {} \; -delete 2>/dev/null || true
+          done
           find node_modules -type l ! -exec test -e {} \; -delete 2>/dev/null || true
-          du -sh node_modules
+          du -sh apps/*/node_modules packages/*/node_modules node_modules 2>/dev/null || true
         '';
 
         # ---- Backend ----
@@ -94,9 +97,9 @@
 
           buildPhase = bunInstall + ''
             echo "=== Generating Prisma client ==="
-            (cd packages/db && ../../node_modules/.bin/prisma generate)
+            (cd packages/db && bunx prisma generate)
             echo "=== Compiling TypeScript ===="
-            (cd apps/backend && ../../node_modules/.bin/tsc 2>&1 && node scripts/fix-imports.mjs)
+            (cd apps/backend && bunx tsc 2>&1 && node scripts/fix-imports.mjs)
             echo "=== Build complete ==="
           '' + pruneProd;
 
@@ -105,6 +108,10 @@
             cp -r apps/backend/dist apps/backend/package.json apps/backend/tsconfig.json $out/lib/gmw-backend/
             cp -rL node_modules $out/lib/gmw-backend/
             cp -rL packages $out/lib/gmw-backend/
+            cp -rL apps/backend/node_modules/. $out/lib/gmw-backend/node_modules/
+            rm -rf $out/lib/gmw-backend/node_modules/@gmw
+            mkdir -p $out/lib/gmw-backend/node_modules/@gmw
+            ln -s ../../../packages/db $out/lib/gmw-backend/node_modules/@gmw/db
 
             mkdir -p $out/bin
             cat > $out/bin/gmw-backend << WRAPPER
@@ -174,7 +181,7 @@ WRAPPER
             echo "=== Rebuilding @discordjs/opus (prebuilt download) ==="
             (cd apps/discord-gateway && node -e "require('child_process').execSync('node-pre-gyp install --fallback-to-build',{stdio:'inherit',cwd:'node_modules/@discordjs/opus'})" 2>&1 || true)
             echo "=== Compiling TypeScript ===="
-            (cd apps/discord-gateway && ../../node_modules/.bin/tsc 2>&1 && node scripts/fix-imports.mjs)
+            (cd apps/discord-gateway && bunx tsc 2>&1 && node scripts/fix-imports.mjs)
             echo "=== Build complete ==="
           '' + pruneProd;
 
@@ -182,6 +189,7 @@ WRAPPER
             mkdir -p $out/lib/gmw-discord-gateway
             cp -r apps/discord-gateway/dist apps/discord-gateway/package.json apps/discord-gateway/tsconfig.json apps/discord-gateway/drizzle $out/lib/gmw-discord-gateway/
             cp -rL node_modules $out/lib/gmw-discord-gateway/
+            cp -rL apps/discord-gateway/node_modules/. $out/lib/gmw-discord-gateway/node_modules/ 2>/dev/null || true
 
             mkdir -p $out/bin
             cat > $out/bin/gmw-discord-gateway << WRAPPER
