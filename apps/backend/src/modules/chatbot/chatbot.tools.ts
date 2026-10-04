@@ -1,23 +1,13 @@
-import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { createChildLogger } from "@/shared/logger/index";
 import { getDatabase } from "../../shared/database/index.js";
-import {
-  pgChannelCulturesTable,
-  pgCorrectedModerationsTable,
-  pgMessageReviewsTable,
-  pgMessagesTable,
-  pgUserProfilesTable,
-  pgVerdictsTable,
-  pgVoiceRecordingsTable,
-} from "../../shared/index.js";
 
 /**
  * Executor for the chatbot's server-watcher tools. The tool *definitions*
  * live in chatbot.toolDefs.ts (no DB import); this file implements each one
  * against the real database.
  *
- * All queries use parameterized drizzle operators (eq/like/and) — never string
- * interpolation into raw SQL — so model-supplied arguments cannot inject SQL.
+ * Every query goes through the Prisma query builder with bound parameters, so
+ * model-supplied arguments cannot inject SQL.
  */
 
 export type ToolResult = string;
@@ -112,19 +102,11 @@ export async function executeTool(
 
 // ── Query helpers ──────────────────────────────────────────
 
-function scopeMessages(
-  guildId?: string,
-  channelId?: string,
-): ReturnType<typeof and> | undefined {
-  const conds = [];
-  if (guildId) conds.push(eq(pgMessagesTable.guild_id, guildId));
-  if (channelId) conds.push(eq(pgMessagesTable.channel_id, channelId));
-  return conds.length ? and(...conds) : undefined;
-}
-
-/** Escape LIKE wildcards so user input can't break the pattern. */
-function likePattern(q: string): string {
-  return q.replace(/[\\%_]/g, (c) => `\\${c}`);
+function scopeMessages(guildId?: string, channelId?: string) {
+  return {
+    ...(guildId ? { guild_id: guildId } : {}),
+    ...(channelId ? { channel_id: channelId } : {}),
+  };
 }
 
 // ── Tool executors ──────────────────────────────────────────
@@ -134,42 +116,39 @@ async function serverStats(
   channelId?: string,
 ): Promise<string> {
   const db = getDatabase();
-  const [result] = await db
-    .select({
-      total_messages: sql<number>`COUNT(*)::int`,
-      active_users: sql<number>`COUNT(DISTINCT ${pgMessagesTable.user_id})::int`,
-      flagged: sql<number>`COUNT(*) FILTER (WHERE ${pgVerdictsTable.status} = 'deleted')::int`,
-      clean: sql<number>`COUNT(*) FILTER (WHERE ${pgVerdictsTable.status} = 'clean')::int`,
-    })
-    .from(pgMessagesTable)
-    .leftJoin(
-      pgVerdictsTable,
-      eq(pgVerdictsTable.message_id, pgMessagesTable.id),
-    )
-    .where(scopeMessages(guildId, channelId));
+  const where = scopeMessages(guildId, channelId);
 
-  const r = result ?? {
-    total_messages: 0,
-    active_users: 0,
-    flagged: 0,
-    clean: 0,
-  };
-  return JSON.stringify(r);
+  const [total, active, flagged, clean] = await Promise.all([
+    db.messages.count({ where }),
+    db.messages.findMany({
+      where,
+      distinct: ["user_id"],
+      select: { user_id: true },
+    }),
+    db.verdicts.count({ where: { ...where, status: "deleted" } }),
+    db.verdicts.count({ where: { ...where, status: "clean" } }),
+  ]);
+
+  return JSON.stringify({
+    total_messages: total,
+    active_users: active.length,
+    flagged,
+    clean,
+  });
 }
 
 async function topChannels(guildId?: string, limit = 5): Promise<string> {
   const db = getDatabase();
-  const rows = await db
-    .select({
-      channel_id: pgMessagesTable.channel_id,
-      count: sql<number>`COUNT(*)::int`,
-    })
-    .from(pgMessagesTable)
-    .where(scopeMessages(guildId))
-    .groupBy(pgMessagesTable.channel_id)
-    .orderBy(desc(sql`COUNT(*)`))
-    .limit(limit);
-  return JSON.stringify(rows);
+  const rows = await db.messages.groupBy({
+    by: ["channel_id"],
+    where: scopeMessages(guildId),
+    _count: { _all: true },
+    orderBy: { _count: { channel_id: "desc" } },
+    take: limit,
+  });
+  return JSON.stringify(
+    rows.map((r) => ({ channel_id: r.channel_id, count: r._count._all })),
+  );
 }
 
 async function recentActivity(
@@ -178,20 +157,20 @@ async function recentActivity(
   limit = 5,
 ): Promise<string> {
   const db = getDatabase();
-  const rows = await db
-    .select({
-      id: pgMessagesTable.id,
-      username: pgMessagesTable.username,
-      user_id: pgMessagesTable.user_id,
-      channel_id: pgMessagesTable.channel_id,
-      content: pgMessagesTable.content,
-      created_at: pgMessagesTable.created_at,
-      ai_status: pgMessagesTable.ai_status,
-    })
-    .from(pgMessagesTable)
-    .where(scopeMessages(guildId, channelId))
-    .orderBy(desc(pgMessagesTable.created_at))
-    .limit(limit);
+  const rows = await db.messages.findMany({
+    where: scopeMessages(guildId, channelId),
+    orderBy: { created_at: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      username: true,
+      user_id: true,
+      channel_id: true,
+      content: true,
+      created_at: true,
+      ai_status: true,
+    },
+  });
   return JSON.stringify(rows);
 }
 
@@ -201,47 +180,48 @@ async function topFlagged(
   limit = 5,
 ): Promise<string> {
   const db = getDatabase();
-  const rows = await db
-    .select({
-      id: pgMessagesTable.id,
-      username: pgMessagesTable.username,
-      channel_id: pgMessagesTable.channel_id,
-      content: pgMessagesTable.content,
-      // Pipeline position — NOT the judgement. Kept so the chatbot can report
-      // "still pending" honestly.
-      ai_status: pgMessagesTable.ai_status,
-      created_at: pgMessagesTable.created_at,
+  const rows = await db.verdicts.findMany({
+    where: { status: "deleted", ...scopeMessages(guildId, channelId) },
+    // Ranked by the decision, then by how hard the model judged it. `score` is
+    // a number, so this is a real ranking and not a lexical sort.
+    orderBy: [{ score: "desc" }, { messages: { created_at: "desc" } }],
+    take: limit,
+    select: {
+      messages: {
+        select: {
+          id: true,
+          username: true,
+          channel_id: true,
+          content: true,
+          // Pipeline position — NOT the judgement. Kept so the chatbot can
+          // report "still pending" honestly.
+          ai_status: true,
+          created_at: true,
+        },
+      },
       // The judgement itself. `messages.ai_status = 'flagged'` matches nothing
       // since the rewrite, which silently made this tool always answer "none".
-      verdict_status: pgVerdictsTable.status,
-      verdict_flags: pgVerdictsTable.flags,
-      verdict_analysis: pgVerdictsTable.analysis,
-      verdict_score: pgVerdictsTable.score,
-    })
-    .from(pgMessagesTable)
-    .leftJoin(
-      pgVerdictsTable,
-      eq(pgVerdictsTable.message_id, pgMessagesTable.id),
-    )
-    .where(
-      and(
-        scopeMessages(guildId, channelId),
-        eq(pgVerdictsTable.status, "deleted"),
-      ),
-    )
-    // Ranked by the DECISION, then by how hard the model judged it. `score` is a
-    // number, so desc() is a real ranking here — and NOT on the text columns,
-    // which would sort lexically ("clean" > "deleted") rather than by meaning.
-    .orderBy(
-      desc(sql`CASE ${pgVerdictsTable.status}
-        WHEN 'deleted' THEN 2
-        WHEN 'clean' THEN 1
-        ELSE 0 END`),
-      desc(sql`COALESCE(${pgVerdictsTable.score}, 0)`),
-      desc(pgMessagesTable.created_at),
-    )
-    .limit(limit);
-  return JSON.stringify(rows);
+      status: true,
+      flags: true,
+      analysis: true,
+      score: true,
+    },
+  });
+
+  return JSON.stringify(
+    rows.map((r) => ({
+      id: r.messages.id,
+      username: r.messages.username,
+      channel_id: r.messages.channel_id,
+      content: r.messages.content,
+      ai_status: r.messages.ai_status,
+      created_at: r.messages.created_at,
+      verdict_status: r.status,
+      verdict_flags: r.flags,
+      verdict_analysis: r.analysis,
+      verdict_score: r.score,
+    })),
+  );
 }
 
 async function searchMessages(
@@ -252,24 +232,22 @@ async function searchMessages(
 ): Promise<string> {
   const db = getDatabase();
   if (!query.trim()) return JSON.stringify({ error: "query kosong" });
-  const rows = await db
-    .select({
-      id: pgMessagesTable.id,
-      username: pgMessagesTable.username,
-      channel_id: pgMessagesTable.channel_id,
-      content: pgMessagesTable.content,
-      created_at: pgMessagesTable.created_at,
-      ai_status: pgMessagesTable.ai_status,
-    })
-    .from(pgMessagesTable)
-    .where(
-      and(
-        scopeMessages(guildId, channelId),
-        like(pgMessagesTable.content, `%${likePattern(query)}%`),
-      ),
-    )
-    .orderBy(desc(pgMessagesTable.created_at))
-    .limit(limit);
+  const rows = await db.messages.findMany({
+    where: {
+      ...scopeMessages(guildId, channelId),
+      content: { contains: query, mode: "insensitive" },
+    },
+    orderBy: { created_at: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      username: true,
+      channel_id: true,
+      content: true,
+      created_at: true,
+      ai_status: true,
+    },
+  });
   return JSON.stringify(rows);
 }
 
@@ -281,39 +259,34 @@ async function userMessages(
 ): Promise<string> {
   const db = getDatabase();
   if (!userId) return JSON.stringify({ error: "userId wajib" });
-  const conds = [eq(pgMessagesTable.user_id, userId)];
-  if (guildId) conds.push(eq(pgMessagesTable.guild_id, guildId));
-  if (channelId) conds.push(eq(pgMessagesTable.channel_id, channelId));
-  const rows = await db
-    .select({
-      id: pgMessagesTable.id,
-      channel_id: pgMessagesTable.channel_id,
-      content: pgMessagesTable.content,
-      created_at: pgMessagesTable.created_at,
-      ai_status: pgMessagesTable.ai_status,
-    })
-    .from(pgMessagesTable)
-    .where(and(...conds))
-    .orderBy(desc(pgMessagesTable.created_at))
-    .limit(limit);
+  const rows = await db.messages.findMany({
+    where: { user_id: userId, ...scopeMessages(guildId, channelId) },
+    orderBy: { created_at: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      channel_id: true,
+      content: true,
+      created_at: true,
+      ai_status: true,
+    },
+  });
   return JSON.stringify(rows);
 }
 
 async function userProfile(userId?: string, guildId?: string): Promise<string> {
   const db = getDatabase();
   if (!userId) return JSON.stringify({ error: "userId wajib" });
-  const conds = [eq(pgUserProfilesTable.user_id, userId)];
-  if (guildId) conds.push(eq(pgUserProfilesTable.guild_id, guildId));
-  const rows = await db
-    .select({
-      user_id: pgUserProfilesTable.user_id,
-      guild_id: pgUserProfilesTable.guild_id,
-      profile_summary: pgUserProfilesTable.profile_summary,
-      last_analyzed_at: pgUserProfilesTable.last_analyzed_at,
-    })
-    .from(pgUserProfilesTable)
-    .where(and(...conds))
-    .limit(1);
+  const rows = await db.user_profiles.findMany({
+    where: { user_id: userId, ...(guildId ? { guild_id: guildId } : {}) },
+    take: 1,
+    select: {
+      user_id: true,
+      guild_id: true,
+      profile_summary: true,
+      last_analyzed_at: true,
+    },
+  });
   return JSON.stringify(rows[0] ?? { error: "profil tidak ditemukan" });
 }
 
@@ -335,40 +308,40 @@ async function userReputation(
 async function channelCulture(channelId?: string): Promise<string> {
   const db = getDatabase();
   if (!channelId) return JSON.stringify({ error: "channelId wajib" });
-  const rows = await db
-    .select({
-      channel_id: pgChannelCulturesTable.channel_id,
-      culture_summary: pgChannelCulturesTable.culture_summary,
-      last_analyzed_at: pgChannelCulturesTable.last_analyzed_at,
-    })
-    .from(pgChannelCulturesTable)
-    .where(eq(pgChannelCulturesTable.channel_id, channelId))
-    .limit(1);
+  const rows = await db.channel_cultures.findMany({
+    where: { channel_id: channelId },
+    take: 1,
+    select: {
+      channel_id: true,
+      culture_summary: true,
+      last_analyzed_at: true,
+    },
+  });
   return JSON.stringify(rows[0] ?? { error: "culture tidak ditemukan" });
 }
 
 async function messageDetail(messageId?: string): Promise<string> {
   const db = getDatabase();
   if (!messageId) return JSON.stringify({ error: "messageId wajib" });
-  const rows = await db
-    .select({
-      id: pgMessagesTable.id,
-      guild_id: pgMessagesTable.guild_id,
-      channel_id: pgMessagesTable.channel_id,
-      user_id: pgMessagesTable.user_id,
-      username: pgMessagesTable.username,
-      content: pgMessagesTable.content,
-      created_at: pgMessagesTable.created_at,
-      ai_status: pgMessagesTable.ai_status,
-      ai_moderation_flags: pgMessagesTable.ai_moderation_flags,
-      ai_moderation_score: pgMessagesTable.ai_moderation_score,
-      ai_categories: pgMessagesTable.ai_categories,
-      ai_analysis: pgMessagesTable.ai_analysis,
-      ai_confidence: pgMessagesTable.ai_confidence,
-    })
-    .from(pgMessagesTable)
-    .where(eq(pgMessagesTable.id, messageId))
-    .limit(1);
+  const rows = await db.messages.findMany({
+    where: { id: messageId },
+    take: 1,
+    select: {
+      id: true,
+      guild_id: true,
+      channel_id: true,
+      user_id: true,
+      username: true,
+      content: true,
+      created_at: true,
+      ai_status: true,
+      ai_moderation_flags: true,
+      ai_moderation_score: true,
+      ai_categories: true,
+      ai_analysis: true,
+      ai_confidence: true,
+    },
+  });
   return JSON.stringify(rows[0] ?? { error: "pesan tidak ditemukan" });
 }
 
@@ -378,23 +351,23 @@ async function messageReviews(
   limit = 10,
 ): Promise<string> {
   const db = getDatabase();
-  const conds = [];
-  if (guildId) conds.push(eq(pgMessageReviewsTable.guild_id, guildId));
-  if (status) conds.push(eq(pgMessageReviewsTable.status, status as never));
-  const rows = await db
-    .select({
-      id: pgMessageReviewsTable.id,
-      message_id: pgMessageReviewsTable.message_id,
-      reviewer_id: pgMessageReviewsTable.reviewer_id,
-      status: pgMessageReviewsTable.status,
-      notes: pgMessageReviewsTable.notes,
-      created_at: pgMessageReviewsTable.created_at,
-      reviewed_at: pgMessageReviewsTable.reviewed_at,
-    })
-    .from(pgMessageReviewsTable)
-    .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(pgMessageReviewsTable.created_at))
-    .limit(limit);
+  const rows = await db.message_reviews.findMany({
+    where: {
+      ...(guildId ? { guild_id: guildId } : {}),
+      ...(status ? { status } : {}),
+    },
+    orderBy: { created_at: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      message_id: true,
+      reviewer_id: true,
+      status: true,
+      notes: true,
+      created_at: true,
+      reviewed_at: true,
+    },
+  });
   return JSON.stringify(rows);
 }
 
@@ -405,25 +378,25 @@ async function voiceRecordings(
   limit = 10,
 ): Promise<string> {
   const db = getDatabase();
-  const conds = [];
-  if (userId) conds.push(eq(pgVoiceRecordingsTable.user_id, userId));
-  if (channelId) conds.push(eq(pgVoiceRecordingsTable.channel_id, channelId));
-  if (guildId) conds.push(eq(pgVoiceRecordingsTable.guild_id, guildId));
-  const rows = await db
-    .select({
-      id: pgVoiceRecordingsTable.id,
-      username: pgVoiceRecordingsTable.username,
-      channel_name: pgVoiceRecordingsTable.channel_name,
-      filename: pgVoiceRecordingsTable.filename,
-      size_bytes: pgVoiceRecordingsTable.size_bytes,
-      upload_status: pgVoiceRecordingsTable.upload_status,
-      transcription: pgVoiceRecordingsTable.transcription,
-      created_at: pgVoiceRecordingsTable.created_at,
-    })
-    .from(pgVoiceRecordingsTable)
-    .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(pgVoiceRecordingsTable.created_at))
-    .limit(limit);
+  const rows = await db.voice_recordings.findMany({
+    where: {
+      ...(userId ? { user_id: userId } : {}),
+      ...(channelId ? { channel_id: channelId } : {}),
+      ...(guildId ? { guild_id: guildId } : {}),
+    },
+    orderBy: { created_at: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      username: true,
+      channel_name: true,
+      filename: true,
+      size_bytes: true,
+      upload_status: true,
+      transcription: true,
+      created_at: true,
+    },
+  });
   return JSON.stringify(rows);
 }
 
@@ -433,45 +406,53 @@ async function moderationTimeline(
   days = 14,
 ): Promise<string> {
   const db = getDatabase();
-  const day = sql<string>`to_char(to_timestamp(${pgMessagesTable.created_at} / 1000), 'YYYY-MM-DD')`;
-  const rows = await db
-    .select({
-      day,
-      total: sql<number>`COUNT(*)::int`,
-      flagged: sql<number>`COUNT(*) FILTER (WHERE ${pgVerdictsTable.status} = 'deleted')::int`,
-      clean: sql<number>`COUNT(*) FILTER (WHERE ${pgVerdictsTable.status} = 'clean')::int`,
-    })
-    .from(pgMessagesTable)
-    .leftJoin(
-      pgVerdictsTable,
-      eq(pgVerdictsTable.message_id, pgMessagesTable.id),
-    )
-    .where(
-      and(
-        scopeMessages(guildId, channelId),
-        // only the last N days
-        sql`${pgMessagesTable.created_at} >= extract(epoch FROM now() - (${days} || ' days')::interval) * 1000`,
-      ),
-    )
-    .groupBy(day)
-    .orderBy(day);
-  return JSON.stringify(rows);
+  const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  const rows = await db.messages.findMany({
+    where: { ...scopeMessages(guildId, channelId), created_at: { gte: since } },
+    select: {
+      created_at: true,
+      verdicts: { select: { status: true } },
+    },
+  });
+
+  // Bucketed in JS rather than with date_trunc: the builder has no time-bucket
+  // expression, and grouping here keeps the result identical to the SQL it
+  // replaces without approximating the date format.
+  const byDay = new Map<
+    string,
+    { total: number; flagged: number; clean: number }
+  >();
+  for (const r of rows) {
+    const day = new Date(Number(r.created_at)).toISOString().slice(0, 10);
+    const bucket = byDay.get(day) ?? { total: 0, flagged: 0, clean: 0 };
+    bucket.total += 1;
+    if (r.verdicts?.status === "deleted") bucket.flagged += 1;
+    if (r.verdicts?.status === "clean") bucket.clean += 1;
+    byDay.set(day, bucket);
+  }
+
+  return JSON.stringify(
+    [...byDay.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([day, v]) => ({ day, ...v })),
+  );
 }
 
 async function corrections(_guildId?: string, limit = 10): Promise<string> {
   const db = getDatabase();
-  const rows = await db
-    .select({
-      id: pgCorrectedModerationsTable.id,
-      message_id: pgCorrectedModerationsTable.message_id,
-      original_flags: pgCorrectedModerationsTable.original_flags,
-      corrected_flags: pgCorrectedModerationsTable.corrected_flags,
-      correction_notes: pgCorrectedModerationsTable.correction_notes,
-      content_snippet: pgCorrectedModerationsTable.content_snippet,
-      created_at: pgCorrectedModerationsTable.created_at,
-    })
-    .from(pgCorrectedModerationsTable)
-    .orderBy(desc(pgCorrectedModerationsTable.created_at))
-    .limit(limit);
+  const rows = await db.corrected_moderations.findMany({
+    orderBy: { created_at: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      message_id: true,
+      original_flags: true,
+      corrected_flags: true,
+      correction_notes: true,
+      content_snippet: true,
+      created_at: true,
+    },
+  });
   return JSON.stringify(rows);
 }

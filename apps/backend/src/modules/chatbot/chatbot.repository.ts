@@ -69,10 +69,7 @@ export class ChatbotRepository {
       where: { user_id: userId },
     });
 
-    logger.info(
-      { userId, deletedRows: deleted.count },
-      "Chat history cleared",
-    );
+    logger.info({ userId, deletedRows: deleted.count }, "Chat history cleared");
   }
 }
 

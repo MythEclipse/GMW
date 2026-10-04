@@ -45,9 +45,7 @@ export class KnowledgeRepository {
 
     // The channel's display name only exists on captured messages, so it is
     // resolved with one grouped lookup rather than a query per row.
-    const names = await this.channelNames(
-      rows.map((r) => r.channel_id),
-    );
+    const names = await this.channelNames(rows.map((r) => r.channel_id));
 
     return rows.map((r) => ({
       channel_id: r.channel_id,

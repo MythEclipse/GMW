@@ -1,6 +1,6 @@
+import { PrismaClient } from "@gmw/db/prisma/generated/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { Pool, PoolClient } from "pg";
-import { PrismaClient } from "@gmw/db/prisma/generated/client";
 import { createChildLogger } from "../logger/index.js";
 import { closePool, createPoolFromConfig } from "./pool.js";
 
