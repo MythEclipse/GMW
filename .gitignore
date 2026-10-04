@@ -1,9 +1,10 @@
 node_modules
 /recordings
 .env
-services/discord-gateway/dist/
-services/backend/dist/
-services/frontend/dist/
+apps/discord-gateway/dist/
+apps/backend/dist/
+apps/frontend/dist/
+packages/db/prisma/generated/
 public/app/
 .muxer-queue.**
 .claude/

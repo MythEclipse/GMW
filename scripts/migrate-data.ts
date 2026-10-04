@@ -1,7 +1,7 @@
 import path from "node:path";
 import Database from "better-sqlite3";
 import { createChildLogger } from "@bete/shared/logger";
-import { getPool, closeDatabase, initializeDatabase } from "../services/backend/src/shared/database/index.js";
+import { getPool, closeDatabase, initializeDatabase } from "../apps/backend/src/shared/database/index.js";
 
 const logger = createChildLogger("migrate-data");
 

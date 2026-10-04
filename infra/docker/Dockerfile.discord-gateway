@@ -14,7 +14,13 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-COPY services/discord-gateway/ ./
+# The gateway imports @gmw/db from packages/db, so the whole workspace has to
+# be copied — copying just this app leaves the workspace link dangling.
+COPY package.json ./
+COPY packages/ ./packages/
+COPY apps/discord-gateway/ ./apps/discord-gateway/
+
+WORKDIR /build/apps/discord-gateway
 
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     pnpm install --no-frozen-lockfile
@@ -38,10 +44,10 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
 
 WORKDIR /app
 
-COPY --from=builder --chown=node:node /build/dist ./dist
+COPY --from=builder --chown=node:node /build/apps/discord-gateway/dist ./dist
 COPY --from=builder --chown=node:node /build/node_modules ./node_modules
-COPY --from=builder --chown=node:node /build/package.json ./
-COPY --from=builder --chown=node:node /build/drizzle ./drizzle
+COPY --from=builder --chown=node:node /build/apps/discord-gateway/package.json ./
+COPY --from=builder --chown=node:node /build/apps/discord-gateway/drizzle ./drizzle
 
 RUN mkdir -p /app/recordings
 USER node
