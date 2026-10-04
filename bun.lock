@@ -13,10 +13,11 @@
       "name": "discord-moderation-backend",
       "version": "1.0.0",
       "dependencies": {
+        "@gmw/db": "workspace:*",
         "@orpc/server": "1.15.4",
+        "@prisma/adapter-pg": "7.10.0",
         "axios": "^1.20.0",
         "dotenv": "^18.0.4",
-        "drizzle-orm": "^0.45.3",
         "express": "^5.2.1",
         "helmet": "^8.1.0",
         "ioredis": "^6.0.0",

@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { createChildLogger } from "@/shared/logger/index";
 import { getDatabase } from "../../shared/database/index.js";
 
@@ -9,7 +8,7 @@ export class HealthRepository {
     try {
       logger.debug("Running database health check");
       const db = getDatabase();
-      await db.execute(sql`SELECT 1 AS result`);
+      await db.$queryRaw`SELECT 1`;
       logger.debug("Database health check passed");
       return { connected: true };
     } catch (err: unknown) {

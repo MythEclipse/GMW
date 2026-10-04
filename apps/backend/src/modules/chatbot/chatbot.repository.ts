@@ -1,6 +1,4 @@
-import { desc, eq } from "drizzle-orm";
 import { getDatabase } from "../../shared/database/index.js";
-import { pgChatbotMessagesTable } from "../../shared/index.js";
 import { createChildLogger } from "../../shared/logger/index.js";
 
 const logger = createChildLogger("chatbot.repository");
@@ -35,12 +33,14 @@ export class ChatbotRepository {
   async saveConversation(input: SaveConversationInput): Promise<void> {
     const db = getDatabase();
 
-    await db.insert(pgChatbotMessagesTable).values({
-      user_id: input.userId,
-      user_message: input.userMessage,
-      bot_response: input.botResponse,
-      context: (input.context ?? {}) as Record<string, unknown>,
-      created_at: input.timestamp,
+    await db.chatbot_messages.create({
+      data: {
+        user_id: input.userId,
+        user_message: input.userMessage,
+        bot_response: input.botResponse,
+        context: (input.context ?? {}) as object,
+        created_at: input.timestamp,
+      },
     });
 
     logger.debug({ userId: input.userId }, "Conversation saved");
@@ -52,12 +52,11 @@ export class ChatbotRepository {
   ): Promise<ChatbotHistoryRow[]> {
     const db = getDatabase();
 
-    const rows = await db
-      .select()
-      .from(pgChatbotMessagesTable)
-      .where(eq(pgChatbotMessagesTable.user_id, userId))
-      .orderBy(desc(pgChatbotMessagesTable.created_at))
-      .limit(limit);
+    const rows = await db.chatbot_messages.findMany({
+      where: { user_id: userId },
+      orderBy: { created_at: "desc" },
+      take: limit,
+    });
 
     logger.debug({ userId, count: rows.length }, "Chat history fetched");
     return rows.reverse() as unknown as ChatbotHistoryRow[];
@@ -66,13 +65,12 @@ export class ChatbotRepository {
   async clearChatHistory(userId: string): Promise<void> {
     const db = getDatabase();
 
-    const deleted = await db
-      .delete(pgChatbotMessagesTable)
-      .where(eq(pgChatbotMessagesTable.user_id, userId))
-      .returning({ id: pgChatbotMessagesTable.id });
+    const deleted = await db.chatbot_messages.deleteMany({
+      where: { user_id: userId },
+    });
 
     logger.info(
-      { userId, deletedRows: deleted.length },
+      { userId, deletedRows: deleted.count },
       "Chat history cleared",
     );
   }

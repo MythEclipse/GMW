@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { createChildLogger } from "@/shared/logger/index";
 import { getDatabase } from "../../shared/database/index.js";
 
@@ -9,16 +8,16 @@ export class UiStateService {
     const db = getDatabase();
     logger.debug("Fetching UI state");
 
-    const { rows } = await db.execute(
-      sql`SELECT key, value, updated_at FROM ui_state ORDER BY key`,
-    );
+    const rows = await db.ui_state.findMany({
+      orderBy: { key: "asc" },
+    });
 
     const result: Record<string, unknown> = {};
     for (const row of rows) {
       try {
-        result[row.key as string] = JSON.parse(row.value as string);
+        result[row.key] = JSON.parse(row.value);
       } catch {
-        result[row.key as string] = row.value;
+        result[row.key] = row.value;
       }
     }
 
@@ -35,13 +34,11 @@ export class UiStateService {
       const serialized =
         typeof value === "string" ? value : JSON.stringify(value);
 
-      await db.execute(sql`
-        INSERT INTO ui_state (key, value, updated_at)
-        VALUES (${key}, ${serialized}, ${now})
-        ON CONFLICT (key) DO UPDATE SET
-          value = EXCLUDED.value,
-          updated_at = EXCLUDED.updated_at
-      `);
+      await db.ui_state.upsert({
+        where: { key },
+        create: { key, value: serialized, updated_at: BigInt(now) },
+        update: { value: serialized, updated_at: BigInt(now) },
+      });
     }
 
     return await this.getState();

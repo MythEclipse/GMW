@@ -7,7 +7,9 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./queue": "./src/queue.ts",
+    "./prisma/generated/client": "./prisma/generated/client.ts"
   },
   "scripts": {
     "generate": "prisma generate",

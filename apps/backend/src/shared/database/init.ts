@@ -1,11 +1,12 @@
-import { drizzle } from "drizzle-orm/node-postgres";
+import { PrismaPg } from "@prisma/adapter-pg";
 import type { Pool, PoolClient } from "pg";
+import { PrismaClient } from "@gmw/db/prisma/generated/client";
 import { createChildLogger } from "../logger/index.js";
 import { closePool, createPoolFromConfig } from "./pool.js";
 
 const logger = createChildLogger("database.init");
 
-let db: ReturnType<typeof drizzle> | null = null;
+let db: PrismaClient | null = null;
 let rawPool: Pool | null = null;
 
 export interface DatabaseConfig {
@@ -19,38 +20,33 @@ export interface DatabaseConfig {
   POSTGRES_POOL_MAX?: number;
 }
 
-export async function initializeDatabase(
-  cfg: DatabaseConfig,
-  schema?: Record<string, unknown>,
-) {
+function connectionString(cfg: DatabaseConfig): string {
+  if (cfg.DATABASE_URL) return cfg.DATABASE_URL;
+  const user = encodeURIComponent(cfg.POSTGRES_USER ?? "postgres");
+  const pass = encodeURIComponent(cfg.POSTGRES_PASSWORD ?? "postgres");
+  const host = cfg.POSTGRES_HOST ?? "localhost";
+  const port = cfg.POSTGRES_PORT ?? 5432;
+  const database = cfg.POSTGRES_DB ?? "postgres";
+  return `postgresql://${user}:${pass}@${host}:${port}/${database}`;
+}
+
+export async function initializeDatabase(cfg: DatabaseConfig) {
   if (db !== null) return db;
 
-  const pool = cfg.DATABASE_URL
-    ? createPoolFromConfig({
-        url: cfg.DATABASE_URL,
-        min: cfg.POSTGRES_POOL_MIN,
-        max: cfg.POSTGRES_POOL_MAX,
-      })
-    : createPoolFromConfig({
-        host: cfg.POSTGRES_HOST,
-        port: cfg.POSTGRES_PORT,
-        user: cfg.POSTGRES_USER,
-        password: cfg.POSTGRES_PASSWORD,
-        database: cfg.POSTGRES_DB,
-        min: cfg.POSTGRES_POOL_MIN,
-        max: cfg.POSTGRES_POOL_MAX,
-      });
+  const url = connectionString(cfg);
+  rawPool = createPoolFromConfig({
+    url,
+    min: cfg.POSTGRES_POOL_MIN,
+    max: cfg.POSTGRES_POOL_MAX,
+  });
 
-  rawPool = pool;
-  if (schema) {
-    db = drizzle(pool, { schema });
-  } else {
-    db = drizzle(pool);
-  }
+  db = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: url }),
+    log: ["error"],
+  });
 
   try {
-    const client = await pool.connect();
-    client.release();
+    await db.$queryRaw`SELECT 1`;
     logger.info("Database connection successful");
   } catch (err) {
     logger.error({ err }, "Failed to connect to database");
@@ -60,7 +56,7 @@ export async function initializeDatabase(
   return db;
 }
 
-export function getDatabase() {
+export function getDatabase(): PrismaClient {
   if (db === null) {
     throw new Error(
       "Database not initialized. Call initializeDatabase() first.",
@@ -69,7 +65,7 @@ export function getDatabase() {
   return db;
 }
 
-export function getPool() {
+export function getPool(): Pool {
   if (!rawPool) {
     throw new Error(
       "Database not initialized. Call initializeDatabase() first.",
@@ -79,50 +75,38 @@ export function getPool() {
 }
 
 export async function closeDatabase() {
+  await db?.$disconnect();
+  db = null;
   if (rawPool !== null) {
     await closePool(rawPool);
   }
   rawPool = null;
-  db = null;
   logger.info("Database connection closed");
 }
 
+/**
+ * Raw-query escape hatch, still used by repositories mid-migration. `?` is
+ * rewritten to Postgres `$n` placeholders so call sites need no change.
+ */
 function convertPlaceholdersForPostgres(sql: string) {
   let i = 0;
   return sql.replace(/\?/g, () => `$${++i}`);
 }
 
 export async function executeAll(sql: string, params?: unknown[]) {
-  if (!rawPool) {
-    throw new Error(
-      "Database not initialized. Call initializeDatabase() first.",
-    );
-  }
   const query = convertPlaceholdersForPostgres(sql);
-  const result = await rawPool.query(query, params || []);
-  return result.rows;
+  return (await getPool().query(query, params ?? [])).rows;
 }
 
 export async function executeGet(sql: string, params?: unknown[]) {
-  if (!rawPool) {
-    throw new Error(
-      "Database not initialized. Call initializeDatabase() first.",
-    );
-  }
-  const query = convertPlaceholdersForPostgres(sql);
-  const result = await rawPool.query(query, params || []);
-  return result.rows[0] ?? null;
+  const rows = await executeAll(sql, params);
+  return rows[0] ?? null;
 }
 
 export async function withDatabaseClient<T>(
   callback: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
-  if (!rawPool) {
-    throw new Error(
-      "Database not initialized. Call initializeDatabase() first.",
-    );
-  }
-  const client = await rawPool.connect();
+  const client = await getPool().connect();
   try {
     return await callback(client);
   } finally {

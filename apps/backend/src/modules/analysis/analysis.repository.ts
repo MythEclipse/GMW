@@ -1,6 +1,4 @@
-import { and, desc, eq, ilike, type SQL } from "drizzle-orm";
 import { getDatabase } from "../../shared/database/index.js";
-import { pgMessagesTable } from "../../shared/index.js";
 import { createChildLogger } from "../../shared/logger/index.js";
 import {
   type MappedMessage,
@@ -26,22 +24,15 @@ export class AnalysisRepository {
 
     logger.debug({ q, channelId, guildId, limit }, "Searching analysis");
 
-    const conditions: SQL[] = [ilike(pgMessagesTable.content, `%${q}%`)];
-
-    if (guildId) {
-      conditions.push(eq(pgMessagesTable.guild_id, guildId));
-    }
-
-    if (channelId) {
-      conditions.push(eq(pgMessagesTable.channel_id, channelId));
-    }
-
-    const rows = await db
-      .select()
-      .from(pgMessagesTable)
-      .where(and(...conditions))
-      .orderBy(desc(pgMessagesTable.created_at))
-      .limit(limit);
+    const rows = await db.messages.findMany({
+      where: {
+        content: { contains: q, mode: "insensitive" },
+        ...(guildId ? { guild_id: guildId } : {}),
+        ...(channelId ? { channel_id: channelId } : {}),
+      },
+      orderBy: { created_at: "desc" },
+      take: limit,
+    });
 
     return rows.map((r) => mapMessageRow(r as Record<string, unknown>));
   }

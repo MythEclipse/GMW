@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { getDatabase } from "../../shared/database/index.js";
 
 export interface ChannelCultureRow {
@@ -31,67 +30,73 @@ export class KnowledgeRepository {
   /** Public read-only channel culture glossary (AI-generated norms/slang). */
   async listChannelCultures(limit = 50, search?: string) {
     const db = getDatabase();
-    const conditions: string[] = [];
-    if (search) {
-      conditions.push(
-        `(c.channel_id ILIKE '%${search.replace(/'/g, "''")}%' OR c.culture_summary ILIKE '%${search.replace(/'/g, "''")}%')`,
-      );
-    }
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-    const result = await db.execute(
-      sql.raw(`
-        SELECT
-          c.channel_id,
-          c.guild_id,
-          COALESCE(NULLIF((
-            SELECT (metadata::jsonb -> 'channel' ->> 'channelName')
-            FROM messages WHERE channel_id = c.channel_id AND metadata IS NOT NULL
-            LIMIT 1
-          ), ''), c.channel_id) AS channel_name,
-          c.culture_summary,
-          c.last_analyzed_at
-        FROM channel_cultures c
-        ${where}
-        ORDER BY c.last_analyzed_at DESC NULLS LAST
-        LIMIT ${limit}
-      `),
+    const rows = await db.channel_cultures.findMany({
+      where: search
+        ? {
+            OR: [
+              { channel_id: { contains: search, mode: "insensitive" } },
+              { culture_summary: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : undefined,
+      orderBy: { last_analyzed_at: "desc" },
+      take: limit,
+    });
+
+    // The channel's display name only exists on captured messages, so it is
+    // resolved with one grouped lookup rather than a query per row.
+    const names = await this.channelNames(
+      rows.map((r) => r.channel_id),
     );
-    const rows = (result.rows as Record<string, unknown>[]) || [];
+
     return rows.map((r) => ({
-      channel_id: String(r.channel_id),
-      guild_id: r.guild_id ? String(r.guild_id) : null,
-      channel_name: r.channel_name ? String(r.channel_name) : null,
-      culture_summary: r.culture_summary ? String(r.culture_summary) : null,
-      last_analyzed_at: r.last_analyzed_at ? Number(r.last_analyzed_at) : null,
+      channel_id: r.channel_id,
+      guild_id: r.guild_id,
+      channel_name: names.get(r.channel_id) ?? r.channel_id,
+      culture_summary: r.culture_summary,
+      last_analyzed_at: Number(r.last_analyzed_at),
     }));
+  }
+
+  private async channelNames(
+    channelIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    if (channelIds.length === 0) return new Map();
+    const db = getDatabase();
+    const rows = await db.$queryRaw<{ channel_id: string; name: string }[]>`
+      SELECT DISTINCT ON (channel_id) channel_id,
+             metadata::jsonb -> 'channel' ->> 'channelName' AS name
+        FROM messages
+       WHERE channel_id = ANY(${channelIds}::text[])
+         AND metadata IS NOT NULL
+         AND NULLIF(metadata::jsonb -> 'channel' ->> 'channelName', '') IS NOT NULL
+       ORDER BY channel_id, created_at DESC
+    `;
+    return new Map(rows.map((r) => [r.channel_id, r.name]));
   }
 
   /** Public read-only term knowledge base (resolved via Wikipedia/SearXNG). */
   async listGlossary(limit = 50, search?: string) {
     const db = getDatabase();
-    const conditions: string[] = [];
-    if (search) {
-      conditions.push(
-        `(term ILIKE '%${search.replace(/'/g, "''")}%' OR definition ILIKE '%${search.replace(/'/g, "''")}%')`,
-      );
-    }
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-    const result = await db.execute(
-      sql.raw(`
-        SELECT term, definition, source_url, resolved_at, hit_count
-        FROM term_glossary_cache
-        ${where}
-        ORDER BY hit_count DESC, resolved_at DESC
-        LIMIT ${limit}
-      `),
-    );
-    const rows = (result.rows as Record<string, unknown>[]) || [];
+    const rows = await db.term_glossary_cache.findMany({
+      where: search
+        ? {
+            OR: [
+              { term: { contains: search, mode: "insensitive" } },
+              { definition: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : undefined,
+      orderBy: [{ hit_count: "desc" }, { resolved_at: "desc" }],
+      take: limit,
+    });
+
     return rows.map((r) => ({
-      term: String(r.term),
-      definition: String(r.definition ?? ""),
-      source_url: r.source_url ? String(r.source_url) : "",
-      resolved_at: r.resolved_at ? Number(r.resolved_at) : 0,
-      hit_count: Number(r.hit_count ?? 0),
+      term: r.term,
+      definition: r.definition ?? "",
+      source_url: r.source_url ?? "",
+      resolved_at: Number(r.resolved_at),
+      hit_count: r.hit_count ?? 0,
     }));
   }
 }
