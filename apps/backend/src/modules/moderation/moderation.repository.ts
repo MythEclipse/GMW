@@ -1,5 +1,6 @@
 import { getDatabase } from "../../shared/database/index.js";
 import { readChannelName } from "../../shared/utils/channelName.js";
+import { localHour } from "../../shared/utils/localTime.js";
 
 export interface ListModerationQuery {
   status?: string;
@@ -539,25 +540,9 @@ export class ModerationRepository {
     const db = getDatabase();
     const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // `created_at` is epoch milliseconds in a BigInt, so the hour-of-day is
-    // derived in JS. The zone matters: the old SQL called
-    // `EXTRACT(HOUR FROM to_timestamp(created_at / 1000))`, and
-    // `to_timestamp` returns `timestamptz`, which `EXTRACT` reads in the
-    // **session** timezone. This database runs `Asia/Jakarta`, so the old
-    // numbers were LOCAL (UTC+7) hours — a naive `getUTCHours()` port would
-    // have silently shifted the whole heatmap by 7. The comparison harness
-    // caught exactly that.
-    //
-    // Local wall-clock is preserved deliberately: the heatmap answers "when
-    // during the day does moderation fire", which is a local-time question.
-    // The offset is read from the runtime rather than configured, so the value
-    // tracks the deployment's own zone instead of drifting from it.
-    const hourFormatter = new Intl.DateTimeFormat("en-US", {
-      hour: "numeric",
-      hourCycle: "h23",
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    });
-
+    // `created_at` is epoch milliseconds in a BigInt. The hour-of-day is derived
+    // via `localHour`, which resolves in the database's timezone — see that
+    // helper for why UTC would be wrong here.
     const rows = await db.moderation_actions.findMany({
       where: { created_at: { gte: since } },
       select: { created_at: true },
@@ -565,7 +550,7 @@ export class ModerationRepository {
 
     const byHour = new Map<number, number>();
     for (const r of rows) {
-      const hour = Number(hourFormatter.format(new Date(Number(r.created_at))));
+      const hour = localHour(r.created_at);
       byHour.set(hour, (byHour.get(hour) ?? 0) + 1);
     }
 

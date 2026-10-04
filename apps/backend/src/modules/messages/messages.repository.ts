@@ -4,6 +4,7 @@ import { getDatabase } from "../../shared/database/index.js";
 import type { PageResult } from "../../shared/index.js";
 import { createChildLogger } from "../../shared/logger/index.js";
 import { readChannelName } from "../../shared/utils/channelName.js";
+import { localHour } from "../../shared/utils/localTime.js";
 import { mapMessageRow } from "../../shared/utils/messageMapper.js";
 import type {
   MessageCreate,
@@ -978,16 +979,8 @@ export class MessagesRepository {
     const db = getDatabase();
     const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // `EXTRACT(HOUR FROM to_timestamp(created_at / 1000))` read a timestamptz
-    // in the SESSION timezone, so these were local hours, not UTC. The offset
-    // is read from the runtime rather than configured so it tracks the
-    // deployment's own zone.
-    const hourFormatter = new Intl.DateTimeFormat("en-US", {
-      hour: "numeric",
-      hourCycle: "h23",
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    });
-
+    // `EXTRACT(HOUR FROM to_timestamp(created_at / 1000))` resolved in the
+    // database's timezone — see `localHour` for why UTC would be wrong here.
     const rows = await db.messages.findMany({
       where: { created_at: { gte: since } },
       select: { channel_id: true, metadata: true, created_at: true },
@@ -996,7 +989,7 @@ export class MessagesRepository {
     const buckets = new Map<string, { channelName: string; hours: number[] }>();
     for (const r of rows) {
       const channelName = readChannelName(r.metadata) ?? r.channel_id;
-      const hour = Number(hourFormatter.format(new Date(Number(r.created_at))));
+      const hour = localHour(r.created_at);
       const entry = buckets.get(r.channel_id) ?? {
         channelName,
         hours: new Array(24).fill(0),

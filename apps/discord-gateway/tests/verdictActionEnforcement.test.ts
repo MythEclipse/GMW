@@ -42,13 +42,6 @@ mock.module("../src/modules/message-capture/messageStore.js", () => ({
   },
 }));
 
-const notifierCalls: string[] = [];
-mock.module("../src/modules/ai-moderation/autoDeleteNotify.js", () => ({
-  sendDeletionNotification: async () => {
-    notifierCalls.push("notified");
-  },
-}));
-
 const loggerCalls: string[] = [];
 mock.module("../src/modules/ai-moderation/autoDeleteLogger.js", () => ({
   logDeletionToChannel: async () => {
@@ -184,7 +177,6 @@ function lastAction(): Record<string, unknown> | undefined {
 
 beforeEach(() => {
   moderationActions.length = 0;
-  notifierCalls.length = 0;
   loggerCalls.length = 0;
 });
 

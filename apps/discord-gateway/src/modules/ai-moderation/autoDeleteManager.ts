@@ -34,7 +34,6 @@ import {
   type VerdictLike,
 } from "./autoDeleteEligibility.js";
 import { logAlreadyDeleted, logDeletionToChannel } from "./autoDeleteLogger.js";
-import { sendDeletionNotification } from "./autoDeleteNotify.js";
 import { createDefaultGateway } from "./llmGateway.js";
 import { normaliseAction } from "./verdictParser.js";
 import { verdictToActionFields } from "./verdictToActionFields.js";
@@ -637,7 +636,6 @@ export async function attemptAutoDeleteFlaggedMessage(
     }
 
     // Notifications must never fail the deletion that already succeeded.
-    await sendDeletionNotification(client, message, verdict, guild.name);
     await logDeletionToChannel(guild, message, verdict, channelId);
 
     const result: AutoDeleteResult = {
