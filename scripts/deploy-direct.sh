@@ -36,27 +36,76 @@ fi
 
 log() { echo "[deploy] $*"; }
 
+# Fetch $2 into the (empty or throwaway) directory $1 at exactly that commit.
+# Works for a branch tip, a tag, or a raw sha; `git fetch origin <sha>` needs
+# uploadpack.allowReachableSHA1InWant, which GitHub sets, and we fall back to a
+# tag fetch for servers that do not.
+fetch_into() {
+  local dir="$1" sha="$2"
+  # A previous deploy chowned this tree to gmw; the deploy user cannot remove
+  # it without sudo. Idempotent when the dir does not exist yet.
+  sudo rm -rf "$dir"
+  mkdir -p "$dir"
+  git -C "$dir" init -q
+  git -C "$dir" remote add origin "$REMOTE_REPO"
+  git -C "$dir" fetch -q --depth 1 origin "$sha" \
+    || git -C "$dir" fetch -q --tags origin
+  git -C "$dir" checkout -q "$sha"
+  git -C "$dir" reset -q --hard "$sha"
+}
+
 # ---------------------------------------------------------------------------
 # 1. Fetch source into a fresh release dir
 # ---------------------------------------------------------------------------
+# DEPLOY_REF may be a branch, a tag, OR a raw sha (CI passes ${{ github.sha }}).
+# `git ls-remote <repo> <sha>` returns nothing for a sha — it only matches
+# refs — so a sha is detected by trying the ref lookup first and falling back
+# to a plain fetch of that object.
 log "Resolving $DEPLOY_REF from $REMOTE_REPO"
-SHA=$(git ls-remote "$REMOTE_REPO" "$DEPLOY_REF" | awk '{print $1}')
+SHA=$(git ls-remote "$REMOTE_REPO" "$DEPLOY_REF" 2>/dev/null | awk 'NR==1{print $1}')
 if [ -z "$SHA" ]; then
-  echo "FATAL: could not resolve $DEPLOY_REF" >&2
-  exit 1
+  # Not a ref: assume it is a commit sha and fetch it directly. An unknown
+  # 40-hex string fails at fetch time, which is the error we want to surface.
+  if ! printf '%s' "$DEPLOY_REF" | grep -Eq '^[0-9a-f]{7,40}$'; then
+    echo "FATAL: '$DEPLOY_REF' is neither a known ref nor a commit sha" >&2
+    exit 1
+  fi
+  SHA="$DEPLOY_REF"
+  log "Not a branch/tag — treating as commit sha"
 fi
 SHORT_SHA="${SHA:0:8}"
 RELEASE_DIR="$RELEASES_DIR/$SHORT_SHA"
 
-if [ -d "$RELEASE_DIR" ]; then
-  log "Release $SHORT_SHA already exists at $RELEASE_DIR; reusing"
+if [ -d "$RELEASE_DIR/.git" ] \
+   && [ ! -e "$RELEASE_DIR/node_modules" ] \
+   && [ ! -e "$RELEASE_DIR/apps/backend/dist" ]; then
+  log "Release $SHORT_SHA already fetched but not yet built; reusing"
 else
-  log "Cloning $SHORT_SHA into $RELEASE_DIR"
-  mkdir -p "$RELEASE_DIR"
-  git clone --depth 1 --branch "$DEPLOY_REF" "$REMOTE_REPO" "$RELEASE_DIR"
+  log "Fetching $SHORT_SHA into $RELEASE_DIR"
+  fetch_into "$RELEASE_DIR" "$SHA"
 fi
 
 cd "$RELEASE_DIR"
+
+# A release directory is a BUILD ARTIFACT, not an archive. Once built it is no
+# longer a pristine checkout, and both later steps are destructive to a second
+# `bun install`:
+#
+#   * step 3 prunes devDependencies out of node_modules
+#   * step 7 chowns the whole tree to gmw so the service can read it, after
+#     which `bun install` (running as the deploy user) cannot write into it
+#
+# Observed on re-deploying an already-deployed sha:
+#   ENOENT: failed to symlink dependencies for package: discord-moderation-backend
+#   EEXIST: failed to link binaries for package: frontend
+#   Failed to install 5 packages
+#
+# and `--frozen-lockfile` on top of that reports "no changes" over an install
+# that is missing typescript and biome, so the build would fail later at tsc.
+#
+# `bun install` here takes ~1s and `tsc` ~10s, so rebuilding from a clean
+# checkout is far cheaper than making a mutated tree idempotent. The reuse
+# branch above therefore only fires for a dir that was fetched but never built.
 
 # ---------------------------------------------------------------------------
 # 2. Build

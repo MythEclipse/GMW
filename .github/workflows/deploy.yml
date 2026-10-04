@@ -82,6 +82,12 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: false
+
       - name: Setup SSH key
         env:
           SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -94,19 +100,27 @@ jobs:
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Deploy via scripts/deploy-direct.sh
-        # The heavy lifting lives in scripts/deploy-direct.sh on the VPS:
-        # clone the commit, bun install, prisma generate + compile, tsc build
-        # for each app, prune devDeps, install wrappers + systemd units +
-        # nginx config, switch the /opt/gmw/current symlink, restart, and
-        # run a stability-aware health check (systemctl + HTTP probes).
+        # The heavy lifting lives in scripts/deploy-direct.sh, which runs ON
+        # the VPS: it clones the commit, runs bun install, prisma generate +
+        # compile, tsc build per app, prunes devDeps, installs wrappers +
+        # systemd units + nginx config, switches /opt/gmw/current, restarts,
+        # and runs a stability-aware health check (systemctl + HTTP probes).
+        #
+        # The script is SCP'd from THIS checkout, not run from
+        # /opt/gmw/current/scripts/. Running it from the active release would
+        # be a chicken-and-egg trap: a fix to the deploy script could never
+        # take effect, because the copy that would apply it is itself the
+        # stale one. This step shipped that exact failure (exit 127, old
+        # script without the bun PATH fix).
         #
         # NOTE: service env (DATABASE_URL, AI_MEMORY_BASE_URL, …) comes from
         # the Bitwarden Secrets Manager backend via /usr/local/bin/bws-exec,
         # NOT from an EnvironmentFile — /etc/gmw/ is empty on the VPS.
         run: |
-          echo "=== Deploying main to $VPS_HOST ==="
+          echo "=== Deploying ${{ github.sha }} to $VPS_HOST ==="
+          scp -q scripts/deploy-direct.sh "$VPS_USER@$VPS_HOST:/tmp/deploy-direct.sh"
           ssh "$VPS_USER@$VPS_HOST" \
-            "bash /opt/gmw/current/scripts/deploy-direct.sh main"
+            "sed -i 's/\r$//' /tmp/deploy-direct.sh && bash /tmp/deploy-direct.sh ${{ github.sha }}"
           echo "✅ deploy finished"
 
       - name: Verify services
