@@ -25,6 +25,15 @@ RELEASES_DIR="$INSTALL_ROOT/releases"
 CURRENT_LINK="$INSTALL_ROOT/current"
 BIN_DIR="$INSTALL_ROOT/bin"
 
+# bun is installed under the invoking user's home. SSH non-interactive
+# sessions do not source ~/.bashrc / ~/.zshrc, so bun is not on PATH there.
+# Add it explicitly; the location is stable (bun's own installer).
+export PATH="$HOME/.bun/bin:$PATH"
+if ! command -v bun >/dev/null 2>&1; then
+  echo "FATAL: bun not found on PATH (looked in $HOME/.bun/bin)" >&2
+  exit 1
+fi
+
 log() { echo "[deploy] $*"; }
 
 # ---------------------------------------------------------------------------
