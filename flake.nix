@@ -111,7 +111,7 @@
             cp -rL apps/backend/node_modules/. $out/lib/gmw-backend/node_modules/
             rm -rf $out/lib/gmw-backend/node_modules/@gmw
             mkdir -p $out/lib/gmw-backend/node_modules/@gmw
-            ln -s ../../../packages/db $out/lib/gmw-backend/node_modules/@gmw/db
+            ln -s ../../packages/db $out/lib/gmw-backend/node_modules/@gmw/db
 
             mkdir -p $out/bin
             cat > $out/bin/gmw-backend << WRAPPER
