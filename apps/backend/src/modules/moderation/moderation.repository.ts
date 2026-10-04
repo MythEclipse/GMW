@@ -1,4 +1,5 @@
 import { getDatabase } from "../../shared/database/index.js";
+import { readChannelName } from "../../shared/utils/channelName.js";
 
 export interface ListModerationQuery {
   status?: string;
@@ -49,22 +50,6 @@ export function normalizeCategories(raw: string | null | undefined): string[] {
           .filter((t) => t.length > 0);
 
   return [...new Set(tokens)];
-}
-
-/**
- * Read `messages.metadata -> 'channel' ->> 'channelName'`.
- *
- * Prisma's query builder has no `->>` path expression, so the JSON traversal
- * the old SQL performed is done here. Returns `undefined` rather than throwing
- * when `metadata` is null, non-object, or lacks the key, matching the SQL,
- * which yielded NULL for all three.
- */
-export function readChannelName(metadata: unknown): string | undefined {
-  if (metadata == null || typeof metadata !== "object") return undefined;
-  const channel = (metadata as Record<string, unknown>).channel;
-  if (channel == null || typeof channel !== "object") return undefined;
-  const name = (channel as Record<string, unknown>).channelName;
-  return typeof name === "string" && name !== "" ? name : undefined;
 }
 
 /** Parse a JSON-stringified array column (e.g. flags/categories/evidence).

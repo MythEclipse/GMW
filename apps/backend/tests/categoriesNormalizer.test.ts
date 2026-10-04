@@ -39,7 +39,12 @@ const source = stripComments(rawSource);
 function normalizerBody(): string {
   const start = source.indexOf("export function normalizeCategories");
   expect(start).toBeGreaterThan(-1);
-  return source.slice(start, start + 900);
+  // Stop at the next top-level `export`/`function` so the window cannot spill
+  // into an unrelated helper (e.g. `parseJsonArray`, which legitimately uses
+  // JSON.parse behind a try/catch).
+  const rest = source.slice(start + 1);
+  const end = rest.search(/\n(?:export |\/\*\*|function )/);
+  return end === -1 ? rest : rest.slice(0, end);
 }
 
 describe("categories normalizer", () => {
