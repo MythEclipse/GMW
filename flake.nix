@@ -172,7 +172,7 @@ WRAPPER
 
           buildPhase = bunInstall + ''
             echo "=== Rebuilding @discordjs/opus (prebuilt download) ==="
-            (cd apps/discord-gateway && bun pm rebuild @discordjs/opus 2>&1 || true)
+            (cd apps/discord-gateway && node -e "require('child_process').execSync('node-pre-gyp install --fallback-to-build',{stdio:'inherit',cwd:'node_modules/@discordjs/opus'})" 2>&1 || true)
             echo "=== Compiling TypeScript ===="
             (cd apps/discord-gateway && ../../node_modules/.bin/tsc 2>&1 && node scripts/fix-imports.mjs)
             echo "=== Build complete ==="
