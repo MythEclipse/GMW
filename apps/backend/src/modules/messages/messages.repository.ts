@@ -89,10 +89,6 @@ const messageWithVerdict = {
   },
 } satisfies Prisma.messagesSelect;
 
-type MessageWithVerdict = Prisma.messagesGetPayload<{
-  select: typeof messageWithVerdict;
-}>;
-
 /**
  * Re-project a Prisma row carrying a nested `verdicts` object into the flat
  * `verdict_*` shape `mapMessageRow` reads. A missing verdict leaves every
@@ -442,8 +438,6 @@ const reviewSelect = {
   },
 } satisfies Prisma.messagesSelect;
 
-type ReviewRow = Prisma.messagesGetPayload<{ select: typeof reviewSelect }>;
-
 /**
  * How much of the review queue to over-fetch, now that ordering happens in JS.
  *
@@ -463,8 +457,6 @@ const REVIEW_MIN_SCAN = 200;
  * size. 4 covers the common case of a few images per message.
  */
 const ATTACHMENT_ID_OVERSAMPLE = 4;
-
-type ReviewPageResultRow = Record<string, unknown>;
 
 export class MessagesRepository {
   async findMany(query: MessageQuery): Promise<PageResult<MessageRow>> {
