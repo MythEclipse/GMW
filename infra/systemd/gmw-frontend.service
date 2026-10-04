@@ -1,0 +1,28 @@
+[Unit]
+Description=GMW Frontend — Vite SPA dashboard
+After=network-online.target gmw-backend.service
+Wants=gmw-backend.service
+Requires=network-online.target
+
+[Service]
+Type=simple
+
+ExecStart=/opt/gmw/bin/gmw-frontend
+Environment=GMW_BACKEND_URL=http://127.0.0.1:4001
+Environment=GMW_FRONTEND_PORT=4017
+
+Restart=always
+RestartSec=5
+
+User=gmw
+Group=gmw
+
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

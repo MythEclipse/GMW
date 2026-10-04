@@ -1,0 +1,25 @@
+[Unit]
+Description=GMW Proxy — nginx serving dashboard
+After=network-online.target
+Requires=network-online.target
+
+[Service]
+Type=simple
+
+ExecStart=/opt/gmw/bin/gmw-proxy
+
+Restart=always
+RestartSec=5
+
+User=gmw
+Group=gmw
+
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+MemoryMax=64M
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

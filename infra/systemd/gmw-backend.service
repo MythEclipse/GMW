@@ -1,0 +1,26 @@
+[Unit]
+Description=GMW Backend — Express HTTP/WS server
+After=network-online.target
+Requires=network-online.target
+
+[Service]
+Type=simple
+
+# Secrets dari Bitwarden Secrets Manager (BWS): wrapper fetch env lalu exec binary
+ExecStart=/usr/local/bin/bws-exec gmw /opt/gmw/bin/gmw-backend
+
+Restart=always
+RestartSec=5
+
+User=gmw
+Group=gmw
+
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+MemoryMax=256M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target
