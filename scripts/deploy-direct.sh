@@ -15,8 +15,11 @@ set -euo pipefail
 #   bash scripts/deploy-direct.sh [branch|sha]
 #
 # Env:
-#   REMOTE_REPO — git remote to fetch (default: https://github.com/asepharyana/GMW.git)
-#   DEPLOY_REF  — branch, tag, or sha to deploy (default: main)
+#   REMOTE_REPO       — git remote to fetch (default: https://github.com/asepharyana/GMW.git)
+#   DEPLOY_REF        — branch, tag, or sha to deploy (default: main)
+#   RESET_RUNTIME_DATA— 1 (default) wipes Postgres `dcbot` + Hindsight
+#                       `gmw-moderation` before the restart; 0 skips the wipe
+#                       for an incident deploy that must keep its rows.
 
 REMOTE_REPO="${REMOTE_REPO:-https://github.com/asepharyana/GMW.git}"
 DEPLOY_REF="${1:-${DEPLOY_REF:-main}}"
@@ -274,14 +277,54 @@ sudo chown -R gmw:gmw "$RELEASE_DIR"
 sudo chown -h gmw:gmw "$CURRENT_LINK"
 
 # ---------------------------------------------------------------------------
-# 8. Enable + restart services
+# 8. Reset runtime data (Postgres + Hindsight)
+# ---------------------------------------------------------------------------
+# Wipes GMW's runtime data so the service comes up against an empty schema.
+# This used to be a separate CI step between the Nix build and the restart;
+# it now lives here, immediately before the restart, which preserves the
+# original invariant without the CI step: the build must fully succeed
+# BEFORE any data is destroyed. A failed tsc above aborts before this runs.
+#
+# On by default. Set RESET_RUNTIME_DATA=0 for an incident deploy that must
+# not touch data (bad migration roll-back, debugging a live row).
+if [ "${RESET_RUNTIME_DATA:-1}" = "1" ]; then
+  log "Resetting runtime data (Postgres dcbot + Hindsight gmw-moderation)"
+  # reset-data.sh itself STOPs the three writers before wiping and LEAVES
+  # them down on success, so the wipe cannot race a live gateway. Bringing
+  # them back is our job below — on both the success and the failure path,
+  # so a failed reset can never leave prod dark.
+  WRITERS="gmw-discord-gateway-worker gmw-discord-gateway gmw-backend"
+  if ! sudo /usr/local/bin/bws-exec gmw bash "$RELEASE_DIR/scripts/reset-data.sh"; then
+    echo "::error::runtime data reset FAILED — restarting writers" >&2
+    sudo systemctl start $WRITERS || true
+    exit 1
+  fi
+  sudo systemctl start $WRITERS
+  # Verify liveness, not just the exit code: `systemctl start` returns 0 for
+  # a unit that then dies, and a unit stopped forcefully reports `failed`
+  # for the whole TimeoutStopUSec window.
+  for u in $WRITERS; do
+    state=$(sudo systemctl is-active "$u" 2>/dev/null || echo inactive)
+    echo "  $u -> $state"
+    [ "$state" = "active" ] || {
+      echo "::error::$u is $state after the data reset — prod is degraded" >&2
+      exit 1
+    }
+  done
+  log "runtime data reset OK; writers active"
+else
+  log "RESET_RUNTIME_DATA=0 — skipping the Postgres/Hindsight wipe"
+fi
+
+# ---------------------------------------------------------------------------
+# 9. Enable + restart services
 # ---------------------------------------------------------------------------
 log "Enabling and restarting services"
 sudo systemctl enable gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-frontend gmw-proxy
 sudo systemctl restart gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-frontend gmw-proxy
 
 # ---------------------------------------------------------------------------
-# 9. Health check
+# 10. Health check
 # ---------------------------------------------------------------------------
 # `systemctl is-active` alone is NOT a health signal: with Restart=always a unit
 # that exits 200ms after start reports `active` on the first poll, then flips to
