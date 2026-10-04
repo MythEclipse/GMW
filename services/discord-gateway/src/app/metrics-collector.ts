@@ -25,7 +25,6 @@ import { getPool } from "../shared/database/drizzle.js";
  */
 export function registerPipelineMetrics(logger: Logger): void {
   registerCollector(() => {
-    if (!config.AI_ANALYSIS_ENABLED) return;
     void emitQueueGauges(logger);
   });
 }

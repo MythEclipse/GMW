@@ -30,11 +30,6 @@ const log = createChildLogger("moderation-worker");
 async function main(): Promise<void> {
   log.info("starting moderation worker");
 
-  if (!config.AI_ANALYSIS_ENABLED) {
-    log.warn("AI_ANALYSIS_ENABLED is false — exiting without doing any work");
-    return;
-  }
-
   // Own the schema for this process. The gateway also migrates on boot; both
   // use the same idempotent runner, so a race is a no-op rather than a
   // conflict.
@@ -49,30 +44,21 @@ async function main(): Promise<void> {
   const pool = getPool();
   const gateway = createDefaultGateway();
   // Hindsight supplies what the guild already knows about these channels.
-  // Off unless AI_MEMORY_ENABLED=true, and every failure inside it degrades to
-  // an ordinary batch — so an unreachable instance costs context, not verdicts.
-  const memory = config.AI_MEMORY_ENABLED
-    ? ModerationMemoryBank.fromConfig()
-    : undefined;
-  if (memory) {
-    log.info(
-      { bank: config.AI_MEMORY_BANK_ID, baseUrl: config.AI_MEMORY_BASE_URL },
-      "hindsight memory enabled for moderation context",
-    );
-  }
+  // Every failure inside it degrades to an ordinary batch, so an unreachable
+  // instance costs context, not verdicts.
+  const memory = ModerationMemoryBank.fromConfig();
+  log.info(
+    { bank: config.AI_MEMORY_BANK_ID, baseUrl: config.AI_MEMORY_BASE_URL },
+    "hindsight memory enabled for moderation context",
+  );
   // KBBI grounds the model on what Indonesian words actually mean, so a slang
-  // term is judged from its dictionary sense instead of the model's guess. Off
-  // unless AI_DICTIONARY_ENABLED=true, and every failure inside it degrades to
-  // an ordinary batch — an unreachable dictionary costs grounding, not verdicts.
-  const dictionary = config.AI_DICTIONARY_ENABLED
-    ? KbbiDictionary.fromConfig()
-    : undefined;
-  if (dictionary) {
-    log.info(
-      { baseUrl: config.AI_DICTIONARY_BASE_URL },
-      "kbbi dictionary enabled for word grounding",
-    );
-  }
+  // term is judged from its dictionary sense instead of the model's guess. An
+  // unreachable dictionary costs grounding, not verdicts.
+  const dictionary = KbbiDictionary.fromConfig();
+  log.info(
+    { baseUrl: config.AI_DICTIONARY_BASE_URL },
+    "kbbi dictionary enabled for word grounding",
+  );
   const worker = new ModerationWorker(
     pool,
     gateway,
@@ -94,6 +80,10 @@ async function main(): Promise<void> {
       // Same, for individual threads. Needed because a thread's messages carry
       // the PARENT id in channel_id, so the channel list cannot name a thread.
       skipThreadIds: config.AI_SKIP_ANALYSIS_THREAD_IDS,
+      // Same, for high-volume bots (Jockie Music's now-playing embeds). The
+      // env var was declared and read by nothing until now, so every one of
+      // those embeds paid a full analysis cycle per batch, forever.
+      skipUserIds: config.AI_SKIP_ANALYSIS_USER_IDS,
       // Ceiling on the vision pre-pass fan-out. Uncapped, a 40-message image
       // batch opened 40 simultaneous vision calls and the provider throttled
       // the batch.
@@ -137,11 +127,8 @@ async function main(): Promise<void> {
     {
       workerId: worker.workerId,
       model: gateway.modelLabel,
-      // Both enhancements are reported here because "the feature is not running"
-      // and "the feature is running but finding nothing" look identical from
-      // the dashboard. This line is the only place the difference is visible.
-      memory: memory !== undefined,
-      dictionary: dictionary !== undefined,
+      memory: config.AI_MEMORY_BASE_URL,
+      dictionary: config.AI_DICTIONARY_BASE_URL,
     },
     "worker ready",
   );

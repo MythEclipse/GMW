@@ -105,27 +105,12 @@ export const configSchema = z
 
     // ── Server ───────────────────────────────────────────────────────────
     WEBSERVER_PORT: z.coerce.number().positive().default(3001),
-    NODE_ENV: z
-      .enum(["development", "production", "test"])
-      .default("development"),
-    LOG_LEVEL: z
-      .enum(["error", "warn", "info", "http", "verbose", "debug", "silly"])
-      .default("info"),
-    VERBOSE: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(false),
-    ADMIN_PASSWORD: z.string().default("admin123"),
+    METRICS_PORT: z.coerce.number().positive().default(9090),
+
     WEBHOOK_URLS: z
       .string()
       .default("")
       .transform((v) => v.split(",").filter(Boolean)),
-    WEBHOOK_EVENTS: z
-      .string()
-      .default("message_flagged,auto_deleted,message_deleted")
-      .transform((v) => v.split(",").filter(Boolean)),
-    METRICS_PORT: z.coerce.number().positive().default(9090),
 
     // ── Database (PostgreSQL) ────────────────────────────────────────────
     DATABASE_URL: z.string().optional(),
@@ -152,31 +137,6 @@ export const configSchema = z
 
     // ── Redis ────────────────────────────────────────────────────────────
     REDIS_URL: z.string().default("redis://localhost:6379"),
-    // ── Wikipedia (web-search / glossary source) ─────────────────────────
-    // Native fetch to Wikipedia REST + Action APIs — no SearXNG dependency.
-    // Language for summaries/search (e.g. "id", "en").
-    WIKIPEDIA_LANG: z.string().min(1).default("id"),
-    // Per-request timeout (ms) for Wikipedia API calls.
-    WIKIPEDIA_TIMEOUT_MS: z.coerce.number().positive().default(8000),
-    // ── TinyFish web search (fallback when Wikipedia misses) ─────────────
-    // GET {base}?query=..&location=..&language=.. with X-API-Key header.
-    // Empty key = fallback disabled (Wikipedia-only, tests stay offline).
-    TINYFISH_API_KEY: z.string().optional().default(""),
-    TINYFISH_SEARCH_ENABLED: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(true),
-    TINYFISH_SEARCH_BASE_URL: z
-      .string()
-      .url()
-      .default("https://api.search.tinyfish.ai"),
-    TINYFISH_SEARCH_TIMEOUT_MS: z.coerce.number().positive().default(10000),
-    TINYFISH_SEARCH_LOCATION: z.string().min(1).default("US"),
-    TINYFISH_SEARCH_LANGUAGE: z.string().min(1).default("en"),
-
-    // ── Connection ───────────────────────────────────────────────────────
-    RECONNECT_TIMEOUT_MS: z.coerce.number().positive().default(5000),
 
     // ── Attachments ─────────────────────────────────────────────────────
     TELE_UPLOAD_URL: z
@@ -186,20 +146,8 @@ export const configSchema = z
     ATTACHMENT_UPLOAD_TIMEOUT_MS: z.coerce.number().positive().default(30000),
     ATTACHMENT_MAX_SIZE_MB: z.coerce.number().positive().default(100),
     ATTACHMENT_RETRY_ATTEMPTS: z.coerce.number().positive().default(3),
-    BACKLOG_SYNC_HOURS: z.coerce.number().positive().default(24),
-    BACKLOG_SYNC_BATCH_SIZE: z.coerce
-      .number()
-      .int()
-      .positive()
-      .max(100)
-      .default(100),
 
     // ── AI Analysis ─────────────────────────────────────────────────────
-    AI_ANALYSIS_ENABLED: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(false),
     AI_LLM_API_KEY: z.string().optional(),
     // 9router — the OpenAI-compatible router on this host (127.0.0.1:4014).
     // Loopback on purpose: the gateway runs on the same machine as 9router,
@@ -227,29 +175,12 @@ export const configSchema = z
       .describe(
         "Disable LLM chain-of-thought (reasoning/thinking) to speed up AI analysis. Set false to restore thinking.",
       ),
-    AI_LLM_MAX_CONCURRENT: z.coerce.number().int().positive().default(8),
-    // Media-lane LLM concurrency cap (2026-09-24): vision + media-batch calls
-    // use their OWN semaphore instead of sharing AI_LLM_MAX_CONCURRENT, so a
-    // slow image backlog can never consume the text lane's concurrency slots.
-    // Default 4 keeps media churn from saturating the router; text inference
-    // keeps its full AI_LLM_MAX_CONCURRENT (default 8) regardless.
     AI_LLM_MEDIA_MAX_CONCURRENT: z.coerce.number().int().positive().default(4),
-    AI_LLM_IMAGE_MAX_DIMENSION: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(1024),
-    AI_LLM_TEXT_BATCH_SIZE: z.coerce.number().int().positive().default(60),
     AI_LLM_MAX_COMPLETION_TOKENS: z.coerce
       .number()
       .int()
       .positive()
       .default(16384),
-    AI_LLM_MEDIA_ANALYSIS_TIMEOUT_MS: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(120_000),
     // Standalone image/sticker/emoji vision analysis (analyzeSingleMediaImage
     // → llmVision → llmChat). Decoupled from the media *batch* timeout above so
     // a single vision call can be tuned independently. 2 minutes by default —
@@ -261,45 +192,6 @@ export const configSchema = z
       .int()
       .positive()
       .default(120_000),
-    // Text-only moderation batches are cheaper than media (no downloads /
-    // vision pre-pass), so they get their own (shorter) timeout instead of
-    // being tied to the media budget. Raised 45s→75s (2026-09-09): the text
-    // model behind the router regularly exceeds 45s on long context batches,
-    // and the individual-fallback re-run adds another full timeout cycle
-    // before marking the message exhausted. 75s is still bounded and keeps
-    // the status queue from piling up.
-    AI_LLM_TEXT_ANALYSIS_TIMEOUT_MS: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(75_000),
-    // Term glossary — per-word Wikipedia lookups (via SearXNG) for words the
-    // LLM may not know (slang, jargon, regional language, foreign terms).
-    // Definitions are cached (in-memory + Redis) so repeat lookups are fast.
-    // Disable to skip glossary lookups entirely and analyze without them.
-    AI_GLOSSARY_ENABLED: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(true),
-    // Max glossary terms looked up per analysis batch (keeps latency bounded).
-    AI_GLOSSARY_MAX_TERMS: z.coerce.number().int().min(1).max(20).default(6),
-    // Per-user personal profile summaries (userProfileLearner). Disabled by
-    // default: profiles bloat the analysis context and add LLM/DB cost for
-    // little moderation signal — user history context (last flagged messages)
-    // is injected via <user_history> instead of a numeric trust score.
-    AI_USER_PROFILE_LEARNING_ENABLED: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(false),
-    // Min word length for a term to be considered glossary-worthy.
-    AI_GLOSSARY_MIN_WORD_LENGTH: z.coerce
-      .number()
-      .int()
-      .min(2)
-      .max(20)
-      .default(5),
 
     // ── Hindsight memory (moderation context) ───────────────────────────
     //
@@ -308,14 +200,8 @@ export const configSchema = z
     // the regular music bot is, what a channel treats as routine — as a
     // `<memory_context>` block ahead of the messages.
     //
-    // Off by default: this is an enhancement, and a missing instance must
-    // never be able to stop a verdict. Every failure path returns "" and the
-    // batch is judged on its own evidence.
-    AI_MEMORY_ENABLED: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(false),
+    // Always on, and every failure path returns "" so a missing instance costs
+    // context, never a verdict.
     // The Hindsight HTTP API. NOT Hermes's memory bank: it points at the
     // self-hosted instance on imrnes (Tailscale 100.121.180.82), which also
     // serves Hermes's own `hermes` bank. Moderation writes untrusted Discord
@@ -351,14 +237,8 @@ export const configSchema = z
     // The KBBI API returns the official senses, which is the difference between
     // grounding and confabulation.
     //
-    // Off by default, exactly like Hindsight: grounding is an enhancement and a
-    // dictionary outage must never cost a verdict. Every failure path degrades
-    // to no definitions rather than throwing.
-    AI_DICTIONARY_ENABLED: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(false),
+    // A missing dictionary costs grounding, never a verdict: every failure path
+    // degrades to no definitions rather than throwing.
     // The kbbi-api HTTP service, published on imrnes. Not Hermes's memory
     // instance and not the public host: an internal read-only lookup.
     AI_DICTIONARY_BASE_URL: z
@@ -466,50 +346,16 @@ export const configSchema = z
       .default(10),
 
     // ── Auto Delete ─────────────────────────────────────────────────────
-    AUTO_DELETE_FLAGGED_ENABLED: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(true),
-    AUTO_DELETE_FLAGGED_DRY_RUN: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(false),
     AUTO_DELETE_FLAGGED_DELAY_MS: z.coerce.number().min(0).default(0),
     AUTO_DELETE_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.5),
     AUTO_DELETE_ALLOWED_CATEGORIES: z.string().default(""),
     AUTO_DELETE_EXCLUDED_CHANNEL_IDS: z.string().default(""),
     AUTO_DELETE_EXCLUDED_USER_IDS: z.string().default(""),
-    AUTO_DELETE_NOTIFY_USER: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(false),
     AUTO_DELETE_LOG_CHANNEL_ID: z.string().default(""),
-
-    // Publish newly-written verdicts to the dashboard over Redis.
-    //
-    // The moderation worker is database-only by design, so it announces
-    // nothing. This is the gateway's poll of the `verdicts` table that turns
-    // each new judgement into a `message_analyzed` event. Without it the
-    // dashboard's live feed is frozen at whatever the server render fetched
-    // and a freshly-captured message shows as "unjudged" until a manual
-    // reload.
-    VERDICT_NOTIFY_ENABLED: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(true),
 
     // ── Nickname Reset (offensive_username enforcement) ────────────────
     // When the only violation is the member's server nickname, reset the
     // nickname to the default username instead of deleting the message.
-    AUTO_NICKNAME_RESET_ENABLED: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(true),
     AUTO_NICKNAME_RESET_COOLDOWN_MS: z.coerce
       .number()
       .positive()
@@ -522,25 +368,13 @@ export const configSchema = z
       .number()
       .positive()
       .default(24 * 60 * 60 * 1000),
-    RETENTION_DRY_RUN: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(true),
-    AUTO_MIGRATE_ON_STARTUP: z
-      .string()
-      .optional()
-      .transform((v) => v === "true")
-      .default(true),
   })
   .superRefine((value, ctx) => {
-    if (!value.AI_ANALYSIS_ENABLED) {
-      // skip: AI analysis not enabled
-    } else if (!value.AI_LLM_API_KEY) {
+    if (!value.AI_LLM_API_KEY) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["AI_LLM_API_KEY"],
-        message: "AI_LLM_API_KEY is required when AI_ANALYSIS_ENABLED=true",
+        message: "AI_LLM_API_KEY is required",
       });
     }
 
@@ -554,7 +388,7 @@ export const configSchema = z
     // The worst case covers the WHOLE batch: the vision pre-pass, which runs
     // once per WAVE because it is capped at AI_LLM_MEDIA_MAX_CONCURRENT in
     // flight, and then the single moderation call.
-    if (value.AI_ANALYSIS_ENABLED) {
+    {
       const waves = Math.ceil(
         value.AI_ANALYSIS_MAX_BATCH_SIZE /
           Math.max(1, value.AI_LLM_MEDIA_MAX_CONCURRENT),

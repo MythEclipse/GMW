@@ -292,19 +292,12 @@ async function tick(client: Client): Promise<void> {
  * Start the enforcement loop. Idempotent.
  */
 export function startAutoDeleteEnforcer(client: Client): void {
-  if (!config.AUTO_DELETE_FLAGGED_ENABLED) {
-    logger.info(
-      "Auto-delete disabled by config — enforcement loop not started",
-    );
-    return;
-  }
   if (timer) return;
 
   logger.info(
     {
       intervalMs: POLL_INTERVAL_MS,
       batch: BATCH_LIMIT,
-      dryRun: config.AUTO_DELETE_FLAGGED_DRY_RUN,
     },
     "Starting auto-delete enforcement loop",
   );

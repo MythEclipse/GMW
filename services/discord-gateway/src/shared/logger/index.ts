@@ -1,5 +1,14 @@
 import pino from "pino";
 
+/**
+ * Log verbosity, read straight from the environment.
+ *
+ * Deliberately NOT part of the Zod config schema: the logger is what reports
+ * a bad config, so it cannot depend on the config module loading successfully.
+ * A validation error thrown at import time would otherwise be invisible.
+ */
+export const DEBUG_VERBOSE = process.env.VERBOSE === "true";
+
 const rootLogger = pino({
   level: process.env.LOG_LEVEL || "info",
   transport:

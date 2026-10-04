@@ -22,14 +22,12 @@ type RetentionTimestampColumn =
 
 /**
  * Delete rows older than `days` in `table`, in batches of up to 1000 ids.
- * When `dryRun` is set, logs what would be deleted without deleting.
  * Returns immediately (no-op) when `days` is unset or <= 0.
  */
 async function deleteExpiredRecords(
   table: RetentionTable,
   timestampField: RetentionTimestampColumn,
   days: number | undefined,
-  dryRun: boolean,
   label: string,
 ): Promise<void> {
   if (!days || days <= 0) {
@@ -53,14 +51,6 @@ async function deleteExpiredRecords(
 
   logger.info({ count: expired.length, label }, `Found expired ${label}`);
 
-  if (dryRun) {
-    logger.info(
-      { count: expired.length, label },
-      `[DRY RUN] Would delete ${expired.length} ${label}`,
-    );
-    return;
-  }
-
   try {
     await db.delete(table).where(
       inArray(
@@ -76,12 +66,10 @@ async function deleteExpiredRecords(
 
 function startRetentionCleanup(): void {
   const intervalMs = config.RETENTION_CLEANUP_INTERVAL_MS;
-  const dryRun = config.RETENTION_DRY_RUN;
 
   logger.info(
     {
       intervalMs,
-      dryRun,
       messagesDays: config.RETENTION_MESSAGES_DAYS,
       attachmentsDays: config.RETENTION_ATTACHMENTS_DAYS,
     },
@@ -93,14 +81,12 @@ function startRetentionCleanup(): void {
       messagesTable,
       messagesTable.created_at,
       config.RETENTION_MESSAGES_DAYS,
-      dryRun,
       "messages",
     );
     await deleteExpiredRecords(
       attachmentsTable,
       attachmentsTable.created_at,
       config.RETENTION_ATTACHMENTS_DAYS,
-      dryRun,
       "attachments",
     );
   }

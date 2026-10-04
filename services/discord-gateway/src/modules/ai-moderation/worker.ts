@@ -34,6 +34,7 @@ import { createChildLogger } from "@/shared/logger/index";
 import {
   escapeMessageBody,
   escapeXmlAttr,
+  extractMessageMediaEvidence,
   formatChannelContextForPrompt,
   formatLinkEvidenceForPrompt,
 } from "../message-capture/messageMetadata.js";
@@ -69,13 +70,6 @@ import { parseVerdicts } from "./verdictParser.js";
 export { escapeMessageBody, escapeXmlAttr };
 
 const log = createChildLogger("ai-moderation");
-
-/**
- * How long a message in an NSFW channel waits before being offered again.
- * Long enough that the loop does not spin on it, short enough that turning
- * the channel flag off takes effect promptly.
- */
-const NSFW_RETRY_DELAY_MS = 300_000;
 
 export type MessageState =
   | "pending"
@@ -180,6 +174,20 @@ export type WorkerConfig = {
    * error anywhere.
    */
   skipThreadIds?: readonly string[];
+  /**
+   * Same terminal `skipped` treatment, keyed on `messages.user_id`.
+   *
+   * For high-volume bots whose messages carry no moderation signal — a music
+   * bot posting now-playing embeds into the channel root all day. They are
+   * still captured and still visible on the dashboard; they are simply never
+   * judged.
+   *
+   * This list was declared in the config schema and read by nothing, so the
+   * default entry (Jockie Music's user id) had no effect: every one of that
+   * bot's embeds paid a vision call, a dictionary lookup and a moderation call
+   * per batch, forever.
+   */
+  skipUserIds?: readonly string[];
   /** Stop after this many batches (0 = run forever). Used by tests. */
   maxBatches?: number;
   /**
@@ -342,6 +350,132 @@ warna yang terlihat, bukan bahwa gambarnya tidak terbaca.
 Output: JSON array berisi SATU string per gambar, urutan sama dengan input.
 Contoh: ["Seseorang mengambil selfie, rambut disisir ke belakang, memakai kemeja hitam."]`;
 
+/**
+ * Image URLs a message carries OUTSIDE the `attachments` table.
+ *
+ * Discord models stickers and custom emoji separately from attachments, so they
+ * never become attachment rows — but `getStickerMetadata` / `getCustomEmojiMetadata`
+ * captured them into `messages.metadata` with name, description and pack. Nothing
+ * read them: `hasMedia` was computed from the attachments table alone, so a
+ * sticker-only or emoji-only message skipped the vision pre-pass entirely and
+ * reached the moderator with no visual evidence, while `MEDIA_RULES` promised
+ * one. An explicit sticker is frequently the whole content of a message, so the
+ * gap was not edge-case.
+ *
+ * Sticker URLs are `cdn.discordapp.com/stickers/…`, which is not an `image/*`
+ * content type, so `isVisionCapable` would reject them on a filename guess. They
+ * are images the provider accepts; the pass runs with them.
+ *
+ * Returns every distinct URL, order preserved, so one image posted twice in a
+ * batch is described once.
+ */
+export function stickerAndEmojiUrls(metadata: string | null): string[] {
+  if (!metadata) return [];
+  const { stickers, customEmojis } = extractMessageMediaEvidence(metadata);
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const u of [
+    ...stickers.map((s) => s.url),
+    ...customEmojis.map((e) => e.url),
+  ]) {
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    urls.push(u);
+  }
+  return urls;
+}
+
+/**
+ * Describe a set of images, skipping ones already described.
+ *
+ * `cache` is per worker process and keyed on the Discord CDN URL, which is
+ * content-addressed for practical purposes: the same sticker or a re-posted
+ * image resolves to the same URL, and its description cannot change under it.
+ *
+ * It exists because the fan-out is per MESSAGE, not per image. A bot that
+ * re-posts one sticker every few seconds, or a pack a guild uses all day,
+ * otherwise pays a full vision call per message for an image already
+ * described — the most repeated, least informative spend in the pipeline. A
+ * miss is not cached, so a transient vision failure is retried rather than
+ * pinned as "this image has no description".
+ */
+async function describeImages(
+  vision: LlmGateway,
+  urls: readonly string[],
+  timeoutMs: number,
+  cache: Map<string, string>,
+): Promise<string> {
+  const pending = urls.filter((u) => !cache.has(u));
+  const parts: string[] = [];
+  const seen = new Set<string>();
+
+  for (const url of urls) {
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const cached = cache.get(url);
+    if (cached) parts.push(cached);
+  }
+
+  if (pending.length > 0) {
+    const description = await vision.complete({
+      system: VISION_SYSTEM_PROMPT,
+      user: `Deskripsikan ${pending.length} gambar berikut.`,
+      images: pending.map((url) => ({ url })),
+      timeoutMs,
+    });
+    const text = description.trim();
+    if (text.length > 0) {
+      // One entry per image, so a later message citing the same URL gets the
+      // same sentence instead of the whole batch's paragraph. The model is
+      // asked for a JSON array of one string per image; anything else is
+      // stored verbatim as a single shared description, which is still far
+      // better than re-paying for it.
+      const perImage = splitVisionDescriptions(text, pending.length);
+      for (const [i, url] of pending.entries()) {
+        const line = perImage[i];
+        if (!line) continue;
+        const rendered = `\n[Media description: ${line}]\n`;
+        cache.set(url, rendered);
+        parts.push(rendered);
+      }
+    }
+  }
+
+  return parts.join("");
+}
+
+/**
+ * Split a vision reply into one description per image.
+ *
+ * The prompt asks for a JSON array of strings. Tolerates prose and markdown
+ * fences, because a single bracket of preamble should not cost the whole batch
+ * its descriptions. Returns fewer entries than `count` when the reply cannot be
+ * split, and the caller then treats the reply as one shared description rather
+ * than attributing it to the wrong image.
+ */
+function splitVisionDescriptions(raw: string, count: number): string[] {
+  const trimmed = raw.trim();
+  const fenced = /```(?:json)?\s*([\s\S]*?)\s*```/.exec(trimmed);
+  const candidate = fenced?.[1] ?? trimmed;
+  if (candidate.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      if (Array.isArray(parsed)) {
+        const strings = parsed
+          .map((v) => (typeof v === "string" ? v.trim() : ""))
+          .filter((v) => v.length > 0);
+        if (strings.length > 0) return strings;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  // Not a JSON array. If there is exactly one image there is nothing to split,
+  // and if there are many, attributing the whole reply to each would be a
+  // fabrication — so one entry is returned and the caller shares it.
+  return [trimmed];
+}
+
 async function generateVisionDescription(
   pool: Pool,
   message: ClaimedMessage,
@@ -351,6 +485,7 @@ async function generateVisionDescription(
     discord_url: string | null;
     type: string | null;
   }>,
+  visionCache?: Map<string, string>,
 ): Promise<string> {
   try {
     let vision = visionGateway;
@@ -370,20 +505,21 @@ async function generateVisionDescription(
         ])
       ).rows;
 
-    if (!attachmentRows.length) return "";
-    const urls = attachmentRows
-      .filter((a) => isVisionCapable(a.type, a.discord_url))
-      .map((a) => a.discord_url as string)
-      .filter((u) => typeof u === "string" && u.length > 0);
+    const urls = [
+      ...attachmentRows
+        .filter((a) => isVisionCapable(a.type, a.discord_url))
+        .map((a) => a.discord_url as string),
+      // Stickers and custom emoji, which are not attachment rows at all.
+      ...stickerAndEmojiUrls(message.metadata),
+    ].filter((u): u is string => typeof u === "string" && u.length > 0);
+
     if (!urls.length) return "";
-    const description = await vision.complete({
-      system: VISION_SYSTEM_PROMPT,
-      user: `Deskripsikan ${urls.length} gambar berikut.`,
-      images: urls.map((url) => ({ url })),
-      timeoutMs: visionTimeoutMs,
-    });
-    if (!description || description.trim().length === 0) return "";
-    return `\n[Media description: ${description.trim()}]\n`;
+    return await describeImages(
+      vision,
+      urls,
+      visionTimeoutMs,
+      visionCache ?? new Map(),
+    );
   } catch (e) {
     log.warn(
       { messageId: message.id, error: String(e) },
@@ -714,6 +850,17 @@ export class ModerationWorker {
    */
   private readonly dictionary: KbbiDictionary | undefined;
   private readonly config: WorkerConfig;
+  /**
+   * Vision descriptions already paid for, keyed on the Discord CDN URL.
+   *
+   * Per process and bounded: the fan-out is per message, so a re-posted image
+   * or a sticker the guild uses all day used to cost a full vision call every
+   * time. A CDN URL is stable for the life of the resource, and a description
+   * of that resource cannot change under it.
+   */
+  private readonly visionCache = new Map<string, string>();
+  /** Evicted in insertion order, so the cache cannot grow without bound. */
+  private static readonly VISION_CACHE_MAX = 500;
   readonly workerId: string;
   private stopped = false;
   private loop: Promise<void> | null = null;
@@ -855,9 +1002,12 @@ export class ModerationWorker {
     // list: production shows 4 flagged channels and 6 safe ones, and the
     // set changes whenever an admin edits a channel.
     //
-    // Claimed rows are released straight back to pending rather than
-    // analyzed — otherwise the claim batch would silently shrink and the
-    // worker would spin on the same unanalysable rows every tick.
+    // The comment below used to say these rows are "released straight back to
+    // pending". They are not — they go to the terminal `skipped` state, as the
+    // skip-list branch below already documents. NSFW is a POLL in spirit (an
+    // admin may untick the channel later) but a poll must not consume the
+    // retry budget, or a message in a flagged channel climbs to `dead` while
+    // never having been analysed.
     const inNsfw = claimed.filter((r) => r.channelIsNsfw === true);
     let rows = claimed;
     if (inNsfw.length > 0) {
@@ -898,12 +1048,16 @@ export class ModerationWorker {
     // cannot be expressed that way, which is what skipThreadIds is for.
     const skipChannels = new Set(this.config.skipChannelIds ?? []);
     const skipThreads = new Set(this.config.skipThreadIds ?? []);
+    const skipUsers = new Set(this.config.skipUserIds ?? []);
     const skipReason = (r: ClaimedMessage): string | null => {
       if (skipChannels.has(r.channelId)) {
         return `channel ${r.channelId} is on AI_SKIP_ANALYSIS_CHANNEL_IDS`;
       }
       if (r.threadId && skipThreads.has(r.threadId)) {
         return `thread ${r.threadId} is on AI_SKIP_ANALYSIS_THREAD_IDS`;
+      }
+      if (skipUsers.has(r.authorId)) {
+        return `user ${r.authorId} is on AI_SKIP_ANALYSIS_USER_IDS`;
       }
       return null;
     };
@@ -925,8 +1079,9 @@ export class ModerationWorker {
           kept: keep.length,
           channels: [...skipChannels],
           threads: [...skipThreads],
+          users: [...skipUsers],
         },
-        "channel or thread is on the skip list — captured, never analysed",
+        "channel, thread or user is on the skip list — captured, never analysed",
       );
       for (const m of inSkipped) {
         logMessageRequeued({
@@ -934,7 +1089,7 @@ export class ModerationWorker {
           messageId: m.id,
           // Not a requeue: the terminal reason, kept on the same event so one
           // grep on the trace id explains the message's whole life.
-          reason: "skipped_by_channel_config",
+          reason: "skipped_by_config",
           detail: skipReason(m) ?? "",
           attempts: m.attempts,
           createdAt: m.createdAt,
@@ -974,7 +1129,13 @@ export class ModerationWorker {
     llmMs: number;
   }> {
     const requestedIds = messages.map((m) => m.id);
-    const hasMedia = messages.some((m) => m.hasMedia);
+    // Sticker and custom emoji count as media. They are not attachment rows,
+    // so `hasMedia` from the claim query is false for a message that is
+    // nothing but a sticker — and the vision pre-pass was gated on `hasMedia`,
+    // so those messages reached the moderator with no visual evidence.
+    const hasMedia = messages.some(
+      (m) => m.hasMedia || stickerAndEmojiUrls(m.metadata).length > 0,
+    );
 
     // NOTE: the system prompt is built LAST, after recall. It has to be,
     // because whether it carries the MEMORY_RULES block depends on whether
@@ -1037,6 +1198,14 @@ export class ModerationWorker {
       // a 40-message image batch from arriving at the provider as a 40-way
       // burst; p-limit preserves the "all descriptions resolved concurrently"
       // property the old Promise.all comment claimed, up to the cap.
+      //
+      // Sticker and custom emoji URLs join the set here. They were captured
+      // into `messages.metadata` (with name, description and pack) but never
+      // read by anything, and they are NOT rows in `attachments` — Discord
+      // models them separately, so `hasMedia` was false for a sticker-only
+      // message and the whole vision pre-pass skipped it. A message that is
+      // nothing but a sticker reached the moderator with no visual evidence
+      // at all, and `MEDIA_RULES` promised one.
       const limit = pLimit(
         this.config.visionConcurrency ??
           DEFAULT_WORKER_CONFIG.visionConcurrency ??
@@ -1045,7 +1214,9 @@ export class ModerationWorker {
       const described = await Promise.all(
         messages.map((m) =>
           limit(async () => {
-            if (!m.hasMedia) return [m.id, ""] as const;
+            if (!m.hasMedia && stickerAndEmojiUrls(m.metadata).length === 0) {
+              return [m.id, ""] as const;
+            }
             const preloaded = attachmentsByMsgId?.get(m.id);
             return [
               m.id,
@@ -1055,6 +1226,7 @@ export class ModerationWorker {
                 this.config.visionTimeoutMs,
                 this.vision,
                 preloaded,
+                this.visionCache,
               ),
             ] as const;
           }),
@@ -1062,6 +1234,14 @@ export class ModerationWorker {
       );
       for (const [id, desc] of described) {
         if (desc) visionById.set(id, desc);
+      }
+      // Insertion-ordered eviction. A busy guild will outrun any fixed cap
+      // over a long shift, and an unbounded map of image descriptions is a
+      // slow leak in a process designed to be restarted rarely.
+      while (this.visionCache.size > ModerationWorker.VISION_CACHE_MAX) {
+        const oldest = this.visionCache.keys().next().value;
+        if (oldest === undefined) break;
+        this.visionCache.delete(oldest);
       }
     }
 
@@ -1690,8 +1870,32 @@ export class ModerationWorker {
     this.stopped = false;
     this.loop = (async () => {
       let sinceReclaim = 0;
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
       while (!this.stopped) {
         let didWork = false;
+        // Push the lease forward while the batch is in flight. The lease is
+        // sized for the batch's worst case (ten vision waves plus the
+        // moderation call), so a crash costs the queue that entire window
+        // before `reclaim_expired_claims` can return the rows — 25 minutes at
+        // the shipped defaults, for work nobody is doing any more.
+        //
+        // The renewal is safe because it only ever EXTENDS a lease this worker
+        // still holds, and the guard `worker_id = $2` means a batch that lost
+        // its lease to a peer (or was already committed) renews nothing. That
+        // is what stops a slow-but-alive worker from resurrecting rows another
+        // worker is already processing.
+        heartbeat = setInterval(() => {
+          void this.renewLease().catch((e: unknown) => {
+            log.warn(
+              {
+                workerId: this.workerId,
+                err: e instanceof Error ? e.message : e,
+              },
+              "lease renewal failed — the lease will still lapse on its own",
+            );
+          });
+        }, this.config.leaseMs / 3);
+        heartbeat.unref?.();
         try {
           didWork = await this.runOnce();
         } catch (e) {
@@ -1704,6 +1908,8 @@ export class ModerationWorker {
             },
             "batch failed; continuing",
           );
+        } finally {
+          if (heartbeat) clearInterval(heartbeat);
         }
 
         // Reclaim every ~10 idle polls; cheap, and it is what rescues work
@@ -1733,6 +1939,27 @@ export class ModerationWorker {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Extend this worker's lease on everything it currently holds.
+   *
+   * Scoped to `worker_id = $1` and to `ai_status = 'claimed'`, so it can only
+   * ever renew this worker's own in-flight batch. A batch that has already
+   * committed (or whose lease a peer reclaimed and took over) matches nothing
+   * and the statement is a no-op — which is the property that makes a
+   * heartbeat safe to run on a timer without knowing whether the batch is
+   * still going.
+   */
+  private async renewLease(): Promise<void> {
+    const leaseMs = this.config.leaseMs;
+    await this.pool.query(
+      `UPDATE messages
+          SET lease_until = (extract(epoch from now())*1000)::bigint + $2
+        WHERE worker_id = $1
+          AND ai_status = 'claimed'`,
+      [this.workerId, leaseMs],
+    );
   }
 
   async stop(): Promise<void> {

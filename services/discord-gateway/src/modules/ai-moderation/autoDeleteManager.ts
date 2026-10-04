@@ -260,7 +260,6 @@ export async function resetOffensiveNickname(
       logger.debug({ guildId, userId }, "Nick reset skipped: cooldown active");
       return false;
     }
-    if (config.AUTO_NICKNAME_RESET_ENABLED === false) return false;
 
     const guild = client.guilds.cache.get(guildId);
     if (!guild) {
@@ -339,12 +338,6 @@ export async function attemptAutoDeleteFlaggedMessage(
   verdict: VerdictLike | null | undefined,
 ): Promise<AutoDeleteResult> {
   logger.debug({ messageId: message.id }, "Processing message for auto-delete");
-
-  // ── Config gate ──────────────────────────────────────────────────
-  if (!config.AUTO_DELETE_FLAGGED_ENABLED) {
-    logger.debug({ messageId: message.id }, "Auto-delete disabled by config");
-    return { deleted: false, skipped: true, reason: "disabled" };
-  }
 
   // ── The model's chosen disposition ─────────────────────────────────
   // `verdicts.action` is what the model decided should happen, so it is read

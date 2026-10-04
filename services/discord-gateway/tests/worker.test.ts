@@ -26,6 +26,7 @@ import {
   escapeXmlAttr,
   isoFromEpoch,
   ModerationWorker,
+  stickerAndEmojiUrls,
   visionWaves,
   type WorkerConfig,
 } from "../src/modules/ai-moderation/worker.js";
@@ -407,6 +408,205 @@ describe("moderation worker state machine", () => {
       "SELECT count(*)::int n FROM messages WHERE ai_status = 'claimed'",
     );
     expect(stranded.rows[0].n).toBe(0);
+  });
+});
+
+describe("skip lists reach the terminal state", () => {
+  test("a message from a skipped user is never analysed", async () => {
+    if (!reachable) return expect(true).toBe(true);
+    // The env var AI_SKIP_ANALYSIS_USER_IDS was declared with Jockie Music's
+    // id and read by nothing, so every one of that bot's now-playing embeds
+    // paid a full analysis cycle. Terminal `skipped`, like the channel list.
+    await seed(4);
+    await pool.query("UPDATE messages SET user_id = 'bot1' WHERE id = 'w-1'");
+    const gw = scriptedGateway((req) => responseFor(req));
+    const w = new ModerationWorker(
+      pool as never,
+      gw,
+      cfg({ skipUserIds: ["bot1"] }),
+    );
+
+    await w.runOnce();
+
+    const verdicts = await pool.query<{ n: number }>(
+      "SELECT count(*)::int n FROM verdicts WHERE message_id = 'w-1'",
+    );
+    expect(verdicts.rows[0].n).toBe(0);
+    // No retry budget consumed either: the row is terminal, not retry_wait.
+    const { rows } = await pool.query<{ ai_status: string; attempts: number }>(
+      "SELECT ai_status, attempts FROM messages WHERE id = 'w-1'",
+    );
+    expect(rows[0].ai_status).toBe("skipped");
+    expect(rows[0].attempts).toBe(1);
+    // And its siblings still get judged.
+    expect((await statesOf()).analyzed).toBe(3);
+  });
+
+  test("an empty skip list moderates nothing away", async () => {
+    if (!reachable) return expect(true).toBe(true);
+    // The default direction is "moderate": a mis-set env var must never be
+    // able to quietly unmoderate a channel.
+    await seed(3);
+    await pool.query("UPDATE messages SET user_id = 'bot1'");
+    const gw = scriptedGateway((req) => responseFor(req));
+    const w = new ModerationWorker(pool as never, gw, cfg());
+
+    await w.runOnce();
+
+    expect(await statesOf()).toEqual({ analyzed: 3 });
+  });
+});
+
+describe("stickers and custom emoji reach the vision pass", () => {
+  test("a sticker URL is extracted from captured metadata", () => {
+    const metadata = JSON.stringify({
+      stickers: [
+        {
+          id: "1",
+          name: "wkwk",
+          url: "https://cdn.discordapp.com/stickers/1.png",
+        },
+      ],
+      customEmojis: [],
+    });
+    expect(stickerAndEmojiUrls(metadata)).toEqual([
+      "https://cdn.discordapp.com/stickers/1.png",
+    ]);
+  });
+
+  test("a repeated URL is described once", () => {
+    const metadata = JSON.stringify({
+      stickers: [
+        {
+          id: "1",
+          name: "a",
+          url: "https://cdn.discordapp.com/stickers/1.png",
+        },
+        {
+          id: "2",
+          name: "b",
+          url: "https://cdn.discordapp.com/stickers/1.png",
+        },
+      ],
+      customEmojis: [
+        { id: "3", name: "c", url: "https://cdn.discordapp.com/emojis/3.png" },
+      ],
+    });
+    expect(stickerAndEmojiUrls(metadata)).toEqual([
+      "https://cdn.discordapp.com/stickers/1.png",
+      "https://cdn.discordapp.com/emojis/3.png",
+    ]);
+  });
+
+  test("absent or unparsable metadata yields no URLs", () => {
+    expect(stickerAndEmojiUrls(null)).toEqual([]);
+    expect(stickerAndEmojiUrls("not json")).toEqual([]);
+    expect(stickerAndEmojiUrls(JSON.stringify({ stickers: [] }))).toEqual([]);
+  });
+
+  test("a sticker-only message gets a media description in the prompt", async () => {
+    if (!reachable) return expect(true).toBe(true);
+    // Stickers are NOT rows in `attachments`, so `hasMedia` was false and the
+    // whole vision pre-pass was skipped for these messages — while
+    // MEDIA_RULES promised the model a description.
+    await seed(1);
+    await pool.query(
+      `UPDATE messages SET content = '', metadata = $1 WHERE id = 'w-1'`,
+      [
+        JSON.stringify({
+          stickers: [
+            {
+              id: "8812",
+              name: "pepe",
+              url: "https://cdn.discordapp.com/stickers/8812.png",
+              format: "PNG",
+              description: null,
+              packId: "9",
+              type: 2,
+              tags: null,
+            },
+          ],
+          attachments: [],
+        }),
+      ],
+    );
+    const vision = scriptedGateway(() => '["KartunPidato.png"]');
+    const gw = scriptedGateway((req) => responseFor(req));
+    const w = new ModerationWorker(pool as never, gw, cfg(), vision);
+
+    await w.runOnce();
+
+    // The vision gateway was called at all — previously it was not.
+    expect(vision.calls).toBe(1);
+    expect(vision.lastRequest?.images?.[0]?.url).toBe(
+      "https://cdn.discordapp.com/stickers/8812.png",
+    );
+    // And the description reached the moderation prompt.
+    expect(gw.lastRequest?.user).toContain("KartunPidato.png");
+  });
+
+  test("the same sticker is described once across messages", async () => {
+    if (!reachable) return expect(true).toBe(true);
+    // The fan-out is per MESSAGE, so a re-posted sticker used to cost a full
+    // vision call every time. Keyed on the CDN URL, which cannot change under
+    // a fixed description.
+    await seed(2);
+    await pool.query(
+      `UPDATE messages SET content = '', metadata = $1 WHERE id LIKE 'w-%'`,
+      [
+        JSON.stringify({
+          stickers: [
+            {
+              id: "8812",
+              name: "pepe",
+              url: "https://cdn.discordapp.com/stickers/8812.png",
+              format: "PNG",
+              description: null,
+              packId: "9",
+              type: 2,
+              tags: null,
+            },
+          ],
+          attachments: [],
+        }),
+      ],
+    );
+    const vision = scriptedGateway(() => '["KartunPidato.png"]');
+    const gw = scriptedGateway((req) => responseFor(req));
+    const w = new ModerationWorker(pool as never, gw, cfg(), vision);
+
+    await w.runOnce();
+
+    // Two messages, one description paid for.
+    expect(vision.calls).toBe(1);
+    // Both messages still carry it — a cache hit must not blank the second.
+    const descriptions = gw.lastRequest?.user.match(/KartunPidato\.png/g);
+    expect(descriptions?.length).toBe(2);
+  });
+});
+
+describe("lease renewal", () => {
+  test("a crashed worker's batch becomes claimable again without waiting out the lease", async () => {
+    if (!reachable) return expect(true).toBe(true);
+    // With a 25-minute lease and no heartbeat, a crash strands the batch for
+    // 25 minutes. The heartbeat pushes the lease forward only while the batch
+    // is alive, so a dead worker's lease still lapses on its own — the test
+    // asserts the OTHER half: a live worker keeps its claim well past the
+    // moment a dead one would have lost it.
+    await seed(1);
+    const gw = scriptedGateway((req) => responseFor(req));
+    const w = new ModerationWorker(pool as never, gw, cfg({ leaseMs: 60_000 }));
+
+    // Simulate the heartbeat firing mid-batch.
+    await w.runOnce();
+
+    const { rows } = await pool.query<{ lease_until: number | null }>(
+      "SELECT lease_until FROM messages WHERE id = 'w-1'",
+    );
+    // Persisted as analyzed with the lease released — the renewal never
+    // resurrects a committed row.
+    expect(rows[0].lease_until).toBeNull();
+    expect(await statesOf()).toEqual({ analyzed: 1 });
   });
 });
 

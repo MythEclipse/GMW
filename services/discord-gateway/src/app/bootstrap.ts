@@ -4,7 +4,7 @@ import {
   DatabaseError,
   errorMessage,
 } from "@/shared/errors/index.js";
-import { createChildLogger } from "@/shared/logger/index.js";
+import { createChildLogger, DEBUG_VERBOSE } from "@/shared/logger/index.js";
 import { startAutoDeleteEnforcer } from "../modules/ai-moderation/autoDeleteEnforcer.js";
 import { CommandHandler } from "../modules/command-handler/commandHandler.js";
 import {
@@ -39,24 +39,20 @@ const logger = createChildLogger("discord-gateway");
 //   4. start observability        (pipeline gauges → metrics server)
 //   5. log in                     (ready-hook wires listeners via lifecycle.ts)
 
-/** Refuse to start when AI analysis is on but no LLM credentials exist. */
+/** Refuse to start without LLM credentials. */
 function assertConfigIsUsable(): void {
-  if (config.AI_ANALYSIS_ENABLED && !config.AI_LLM_API_KEY) {
+  if (!config.AI_LLM_API_KEY) {
     throw new ConfigError(
-      "AI_ANALYSIS_ENABLED=true but AI_LLM_API_KEY is missing from environment. AI analysis cannot run without credentials.",
+      "AI_LLM_API_KEY is missing from environment. AI analysis cannot run without credentials.",
     );
   }
 }
 
-/** Run migrations (when enabled) then open the PostgreSQL pool. */
+/** Run migrations then open the PostgreSQL pool. */
 async function connectDatabase(): Promise<void> {
   try {
-    if (config.AUTO_MIGRATE_ON_STARTUP) {
-      logger.info(
-        "AUTO_MIGRATE_ON_STARTUP enabled; running database migrations",
-      );
-      await runMigrations();
-    }
+    logger.info("running database migrations");
+    await runMigrations();
 
     logger.info("Initializing database");
     await initializeDatabase();
@@ -78,7 +74,7 @@ function registerClientDebugLogging(client: Client): void {
     const lower = msg.toLowerCase();
     if (lower.includes("error") || lower.includes("stream")) {
       logger.info({ debugMsg: msg }, "Discord Client Debug");
-    } else if (config.VERBOSE) {
+    } else if (DEBUG_VERBOSE) {
       logger.debug({ debugMsg: msg }, "Discord Client Debug");
     }
   });
