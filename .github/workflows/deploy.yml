@@ -39,7 +39,9 @@ jobs:
 
       - name: Generate Prisma client
         working-directory: packages/db
-        run: bun run generate
+        run: |
+          bun install --frozen-lockfile
+          bun run generate
 
       - name: Install deps + test (backend)
         working-directory: apps/backend
