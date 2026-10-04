@@ -63,8 +63,31 @@ log "Generating Prisma client"
 # Node's native ESM loader resolves `import ... from "./enums"` inside the
 # generated .ts files by looking for a literal `.js` sibling (it does not
 # rewrite the specifier to .ts). The Prisma generator emits extension-less
-# relative imports, so we compile the generated TypeScript to JavaScript in
-# place; the runtime then finds the .js files it asks for.
+# relative imports, so we must (a) rewrite the specifiers to `./enums.js` and
+# (b) compile the .ts to .js in place; the runtime then finds the .js files
+# it asks for.
+log "Fixing Prisma generated import specifiers"
+(cd packages/db && node -e "
+const fs = require('fs');
+const path = require('path');
+function walk(dir) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walk(p);
+    else if (e.name.endsWith('.ts')) {
+      const c = fs.readFileSync(p, 'utf8');
+      const n = c.replace(/from\s+['\"]([^'\"]+)['\"]/g, (m, spec) =>
+        ((spec.startsWith('./') || spec.startsWith('../')) &&
+         !/\.(js|ts|json|node|mjs|cjs)$/.test(spec))
+          ? 'from \"' + spec + '.js\"' : m);
+      if (n !== c) fs.writeFileSync(p, n);
+    }
+  }
+}
+walk('prisma/generated');
+console.log('  source specifiers rewritten');
+")
+
 log "Compiling Prisma generated client to JS"
 TSC_BIN=$(find "$RELEASE_DIR/node_modules/.bun" -path '*/typescript/bin/tsc' -type f | head -1)
 if [ -z "$TSC_BIN" ]; then
@@ -202,12 +225,22 @@ sudo systemctl restart gmw-backend gmw-discord-gateway gmw-discord-gateway-worke
 # ---------------------------------------------------------------------------
 # 9. Health check
 # ---------------------------------------------------------------------------
-log "Waiting for services to become active"
-end=$((SECONDS+60))
-healthy=0
+# `systemctl is-active` alone is NOT a health signal: with Restart=always a unit
+# that exits 200ms after start reports `active` on the first poll, then flips to
+# `activating (auto-restart)`. A single reading therefore passes a deploy whose
+# backend has been crash-looping the whole time — which is exactly what happened
+# on the first run of this script.
+#
+# So: require every unit to be active on CONSECUTIVE polls across a stability
+# window, AND require the HTTP surfaces to actually answer. A port that is open
+# because the process died a moment later proves nothing.
+UNITS="gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-frontend gmw-proxy"
+STABLE_POLLS=3
+end=$((SECONDS+90))
+streak=0
 while [ $SECONDS -lt $end ]; do
   ok=1
-  for u in gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-frontend gmw-proxy; do
+  for u in $UNITS; do
     state=$(sudo systemctl is-active "$u" 2>/dev/null || echo inactive)
     if [ "$state" != "active" ]; then
       ok=0
@@ -215,20 +248,44 @@ while [ $SECONDS -lt $end ]; do
     fi
   done
   if [ $ok -eq 1 ]; then
-    healthy=1
-    break
+    streak=$((streak+1))
+    if [ $streak -ge $STABLE_POLLS ]; then
+      break
+    fi
+  else
+    streak=0
   fi
   sleep 2
 done
 
-if [ $healthy -eq 0 ]; then
-  echo "::error::One or more services failed to start" >&2
-  for u in gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-frontend gmw-proxy; do
+if [ $streak -lt $STABLE_POLLS ]; then
+  echo "::error::One or more services failed to stay active" >&2
+  for u in $UNITS; do
     state=$(sudo systemctl is-active "$u" 2>/dev/null || echo inactive)
     echo "  $u -> $state"
   done
   exit 1
 fi
 
-log "All services active"
+# HTTP surfaces, not just process liveness.
+check_http() {
+  local label="$1" url="$2" code
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || echo 000)
+  echo "  $label ($url) -> $code"
+  [ "$code" = "200" ]
+}
+
+log "Checking HTTP surfaces"
+http_ok=1
+check_http "backend"     "http://127.0.0.1:4001/api/health" || http_ok=0
+check_http "frontend"    "http://127.0.0.1:4017/"          || http_ok=0
+check_http "proxy"       "http://127.0.0.1:4009/"          || http_ok=0
+check_http "proxy/api"   "http://127.0.0.1:4009/api/health" || http_ok=0
+
+if [ $http_ok -ne 1 ]; then
+  echo "::error::One or more HTTP surfaces did not answer 200" >&2
+  exit 1
+fi
+
+log "All services active and answering"
 log "Deployment complete: $SHORT_SHA"
