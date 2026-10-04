@@ -46,20 +46,4 @@ export function pageResult<T extends { created_at: number; id: string }>(
   return { data, nextCursor };
 }
 
-/**
- * Build a Drizzle cursor condition expression.
- * Used in WHERE clauses: `(created_at < cursor.created_at OR (created_at = cursor.created_at AND id < cursor.id))`
- *
- * Returns the SQL expression or undefined when cursor is absent.
- */
-import { type SQL, sql } from "drizzle-orm";
 
-export function buildCursorCondition(
-  created_at_col: SQL | unknown,
-  id_col: SQL | unknown,
-  cursor?: string,
-): SQL | undefined {
-  const data = decodeCursor(cursor);
-  if (!data) return undefined;
-  return sql`(${created_at_col} < ${data.created_at} or (${created_at_col} = ${data.created_at} and ${id_col} < ${data.id}))`;
-}

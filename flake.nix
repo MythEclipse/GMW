@@ -20,7 +20,7 @@
           filter = (path: type: let base = baseNameOf path; in !(builtins.elem base ignore));
         };
         frontendSrc = filterSource {
-          dir = ./services/frontend;
+          dir = ./apps/frontend;
           ignore = [ "out" "dist" "node_modules" "pnpm-lock.yaml" ];
         };
 
@@ -88,7 +88,7 @@
           pname = "gmw-backend";
           version = "1.0.0";
 
-          src = ./services/backend;
+          src = ./apps/backend;
 
           nativeBuildInputs = [ nodejs bun pkgs.python3 pkgs.gnumake pkgs.gcc pkgs.cacert ];
 
@@ -124,7 +124,7 @@ WRAPPER
           pname = "gmw-discord-gateway";
           version = "1.0.0";
 
-          src = ./services/discord-gateway;
+          src = ./apps/discord-gateway;
 
           # cmake + rust/cargo were inherited for node-datachannel-style native
           # deps — that's 9router/omniroute, NOT GMW. GMW's only native deps
