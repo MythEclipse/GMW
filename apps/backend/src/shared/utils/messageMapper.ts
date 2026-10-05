@@ -160,9 +160,12 @@ export function mapMessageRow(row: Record<string, unknown>): MappedMessage {
     ai_analysis: (row.ai_analysis as string | null) ?? null,
     ai_categories: (row.ai_categories as string | null) ?? null,
     ai_confidence: (row.ai_confidence as number | null) ?? null,
-    ai_analyzed_at: (row.ai_analyzed_at as number | null) ?? null,
+    ai_analyzed_at:
+      row.ai_analyzed_at == null ? null : Number(row.ai_analyzed_at),
     ai_analysis_duration_ms:
-      (row.ai_analysis_duration_ms as number | null) ?? null,
+      row.ai_analysis_duration_ms == null
+        ? null
+        : Number(row.ai_analysis_duration_ms),
     ai_error: (row.ai_error as string | null) ?? null,
     is_reply: row.is_reply === null ? null : Boolean(row.is_reply),
     is_forward: row.is_forward === null ? null : Boolean(row.is_forward),
