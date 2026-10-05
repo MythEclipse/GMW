@@ -213,7 +213,7 @@ export function MessagesView({
             Messages
           </h1>
           <p className="text-xs text-ink-muted">
-            Live feed, review queue, and edit history
+            Live feed, enforcement log, and edit history
           </p>
         </div>
 
@@ -235,8 +235,8 @@ export function MessagesView({
       <Tabs defaultValue="feed">
         <TabsList className="tabs-touch">
           <TabsTrigger value="feed">Feed</TabsTrigger>
-          <TabsTrigger value="review">
-            Review
+          <TabsTrigger value="enforced">
+            Enforced
             {reviewCount > 0 && (
               <Badge variant="secondary" className="ml-1.5">
                 {reviewCount}
@@ -356,8 +356,8 @@ export function MessagesView({
           </div>
         </TabsContent>
 
-        <TabsContent value="review" className="mt-4">
-          <ReviewQueue
+        <TabsContent value="enforced" className="mt-4">
+          <EnforcementLog
             messages={reviewRows}
             loading={review.isFetching}
             error={review.error}
@@ -385,17 +385,30 @@ export function MessagesView({
 }
 
 /**
- * The review queue: verdicts that called for the message to go.
+ * The enforcement log: what the pipeline already acted on.
  *
- * This is fed by `messages.review`, which filters on the VERDICT column. An
- * earlier version filtered `ai_status IN ('warn','flagged')` — values the
+ * THIS IS NOT A HUMAN REVIEW QUEUE. Nothing here is waiting for a person to
+ * approve it — the gateway's auto-delete enforcer (`autoDeleteEligibility.ts`)
+ * decides and deletes on its own, and `verdicts.status` is `clean | deleted |
+ * error` with no review tier between them. The endpoint kept its historical
+ * name (`messages.review`) on the backend, which is where the old wording
+ * leaked in from.
+ *
+ * What it actually lists, from `messages.review`'s filter: verdicts that called
+ * for the message to go (`verdict = deleted`), PLUS messages stuck in `dead`,
+ * where the worker exhausted its retries and so will never be judged at all.
+ * Those two are shown together because they are the two ways a message ends up
+ * removed or unhandled — the "what did the bot do, and what did it fail to do"
+ * view.
+ *
+ * An earlier version filtered `ai_status IN ('warn','flagged')` — values the
  * database CHECK constraint forbids, so the query matched nothing and this
  * panel was permanently empty while moderation was working fine.
  *
- * Paged because the queue is unbounded in principle: it is every unacknowledged
- * verdict, and a busy week accumulates more than any fixed page can hold.
+ * Paged because the log is unbounded in principle: every removed message
+ * accumulates, and a busy week holds more than any fixed page can.
  */
-function ReviewQueue({
+function EnforcementLog({
   messages,
   loading,
   error,
@@ -420,8 +433,8 @@ function ReviewQueue({
   if (messages.length === 0) {
     return (
       <EmptyState
-        title="Nothing needs review"
-        description="Messages the model called for deletion appear here."
+        title="Nothing removed yet"
+        description="Messages the pipeline deleted, plus any it failed to judge, appear here."
       />
     );
   }
@@ -442,13 +455,13 @@ function ReviewQueue({
         onLoadMore={onLoadMore}
         hasMore={hasMore}
         isFetching={isLoadingMore}
-        label="review"
+        label="enforced messages"
       />
       <LoadMoreFallback
         onLoadMore={onLoadMore}
         hasMore={hasMore}
         isFetching={isLoadingMore}
-        label="review queue entries"
+        label="enforcement log entries"
       />
     </>
   );

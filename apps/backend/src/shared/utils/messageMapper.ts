@@ -35,11 +35,20 @@ export interface MappedMessage {
   type: string;
   metadata: string | null;
   ai_status: string | null;
-  // Claim/retry bookkeeping from `messages`
+  // Claim/retry bookkeeping from `messages`.
+  //
+  // TYPED AS BIGINT ON PURPOSE, even though `mapMessageRow` emits numbers. These
+  // are the RAW columns as Prisma returns them, and `lease_until` /
+  // `ready_for_work_at` are BigInt in Postgres. Declaring them `number` is what
+  // let `(row.lease_until as number | null)` typecheck — a cast that silences
+  // the compiler while the runtime value stays a `bigint` and breaks JSON
+  // serialisation on the way to the browser. Typing the input honestly makes
+  // every one of those conversions a compile error until it is written as a
+  // real `Number(...)`.
   attempts?: number | null;
   worker_id?: string | null;
-  lease_until?: number | null;
-  ready_for_work_at?: number | null;
+  lease_until?: bigint | null;
+  ready_for_work_at?: bigint | null;
   // The mapper's OUTPUT names for that bookkeeping — kept under the `ai_`
   // prefix so existing dashboard code can find them next to ai_status.
   /** Retry count; the cap is maxAttempts. `dead` means it ran out. */
@@ -94,8 +103,12 @@ export function mapMessageRow(row: Record<string, unknown>): MappedMessage {
     content: String(row.content ?? ""),
     edited_content: (row.edited_content as string | null) ?? null,
     created_at: Number(row.created_at ?? 0),
-    edited_at: (row.edited_at as number | null) ?? null,
-    deleted_at: (row.deleted_at as number | null) ?? null,
+    // BigInt columns, so `Number(...)` is required — see `verdict_updated_at`
+    // below. These are the two the "Edited" / "deleted" badges read, so a
+    // `bigint` here is not merely unserialisable: it breaks the arithmetic that
+    // decides whether to render those badges at all.
+    edited_at: row.edited_at == null ? null : Number(row.edited_at),
+    deleted_at: row.deleted_at == null ? null : Number(row.deleted_at),
     type: String(row.type ?? "text"),
     metadata: (row.metadata as string | null) ?? null,
     // Pipeline position, NOT the judgement. `analyzed` only means the worker is
@@ -103,11 +116,17 @@ export function mapMessageRow(row: Record<string, unknown>): MappedMessage {
     // below, which comes from the `verdicts` table.
     ai_status: (row.ai_status as string | null) ?? null,
     // Retry bookkeeping, so the dashboard can show stuck work without a second
-    // query. `dead` is the state that means "a human must look at this".
+    // query. `dead` is the state that means "the worker gave up".
+    //
+    // `lease_until` and `ready_for_work_at` are BigInt columns, so `Number(...)`
+    // is load-bearing, not decoration — see the note on `verdict_updated_at`
+    // below for why a cast is not enough. `attempts` is an int column and is
+    // left as-is.
     ai_attempts: (row.attempts as number | null) ?? null,
     ai_worker_id: (row.worker_id as string | null) ?? null,
-    ai_lease_until: (row.lease_until as number | null) ?? null,
-    ai_ready_for_work_at: (row.ready_for_work_at as number | null) ?? null,
+    ai_lease_until: row.lease_until == null ? null : Number(row.lease_until),
+    ai_ready_for_work_at:
+      row.ready_for_work_at == null ? null : Number(row.ready_for_work_at),
     // ── Verdict (from `verdicts`, joined by the repository) ────────────────
     // null means "not judged yet" — which is now distinguishable from
     // "judged clean". Before the split those were the same value.
@@ -120,7 +139,18 @@ export function mapMessageRow(row: Record<string, unknown>): MappedMessage {
     verdict_analysis: (row.verdict_analysis as string | null) ?? null,
     verdict_evidence: (row.verdict_evidence as unknown) ?? null,
     verdict_model: (row.verdict_model as string | null) ?? null,
-    verdict_updated_at: (row.verdict_updated_at as number | null) ?? null,
+    // COERCED, NOT CAST. `verdicts.updated_at` is a BigInt column, so this
+    // arrives as a real `bigint` and a cast (`as number | null`) passes it
+    // through untouched — which is what shipped BigInts to the browser. The
+    // crash landed on `created_at` because the arithmetic was there, but every
+    // BigInt column on a message row is the same hazard: `JSON.stringify`
+    // throws on it, so the whole response fails rather than one field.
+    //
+    // `== null` first so a NULL column stays null instead of becoming 0 — "never
+    // judged" and "judged at epoch zero" are different facts, and a 0 would
+    // render as 56 years ago.
+    verdict_updated_at:
+      row.verdict_updated_at == null ? null : Number(row.verdict_updated_at),
     auto_delete_state: (row.auto_delete_state as string | null) ?? null,
     // Legacy `messages.ai_*` columns. The new worker writes NOTHING here, so
     // these stay null for anything analysed after the rewrite; kept for older

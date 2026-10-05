@@ -211,8 +211,10 @@ export function DashboardView({ days }: { days: number }) {
  * Queue breakdown.
  *
  * `dead` is called out separately and in the warning tone: it is the only state
- * that means "a human needs to look at this", and folding it into "pending"
- * hides a stuck pipeline behind a healthy-looking backlog.
+ * that means "the worker gave up and nobody will ever judge this", and folding
+ * it into "pending" hides a stuck pipeline behind a healthy-looking backlog.
+ * Nothing here waits on a person — the pipeline is full-auto — so this is a
+ * health signal, not a work queue.
  */
 function QueueBreakdown({
   queue,
@@ -265,7 +267,7 @@ function QueueBreakdown({
           {queue.dead === 1 ? "" : "s"} exhausted their retries and will not be
           judged automatically.{" "}
           <Link to="/messages?status=dead" className="underline">
-            Review them
+            Inspect them
           </Link>
           .
         </p>

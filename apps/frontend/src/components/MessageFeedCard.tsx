@@ -20,7 +20,7 @@ import {
 import type { Message, VerdictStatus } from "@/lib/types";
 
 /**
- * Message row for the live feed and the review queue.
+ * Message row for the live feed and the enforcement log.
  *
  * Shows BOTH state axes explicitly, because collapsing them is the bug that
  * made "still queued" indistinguishable from "judged clean":

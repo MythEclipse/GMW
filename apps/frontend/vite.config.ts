@@ -15,6 +15,14 @@ import { defineConfig } from "vite";
  *    auto-loads any root `postcss.config.*` it finds, so keeping both would
  *    run Tailwind twice over the same stylesheet.
  */
+
+/**
+ * Dev-only backend target for the `server.proxy` rules below. Defaults to the
+ * port the deployed backend listens on; override to point the dev server at a
+ * side-by-side build.
+ */
+const devBackend = `ws://127.0.0.1:${process.env.GMW_DEV_BACKEND_PORT ?? "4001"}`;
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -37,8 +45,18 @@ export default defineConfig({
     proxy: {
       // Dev-only convenience so `bun run dev` talks to a real backend without
       // a rebuild. Production goes through nginx; these are never shipped.
-      "/trpc": { target: "ws://127.0.0.1:4001", ws: true },
-      "/ws": { target: "ws://127.0.0.1:4001", ws: true },
+      //
+      // The port is overridable because a hardcoded target silently defeats
+      // verification: a side-by-side backend on another port is easy to start,
+      // but the proxy would keep serving the old one and the browser would show
+      // a stale-data crash that looks exactly like a failed fix.
+      //
+      //   GMW_DEV_BACKEND_PORT=4101 bun run dev
+      //
+      // ws:true covers both the oRPC WebSocket upgrade and plain HTTP requests
+      // on the same target, which is why the scheme is ws:// and not http://.
+      "/trpc": { target: devBackend, ws: true },
+      "/ws": { target: devBackend, ws: true },
     },
   },
 });

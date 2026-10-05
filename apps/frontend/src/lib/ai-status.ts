@@ -194,10 +194,16 @@ export function pipelineTone(
 }
 
 /**
- * A message needs a human when its pipeline state is `dead` (the worker gave
- * up) or its verdict is `error`. Everything else resolves on its own.
+ * A message the pipeline will never resolve on its own.
+ *
+ * `dead` means the worker exhausted its retries, and `error` means the model
+ * call failed in a way that produced no usable verdict. Both are terminal
+ * without intervention — but this is NOT a review queue. There is no human
+ * approval step anywhere in the system: the enforcer deletes what the model
+ * says to delete, on its own. These rows are "this needs someone to LOOK at",
+ * not "this is waiting for someone to APPROVE it".
  */
-export function needsHuman(message: {
+export function isUnresolved(message: {
   ai_status?: PipelineStatus | null;
   verdict_status?: DisplayVerdict | null;
 }): boolean {

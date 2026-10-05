@@ -343,9 +343,18 @@ function encodeReviewCursor(cursor: ReviewCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64");
 }
 
-/** A page of review-queue rows plus the position to resume from. */
+/**
+ * A page of enforcement-log rows plus the position to resume from.
+ *
+ * `results` is `MappedMessage[]`, the same shape `findMany` returns — not a
+ * loose `Record<string, unknown>[]`. It was declared loosely because the rows
+ * used to skip `mapMessageRow` entirely and go out as raw Prisma values, BigInt
+ * columns included. Now that they are mapped, the loose type is a lie that also
+ * hides every field from the compiler; `MessageRow` is the type consumers
+ * already handle.
+ */
 export interface ReviewPageResult {
-  results: Record<string, unknown>[];
+  results: MessageRow[];
   nextCursor: string | null;
 }
 
@@ -839,7 +848,25 @@ export class MessagesRepository {
       .sort((a, b) => compareReviewOrder(a.key, b.key));
 
     const page = ordered.slice(0, cursorLimit(limit));
-    const results = page.slice(0, limit).map((k) => flattenVerdict(k.row));
+    // THROUGH `mapMessageRow`, unlike the pre-fix version of this line.
+    //
+    // `reviewSelect` reads Prisma's raw rows, and its BigInt columns
+    // (`messages.created_at`, `verdicts.updated_at`) arrive as `bigint`
+    // values. `JSON.stringify` cannot serialise those, so oRPC's wire
+    // serializer tags them and the browser rebuilds them as REAL `BigInt`
+    // objects — not numbers. Every arithmetic operation on them then throws
+    // `TypeError: Cannot convert a BigInt value to number`, which took the
+    // whole review/enforcement panel down with "This panel failed to render".
+    //
+    // `findMany` has never had this problem because it maps through
+    // `mapMessageRow`, which coerces with `Number(...)`. This endpoint is the
+    // only message query that skipped that boundary, so it is the only one
+    // that shipped BigInts to the browser. Fixing it here rather than in the
+    // frontend means every consumer of these rows — HTTP, WebSocket, the
+    // stream_messages replay — gets numbers, exactly as `list` already does.
+    const results = page
+      .slice(0, limit)
+      .map((k) => mapMessageRow(flattenVerdict(k.row)));
 
     // Cursor comes from the LAST RETURNED row (index `limit - 1`), not the
     // overflow row at index `limit` — see `nextCursorAt` for why that
