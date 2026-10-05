@@ -6,3 +6,5 @@
 # survives anywhere, and why the deploy script no longer needs a symlink repair.
 packages:
   - "apps/*"
+allowBuilds:
+  esbuild: false
