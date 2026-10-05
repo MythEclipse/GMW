@@ -1,6 +1,6 @@
 "use client";
 
-import { Link } from "react-router";
+import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_ROUTE } from "@/lib/navigation";
 

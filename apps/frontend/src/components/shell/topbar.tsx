@@ -1,7 +1,7 @@
 "use client";
 
+import { Link, useLocation } from "@tanstack/react-router";
 import { Command, Hash, Search, ShieldAlert, Sparkles } from "lucide-react";
-import { Link, useLocation } from "react-router";
 import { ModeToggle } from "@/components/mode-toggle";
 import { StatusDot } from "@/components/shell/status-dot";
 import { Button } from "@/components/ui/button";

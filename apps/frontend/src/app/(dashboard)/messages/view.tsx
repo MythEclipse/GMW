@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
 import { MessageFeedCard } from "@/components/MessageFeedCard";
 import {
   InfiniteScrollSentinel,
@@ -89,13 +89,12 @@ export function MessagesView({
   // seed its filter state from the query string -- otherwise the link lands on
   // an unfiltered list, which is what made the app's one pre-existing
   // drill-down (`/messages?status=dead`) a dead link.
-  const [params, setParams] = useSearchParams();
-  const urlStatus = filterFromUrl(params.get("status"), PIPELINE_STATUSES, ANY);
-  const urlVerdict = filterFromUrl(
-    params.get("verdict"),
-    VERDICT_STATUSES,
-    ANY,
-  );
+  const navigate = useNavigate();
+  // `from` pins the search shape to this route, so a hand-edited or unknown
+  // `?status=` cannot smuggle a value past the filter below.
+  const urlSearch = useSearch({ from: "/messages" });
+  const urlStatus = filterFromUrl(urlSearch.status, PIPELINE_STATUSES, ANY);
+  const urlVerdict = filterFromUrl(urlSearch.verdict, VERDICT_STATUSES, ANY);
 
   const [guildId, setGuildId] = useState<string | null>(defaultGuildId);
   const [channelId, setChannelId] = useState<string | null>(null);
@@ -108,11 +107,20 @@ export function MessagesView({
   // actually changed, otherwise every filter change would push a history entry.
   useEffect(() => {
     if (pipelineFilter === urlStatus && verdictFilter === urlVerdict) return;
-    const next = new URLSearchParams();
-    if (pipelineFilter !== ANY) next.set("status", pipelineFilter);
-    if (verdictFilter !== ANY) next.set("verdict", verdictFilter);
-    setParams(next, { replace: true });
-  }, [pipelineFilter, verdictFilter, urlStatus, urlVerdict, setParams]);
+    // `replace: true` is LOAD-BEARING. TanStack's `navigate` PUSHES by default,
+    // so without it every filter toggle would add a history entry and Back
+    // would walk through the user's own filtering. The react-router version
+    // passed `{replace: true}` for the same reason.
+    void navigate({
+      to: "/messages",
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        ...(pipelineFilter !== ANY ? { status: pipelineFilter } : {}),
+        ...(verdictFilter !== ANY ? { verdict: verdictFilter } : {}),
+      }),
+      replace: true,
+    });
+  }, [pipelineFilter, verdictFilter, urlStatus, urlVerdict, navigate]);
 
   const guilds = useGuilds();
   const channels = useTextChannels(guildId);

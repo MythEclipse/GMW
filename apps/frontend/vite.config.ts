@@ -1,7 +1,8 @@
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import { type PluginOption, defineConfig } from "vite";
 
 /**
  * Vite build config for the GMW dashboard SPA.
@@ -24,7 +25,23 @@ import { defineConfig } from "vite";
 const devBackend = `ws://127.0.0.1:${process.env.GMW_DEV_BACKEND_PORT ?? "4001"}`;
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    // `src/routes` replaces `src/app`; the old `(dashboard)` group directory
+    // is an App Router convention TanStack does not share. Kept off
+    // autoCodeSplitting deliberately: `routeTree.gen.ts` is gitignored and
+    // regenerated per build, and the dashboard refetches over `/ws` anyway, so
+    // per-route chunks would buy nothing here.
+    //
+    // The cast is because @tanstack/router-plugin ships Vite-5-era plugin types
+    // and Vite 8's `PluginOption` does not structurally match. Runtime is fine —
+    // the plugin is a normal Vite plugin; only the declared type disagrees.
+    tanstackRouter({
+      targetDirectory: "src/routes",
+      autoCodeSplitting: false,
+    }) as PluginOption,
+    react(),
+    tailwindcss(),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),

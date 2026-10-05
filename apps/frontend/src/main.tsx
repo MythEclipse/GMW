@@ -2,12 +2,13 @@ import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "./app/globals.css";
 
+import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { ThemeProvider } from "next-themes";
 import { createRoot } from "react-dom/client";
-import { AppRouter } from "@/router";
+import { routeTree } from "./routeTree.gen";
 
 /**
- * SPA entry point — replaces `src/app/layout.tsx`.
+ * SPA entry point — replaces `src/app/layout.tsx`, then `src/router.tsx`.
  *
  * There is no server render and no hydration, so the concerns that file
  * carried are redistributed:
@@ -22,6 +23,15 @@ import { AppRouter } from "@/router";
  *    runs after first paint.
  *  - `suppressHydrationWarning` on <html> is gone — nothing hydrates.
  */
+
+/**
+ * One router for the SPA, built from the generated tree.
+ *
+ * Created here rather than exported from a module so the boot-failure handler
+ * below can still catch a throw during module evaluation — a router constructed
+ * at import time would kill the bundle before React mounts.
+ */
+const router = createRouter({ routeTree, defaultPreload: false });
 
 const container = document.getElementById("root");
 
@@ -68,7 +78,8 @@ try {
       enableSystem
       disableTransitionOnChange
     >
-      <AppRouter />
+      {/* Generated from src/routes — see vite.config.ts's tanstackRouter(). */}
+      <RouterProvider router={router} />
     </ThemeProvider>,
   );
 } catch (error) {

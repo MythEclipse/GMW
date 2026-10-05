@@ -1,7 +1,7 @@
 "use client";
 
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Outlet } from "react-router";
+import { Outlet } from "@tanstack/react-router";
 import { Chatbot } from "@/components/chatbot/chatbot";
 import {
   CommandPalette,

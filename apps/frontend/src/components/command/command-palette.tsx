@@ -1,8 +1,8 @@
 "use client";
 
+import { useNavigate } from "@tanstack/react-router";
 import { CornerDownLeft, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
 import {
   CommandDialog,
   CommandEmpty,
@@ -11,7 +11,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { searchNavItems } from "@/lib/navigation";
+import { type DEFAULT_ROUTE, searchNavItems } from "@/lib/navigation";
 
 /**
  * ⌘K / Ctrl+K palette for jumping between the seven sections.
@@ -54,7 +54,12 @@ export function CommandPalette() {
     (href: string) => {
       setOpen(false);
       setQuery("");
-      navigate(href);
+      // `to` rather than a bare path: TanStack's navigate is typed against the
+      // generated route tree, so a nav item pointing at a removed page is a
+      // compile error rather than a dead command-palette entry. `navItems` is
+      // typed `NavItem[]` with `href: string`, hence the assertion — the paths
+      // themselves are checked by the route table below.
+      navigate({ to: href as typeof DEFAULT_ROUTE });
     },
     [navigate],
   );

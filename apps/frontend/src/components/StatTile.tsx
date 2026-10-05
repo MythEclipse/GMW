@@ -1,8 +1,8 @@
 "use client";
 
+import { Link } from "@tanstack/react-router";
 import { cn } from "cn";
 import { ChevronRight } from "lucide-react";
-import { Link } from "react-router";
 
 /**
  * Statistic tile.

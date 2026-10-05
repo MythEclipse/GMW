@@ -1,7 +1,7 @@
 "use client";
 
+import { Link, useLocation } from "@tanstack/react-router";
 import { cn } from "cn";
-import { Link, useLocation } from "react-router";
 import { navItems } from "@/lib/navigation";
 
 /**

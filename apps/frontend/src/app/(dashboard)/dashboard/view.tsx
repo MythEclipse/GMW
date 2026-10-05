@@ -1,7 +1,7 @@
 "use client";
 
+import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { Link } from "react-router";
 import { AreaChart } from "@/components/charts/area-activity";
 import { RankedBars } from "@/components/charts/bars";
 import { Avatar } from "@/components/MessageFeedCard";

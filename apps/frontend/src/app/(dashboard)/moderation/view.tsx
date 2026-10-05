@@ -1,7 +1,7 @@
 "use client";
 
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
 import { HourHeatmap, RankedBars } from "@/components/charts/bars";
 import { StatGrid, StatTile } from "@/components/StatTile";
 import { Section, SectionGrid } from "@/components/shared/section";
@@ -86,9 +86,10 @@ export function ModerationView({ days }: { days: number }) {
   // empty string, so the component maps ""<->ANY at its own boundary). The URL
   // layer therefore speaks the same dialect: validate against the allow-list,
   // and treat ANY/absent/invalid as unfiltered.
-  const [params, setParams] = useSearchParams();
-  const urlStatus = filterFromUrl(params.get("status"), ACTION_STATUSES, ANY);
-  const urlAction = filterFromUrl(params.get("actionType"), ACTION_TYPES, ANY);
+  const navigate = useNavigate();
+  const urlSearch = useSearch({ from: "/moderation" });
+  const urlStatus = filterFromUrl(urlSearch.status, ACTION_STATUSES, ANY);
+  const urlAction = filterFromUrl(urlSearch.actionType, ACTION_TYPES, ANY);
 
   const [status, setStatus] = useState(
     urlStatus === ANY ? "" : (urlStatus as string),
@@ -112,15 +113,23 @@ export function ModerationView({ days }: { days: number }) {
   // Publish state to the URL so a reload or a shared link reproduces the view.
   // Guarded on an actual difference so a Select change does not loop.
   useEffect(() => {
-    const next = new URLSearchParams();
-    if (status) next.set("status", status);
-    if (actionType) next.set("actionType", actionType);
-    const current = new URLSearchParams();
-    if (urlStatus !== ANY) current.set("status", urlStatus);
-    if (urlAction !== ANY) current.set("actionType", urlAction);
-    if (next.toString() === current.toString()) return;
-    setParams(next, { replace: true });
-  }, [status, actionType, urlStatus, urlAction, setParams]);
+    // Guarded on an actual difference so a Select change does not loop.
+    if (status === (urlStatus === ANY ? "" : urlStatus)) {
+      if (actionType === (urlAction === ANY ? "" : urlAction)) return;
+    }
+    // `replace: true` is LOAD-BEARING — see the note in messages/view.tsx.
+    // TanStack's `navigate` pushes by default, which would make Back walk
+    // through the operator's own filtering.
+    void navigate({
+      to: "/moderation",
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        ...(status ? { status } : {}),
+        ...(actionType ? { actionType } : {}),
+      }),
+      replace: true,
+    });
+  }, [status, actionType, urlStatus, urlAction, navigate]);
 
   const stats = useModerationStats();
   const actions = useModerationActions(status, actionType);

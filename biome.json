@@ -17,7 +17,9 @@
       "!.claude",
       "!apps/**/dist",
       "!apps/**/.next",
-      "!apps/**/out"
+      "!apps/**/out",
+      "!apps/frontend/src/routeTree.gen.ts",
+      "!apps/frontend/src/app/globals.css"
     ]
   },
   "formatter": {
