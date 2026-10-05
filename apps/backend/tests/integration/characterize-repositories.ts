@@ -22,11 +22,12 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { executeTool } from "../../src/modules/chatbot/chatbot.tools.js"
-import { dashboardRepository } from "../../src/modules/dashboard/dashboard.repository.js"
-import { messagesRepository } from "../../src/modules/messages/messages.repository.js"
-import { moderationRepository } from "../../src/modules/moderation/moderation.repository.js"
+import { DashboardRepository } from "../../src/modules/dashboard/dashboard.repository.js"
+import { MessagesRepository } from "../../src/modules/messages/messages.repository.js"
+import { ModerationRepository } from "../../src/modules/moderation/moderation.repository.js"
 import {
 	closeDrizzleDatabase,
+	getDatabase,
 	initializeDatabase,
 } from "../../src/shared/database/drizzle.js"
 import { clearFixture, FIXTURE, seedFixture } from "./characterize-fixture.js"
@@ -98,6 +99,14 @@ function stable(value: unknown): unknown {
 
 /** Every repository method P1c will port, invoked with fixture-shaped args. */
 async function collect(): Promise<Record<string, unknown>> {
+	// Built HERE, not at module scope. The repositories no longer export
+	// singletons — each takes an injected DatabaseHandle, and constructing one
+	// calls `getDatabase()`, which throws until `initializeDatabase()` has run.
+	// `collect()` is called after that, so this is the first safe point.
+	const dashboardRepository = new DashboardRepository(getDatabase())
+	const messagesRepository = new MessagesRepository(getDatabase())
+	const moderationRepository = new ModerationRepository(getDatabase())
+
 	const calls: Array<[string, () => Promise<unknown>]> = [
 		// ── moderation ────────────────────────────────────────────────────
 		["moderation.getStats", () => moderationRepository.getStats()],

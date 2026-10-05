@@ -1,3 +1,4 @@
+import { getDatabase } from "@/shared/database/drizzle"
 import { createChildLogger } from "@/shared/logger/index"
 import { config } from "../../shared/config/index.js"
 import type {
@@ -5,13 +6,15 @@ import type {
 	ChatbotHistoryRow,
 	SaveConversationInput,
 } from "./chatbot.repository.js"
-import { chatbotRepository } from "./chatbot.repository.js"
+import { ChatbotRepository } from "./chatbot.repository.js"
 import { tools } from "./chatbot.toolDefs.js"
 import { executeTool } from "./chatbot.tools.js"
 
 const logger = createChildLogger("chatbot.service")
 
-class ChatbotService {
+export class ChatbotService {
+	constructor(private readonly repository: ChatbotRepository) {}
+
 	async processMessage(
 		message: string,
 		context: ChatbotContext | undefined,
@@ -57,7 +60,7 @@ class ChatbotService {
 
 	async saveConversation(input: SaveConversationInput): Promise<void> {
 		logger.info({ userId: input.userId }, "saveConversation called")
-		await chatbotRepository.saveConversation(input)
+		await this.repository.saveConversation(input)
 	}
 
 	async getChatHistory(
@@ -65,19 +68,19 @@ class ChatbotService {
 		limit: number,
 	): Promise<ChatbotHistoryRow[]> {
 		logger.debug({ userId, limit }, "getChatHistory called")
-		return chatbotRepository.getChatHistory(userId, limit)
+		return this.repository.getChatHistory(userId, limit)
 	}
 
 	async clearChatHistory(userId: string): Promise<void> {
 		logger.info({ userId }, "clearChatHistory called")
-		await chatbotRepository.clearChatHistory(userId)
+		await this.repository.clearChatHistory(userId)
 	}
 
 	private async getRecentConversationContext(userId: string): Promise<{
 		turns: string[]
 		lastScope: { guildId?: string; channelId?: string } | null
 	}> {
-		const history = await chatbotRepository.getChatHistory(userId, 8)
+		const history = await this.repository.getChatHistory(userId, 8)
 		const turns: string[] = []
 		let lastScope: { guildId?: string; channelId?: string } | null = null
 		for (const row of history) {
@@ -464,4 +467,52 @@ Gaya ngobrol:
 	}
 }
 
-export const chatbotService = new ChatbotService()
+/**
+ * Lazily constructed, not built at import time.
+ *
+ * `createChatbotService()` calls `getDatabase()`, which throws until
+ * `initializeDatabase()` has run. Deferring construction to first call keeps
+ * importing this file free of a database, which is what lets a unit test
+ * import the service and pass its own repository.
+ *
+ * Still one instance per process, which is what the oRPC router and the
+ * gateway assume when they import `chatbotService`.
+ */
+let instance: ChatbotService | undefined
+
+export const createChatbotService = () =>
+	new ChatbotService(new ChatbotRepository(getDatabase()))
+
+export const chatbotService: Pick<
+	ChatbotService,
+	"processMessage" | "saveConversation" | "getChatHistory" | "clearChatHistory"
+> = {
+	processMessage: (...args: Parameters<ChatbotService["processMessage"]>) => {
+		instance ??= createChatbotService()
+		return instance.processMessage(...args) as ReturnType<
+			ChatbotService["processMessage"]
+		>
+	},
+	saveConversation: (
+		...args: Parameters<ChatbotService["saveConversation"]>
+	) => {
+		instance ??= createChatbotService()
+		return instance.saveConversation(...args) as ReturnType<
+			ChatbotService["saveConversation"]
+		>
+	},
+	getChatHistory: (...args: Parameters<ChatbotService["getChatHistory"]>) => {
+		instance ??= createChatbotService()
+		return instance.getChatHistory(...args) as ReturnType<
+			ChatbotService["getChatHistory"]
+		>
+	},
+	clearChatHistory: (
+		...args: Parameters<ChatbotService["clearChatHistory"]>
+	) => {
+		instance ??= createChatbotService()
+		return instance.clearChatHistory(...args) as ReturnType<
+			ChatbotService["clearChatHistory"]
+		>
+	},
+}

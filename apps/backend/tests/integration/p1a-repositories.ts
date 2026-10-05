@@ -10,10 +10,10 @@
  *   DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/gmw_mod \
  *     ./node_modules/.bin/tsx tests/integration/p1a-repositories.ts
  */
-import { analysisRepository } from "../../src/modules/analysis/analysis.repository.js"
-import { chatbotRepository } from "../../src/modules/chatbot/chatbot.repository.js"
-import { healthRepository } from "../../src/modules/health/health.repository.js"
-import { knowledgeRepository } from "../../src/modules/knowledge/knowledge.repository.js"
+import { AnalysisRepository } from "../../src/modules/analysis/analysis.repository.js"
+import { ChatbotRepository } from "../../src/modules/chatbot/chatbot.repository.js"
+import { HealthRepository } from "../../src/modules/health/health.repository.js"
+import { KnowledgeRepository } from "../../src/modules/knowledge/knowledge.repository.js"
 import { uiStateService } from "../../src/modules/ui-state/ui-state.service.js"
 import {
 	closeDrizzleDatabase,
@@ -111,6 +111,14 @@ async function seed() {
 async function main() {
 	await initializeDatabase()
 	await seed()
+
+	// Built after initializeDatabase(): the repositories take an injected
+	// DatabaseHandle, and constructing one calls getDatabase(), which throws
+	// until the pool exists.
+	const healthRepository = new HealthRepository(getDatabase())
+	const analysisRepository = new AnalysisRepository(getDatabase())
+	const chatbotRepository = new ChatbotRepository(getDatabase())
+	const knowledgeRepository = new KnowledgeRepository(getDatabase())
 
 	console.log("\nhealth.repository")
 	const health = await healthRepository.checkDatabaseConnection()

@@ -16,8 +16,9 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm"
+import { getDatabase } from "@/shared/database/drizzle"
 import { config } from "../../shared/config/index.js"
-import { getDatabase } from "../../shared/database/drizzle.js"
+import type { DatabaseHandle } from "../../shared/database/handle.js"
 import {
 	analysisAttemptsTable,
 	attachmentsTable,
@@ -561,8 +562,9 @@ type MessageAiStatus = NonNullable<
 type MessageType = NonNullable<(typeof messagesTable.$inferSelect)["type"]>
 
 export class MessagesRepository {
+	constructor(private readonly db: DatabaseHandle) {}
+
 	async findMany(query: MessageQuery): Promise<PageResult<MessageRow>> {
-		const db = getDatabase()
 		const limit = query.limit ?? 50
 		const conditions: SQL[] = []
 
@@ -597,7 +599,7 @@ export class MessagesRepository {
 		const excludeThreads = excludeSpamThreads()
 		if (excludeThreads) conditions.push(excludeThreads)
 
-		const rows = await db
+		const rows = await this.db
 			.select(messageWithVerdict)
 			.from(messagesTable)
 			.leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
@@ -621,8 +623,7 @@ export class MessagesRepository {
 	 * inner join here would make the detail view 404 on anything unjudged.
 	 */
 	async findById(id: string) {
-		const db = getDatabase()
-		const [row] = await db
+		const [row] = await this.db
 			.select(messageWithVerdict)
 			.from(messagesTable)
 			.leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
@@ -654,8 +655,7 @@ export class MessagesRepository {
 			created_at: number
 		}>
 	> {
-		const db = getDatabase()
-		const rows = await db
+		const rows = await this.db
 			.select({
 				attempt: analysisAttemptsTable.attempt,
 				outcome: analysisAttemptsTable.outcome,
@@ -693,8 +693,7 @@ export class MessagesRepository {
 	async getEditHistory(
 		messageId: string,
 	): Promise<Array<{ old_content: string; edited_at: number }>> {
-		const db = getDatabase()
-		const rows = await db
+		const rows = await this.db
 			.select({
 				old_content: messageEditsTable.old_content,
 				edited_at: messageEditsTable.edited_at,
@@ -713,7 +712,6 @@ export class MessagesRepository {
 		channelId: string,
 		query: MessageQuery,
 	): Promise<PageResult<MessageRow>> {
-		const db = getDatabase()
 		const limit = query.limit ?? 50
 		const conditions: SQL[] = [eq(messagesTable.channel_id, channelId)]
 
@@ -725,7 +723,7 @@ export class MessagesRepository {
 		const excludeThreads = excludeSpamThreads()
 		if (excludeThreads) conditions.push(excludeThreads)
 
-		const rows = await db
+		const rows = await this.db
 			.select(messageWithVerdict)
 			.from(messagesTable)
 			.leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
@@ -778,8 +776,7 @@ export class MessagesRepository {
 				pageConditions.push(lt(messagesTable.created_at, Number(cursor)))
 			}
 
-			const db = getDatabase()
-			const rows = await db
+			const rows = await this.db
 				.select(messageWithVerdict)
 				.from(messagesTable)
 				.leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
@@ -802,10 +799,9 @@ export class MessagesRepository {
 	}
 
 	async create(data: MessageCreate) {
-		const db = getDatabase()
 		const id = crypto.randomUUID()
 
-		const [row] = await db
+		const [row] = await this.db
 			.insert(messagesTable)
 			.values({
 				id,
@@ -839,8 +835,6 @@ export class MessagesRepository {
 	}
 
 	async update(id: string, data: MessageUpdate) {
-		const db = getDatabase()
-
 		const setData: Partial<typeof messagesTable.$inferInsert> = {}
 
 		if (data.editedContent !== undefined) {
@@ -861,7 +855,7 @@ export class MessagesRepository {
 
 		if (Object.keys(setData).length === 0) return this.findById(id)
 
-		const [row] = await db
+		const [row] = await this.db
 			.update(messagesTable)
 			.set(setData)
 			.where(eq(messagesTable.id, id))
@@ -904,7 +898,6 @@ export class MessagesRepository {
 		limit: number = 20,
 		cursor?: string,
 	): Promise<ReviewPageResult> {
-		const db = getDatabase()
 		const conditions: SQL[] = [
 			// `or()`/`and()` are typed `SQL | undefined` because they return
 			// undefined for an empty argument list. Both calls here pass two
@@ -935,7 +928,7 @@ export class MessagesRepository {
 		//     proportional to the page.
 		const at = decodeReviewCursor(cursor)
 
-		const rows = await db
+		const rows = await this.db
 			.select(reviewSelect)
 			.from(messagesTable)
 			.leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
@@ -996,9 +989,8 @@ export class MessagesRepository {
 	}
 
 	async delete(id: string): Promise<boolean> {
-		const db = getDatabase()
 		// `deleteMany`'s `{count}` becomes the length of the returning clause.
-		const deleted = await db
+		const deleted = await this.db
 			.delete(messagesTable)
 			.where(eq(messagesTable.id, id))
 			.returning({ id: messagesTable.id })
@@ -1010,8 +1002,6 @@ export class MessagesRepository {
 		guildId: string,
 		limit: number = 50,
 	): Promise<PageResult<MessageRow>> {
-		const db = getDatabase()
-
 		// Subquery: find distinct message_ids from attachments with image MIME type
 		const attachmentConditions: SQL[] = [
 			eq(attachmentsTable.guild_id, guildId),
@@ -1034,7 +1024,7 @@ export class MessagesRepository {
 		// candidate *attachments*, so duplicates within that window collapsed and
 		// the page came back short. Deduplicating first is what the subquery did
 		// not do, and `cursorLimit` here is measured in distinct messages.
-		const imageAttachments = await db
+		const imageAttachments = await this.db
 			.select({ message_id: attachmentsTable.message_id })
 			.from(attachmentsTable)
 			.where(and(...attachmentConditions))
@@ -1044,7 +1034,7 @@ export class MessagesRepository {
 
 		// Fetch full message rows for those IDs
 		const rows = imageMsgIds.length
-			? await db
+			? await this.db
 					.select(messageWithVerdict)
 					.from(messagesTable)
 					.leftJoin(
@@ -1069,7 +1059,6 @@ export class MessagesRepository {
 		channelId: string,
 		query: MessageQuery,
 	): Promise<PageResult<AttachmentResult>> {
-		const db = getDatabase()
 		const limit = query.limit ?? 50
 		const conditions: SQL[] = [eq(attachmentsTable.channel_id, channelId)]
 
@@ -1083,7 +1072,7 @@ export class MessagesRepository {
 			conditions.push(lt(attachmentsTable.created_at, Number(query.cursor)))
 		}
 
-		const rows = await db
+		const rows = await this.db
 			.select()
 			.from(attachmentsTable)
 			.where(and(...conditions))
@@ -1109,12 +1098,11 @@ export class MessagesRepository {
 	 * Returns a flat list of { channel_id, hour (0-23), count } buckets.
 	 */
 	async getActivity(days = 30) {
-		const db = getDatabase()
 		const since = Date.now() - days * 24 * 60 * 60 * 1000
 
 		// `EXTRACT(HOUR FROM to_timestamp(created_at / 1000))` resolved in the
 		// database's timezone — see `localHour` for why UTC would be wrong here.
-		const rows = await db
+		const rows = await this.db
 			.select({
 				channel_id: messagesTable.channel_id,
 				metadata: messagesTable.metadata,
@@ -1168,8 +1156,6 @@ export class MessagesRepository {
 		channelId?: string,
 		cursor?: string,
 	): Promise<EditPageResult> {
-		const db = getDatabase()
-
 		const at = decodeEditCursor(cursor)
 
 		// `message_edits.message_id` has no foreign key and so no Prisma relation,
@@ -1180,7 +1166,7 @@ export class MessagesRepository {
 		// skipped when no channel was requested, which is the common case.
 		let channelMessageIds: string[] | null = null
 		if (channelId) {
-			const inChannel = await db
+			const inChannel = await this.db
 				.select({ id: messagesTable.id })
 				.from(messagesTable)
 				.where(eq(messagesTable.channel_id, channelId))
@@ -1208,7 +1194,7 @@ export class MessagesRepository {
 			conditions.push(inArray(messageEditsTable.message_id, channelMessageIds))
 		}
 
-		const rows = await db
+		const rows = await this.db
 			.select({
 				id: messageEditsTable.id,
 				message_id: messageEditsTable.message_id,
@@ -1231,7 +1217,7 @@ export class MessagesRepository {
 			}
 		>()
 		if (messageIds.length > 0) {
-			const msgs = await db
+			const msgs = await this.db
 				.select({
 					id: messagesTable.id,
 					channel_id: messagesTable.channel_id,
@@ -1293,11 +1279,10 @@ export class MessagesRepository {
 	async listGuilds(): Promise<
 		Array<{ id: string; name: string; icon: string | null }>
 	> {
-		const db = getDatabase()
 		// `distinct: ["guild_id"]` becomes DISTINCT ON in SQL. The subquery keeps
 		// `orderBy` honest: DISTINCT ON requires the ORDER BY to lead with the
 		// distinct column, or Postgres rejects the query.
-		const rows = await db
+		const rows = await this.db
 			.selectDistinct({ guild_id: messagesTable.guild_id })
 			.from(messagesTable)
 			.orderBy(asc(messagesTable.guild_id))
@@ -1315,8 +1300,7 @@ export class MessagesRepository {
 	async listTextChannels(
 		guildId: string,
 	): Promise<Array<{ id: string; name: string; type: "text" }>> {
-		const db = getDatabase()
-		const rows = await db
+		const rows = await this.db
 			.selectDistinct({ channel_id: messagesTable.channel_id })
 			.from(messagesTable)
 			.where(eq(messagesTable.guild_id, guildId))
@@ -1328,5 +1312,3 @@ export class MessagesRepository {
 		}))
 	}
 }
-
-export const messagesRepository = new MessagesRepository()

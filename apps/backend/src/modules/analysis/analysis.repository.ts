@@ -6,6 +6,7 @@ import {
 	type MappedMessage,
 	mapMessageRow,
 } from "@/shared/utils/messageMapper.js"
+import type { DatabaseHandle } from "../../shared/database/handle.js"
 
 const logger = createChildLogger("analysis.repository")
 
@@ -20,8 +21,9 @@ export interface AnalysisSearchQuery {
 export type AnalysisSearchResult = MappedMessage
 
 export class AnalysisRepository {
+	constructor(private readonly db: DatabaseHandle) {}
+
 	async search(query: AnalysisSearchQuery): Promise<AnalysisSearchResult[]> {
-		const db = getDatabase()
 		const { q = "", channelId, guildId, limit = 20 } = query
 
 		logger.debug({ q, channelId, guildId, limit }, "Searching analysis")
@@ -34,7 +36,7 @@ export class AnalysisRepository {
 		if (guildId) conditions.push(eq(messagesTable.guild_id, guildId))
 		if (channelId) conditions.push(eq(messagesTable.channel_id, channelId))
 
-		const rows = await db
+		const rows = await this.db
 			.select()
 			.from(messagesTable)
 			.where(and(...conditions))
@@ -46,5 +48,3 @@ export class AnalysisRepository {
 		return rows.map((r) => mapMessageRow(r as Record<string, unknown>))
 	}
 }
-
-export const analysisRepository = new AnalysisRepository()

@@ -9,7 +9,8 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm"
-import { getDatabase } from "../../shared/database/drizzle.js"
+import { getDatabase } from "@/shared/database/drizzle"
+import type { DatabaseHandle } from "../../shared/database/handle.js"
 import {
 	channelCulturesTable,
 	messagesTable,
@@ -68,7 +69,7 @@ type MessageWithVerdict = {
  * moved from a nested Prisma relation to an aliased LEFT JOIN.
  */
 function messagesWithVerdict<T extends SQL | undefined>(
-	db: ReturnType<typeof getDatabase>,
+	db: DatabaseHandle,
 	where?: T,
 ) {
 	const query = db
@@ -89,9 +90,9 @@ function isFlagged(r: MessageWithVerdict): boolean {
 }
 
 export class DashboardRepository {
-	async getStats() {
-		const db = getDatabase()
+	constructor(private readonly db: DatabaseHandle) {}
 
+	async getStats() {
 		const oneDayAgo = Date.now() - 86400000
 
 		// Total messages, with the moderation OUTCOME broken out from the joined
@@ -124,27 +125,27 @@ export class DashboardRepository {
 			recentFlagged,
 			recentUsers,
 		] = await Promise.all([
-			db
+			this.db
 				.select({ status: verdictsTable.status, n: count() })
 				.from(verdictsTable)
 				.groupBy(verdictsTable.status),
-			db
+			this.db
 				.select({ ai_status: messagesTable.ai_status, n: count() })
 				.from(messagesTable)
 				.groupBy(messagesTable.ai_status),
-			db.select({ n: count() }).from(messagesTable),
+			this.db.select({ n: count() }).from(messagesTable),
 			// `distinct: ["user_id"]` becomes COUNT(DISTINCT …): the same number,
 			// one row instead of N.
-			db
+			this.db
 				.select({ n: countDistinct(messagesTable.user_id) })
 				.from(messagesTable),
-			db
+			this.db
 				.select({ n: count() })
 				.from(messagesTable)
 				.where(gte(messagesTable.created_at, oneDayAgo)),
 			// The nested `messages: {created_at: …}` filter becomes an EXISTS, so a
 			// deleted verdict is counted once no matter how the join is written.
-			db
+			this.db
 				.select({ n: count() })
 				.from(verdictsTable)
 				.where(
@@ -153,7 +154,7 @@ export class DashboardRepository {
 						sql`EXISTS (SELECT 1 FROM ${messagesTable} m WHERE m.id = ${verdictsTable.message_id} AND m.created_at >= ${oneDayAgo})`,
 					),
 				),
-			db
+			this.db
 				.select({ n: countDistinct(messagesTable.user_id) })
 				.from(messagesTable)
 				.where(gte(messagesTable.created_at, oneDayAgo)),
@@ -177,15 +178,15 @@ export class DashboardRepository {
 
 		// Total voice recordings and AI user profiles
 		const [voiceCount, profileCount] = await Promise.all([
-			db.select({ n: count() }).from(voiceRecordingsTable),
-			db.select({ n: count() }).from(userProfilesTable),
+			this.db.select({ n: count() }).from(voiceRecordingsTable),
+			this.db.select({ n: count() }).from(userProfilesTable),
 		])
 
 		// Top channels by message count. The old WHERE was `metadata IS NOT NULL AND
 		// metadata != ''`, and the GROUP BY keyed on the resolved channel name, so
 		// rows with and without a name land in one bucket when they share a
 		// channel_id.
-		const topChannelRows = await db
+		const topChannelRows = await this.db
 			.select({
 				channel_id: messagesTable.channel_id,
 				metadata: messagesTable.metadata,
@@ -265,7 +266,6 @@ export class DashboardRepository {
 	}
 
 	async getActivity(days: number) {
-		const db = getDatabase()
 		const sinceMs = BigInt(Date.now() - days * 86400000)
 		const dayAgoMs = BigInt(Date.now() - 86400000)
 
@@ -276,7 +276,7 @@ export class DashboardRepository {
 		// rather than in SQL because Prisma has no date-bucket expression, and the
 		// active-user count needs a DISTINCT per bucket that groupBy cannot express
 		// across a computed key.
-		const dailyRows = await db
+		const dailyRows = await this.db
 			.select({
 				created_at: messagesTable.created_at,
 				user_id: messagesTable.user_id,
@@ -313,7 +313,7 @@ export class DashboardRepository {
 			.sort((a, b) => a.day.localeCompare(b.day))
 
 		// Hourly distribution (last 24h)
-		const hourlyRows = await db
+		const hourlyRows = await this.db
 			.select({
 				created_at: messagesTable.created_at,
 				verdict_status: verdictsTable.status,
@@ -345,7 +345,6 @@ export class DashboardRepository {
 	}
 
 	async listUsers(query: ListUsersQuery) {
-		const db = getDatabase()
 		const limit = query.limit ?? 20
 
 		// The old query aggregated messages per user in a subquery, then joined
@@ -354,7 +353,7 @@ export class DashboardRepository {
 		// ALIASED columns (m.channel_name, m.last_message_at) rather than on the
 		// base table -- which Prisma's builder cannot do. So the grouping happens in
 		// JS and the profile join is a keyed lookup afterwards.
-		const rows = await messagesWithVerdict(db)
+		const rows = await messagesWithVerdict(this.db)
 
 		interface UserAgg {
 			user_id: string
@@ -393,7 +392,7 @@ export class DashboardRepository {
 		// only if the FK exists -- it does not, so it stays a keyed lookup.
 		const userIds = [...new Set([...byUser.values()].map((u) => u.user_id))]
 		const profiles = userIds.length
-			? await db
+			? await this.db
 					.select({
 						user_id: userProfilesTable.user_id,
 						profile_summary: userProfilesTable.profile_summary,
@@ -450,10 +449,9 @@ export class DashboardRepository {
 	}
 
 	async listChannels(query: ListUsersQuery & { guildId?: string }) {
-		const db = getDatabase()
 		const limit = query.limit ?? 20
 
-		const rows = await messagesWithVerdict(db)
+		const rows = await messagesWithVerdict(this.db)
 
 		interface ChannelAgg {
 			channel_id: string
@@ -496,7 +494,7 @@ export class DashboardRepository {
 			...new Set([...byChannel.values()].map((c) => c.channel_id)),
 		]
 		const cultures = channelIds.length
-			? await db
+			? await this.db
 					.select({
 						channel_id: channelCulturesTable.channel_id,
 						culture_summary: channelCulturesTable.culture_summary,
@@ -554,14 +552,12 @@ export class DashboardRepository {
 	}
 
 	async getChannelDetail(channelId: string) {
-		const db = getDatabase()
-
 		// The old shape was an aggregate subquery LEFT JOINed onto
 		// `channel_cultures`. `channel_cultures.channel_id` is the primary key but
 		// carries no foreign key to messages, so the join is done as a keyed
 		// lookup rather than as a traversable relation.
 		const rows = await messagesWithVerdict(
-			db,
+			this.db,
 			eq(messagesTable.channel_id, channelId),
 		)
 
@@ -604,7 +600,7 @@ export class DashboardRepository {
 			(a, b) => b.total_messages - a.total_messages,
 		)[0]
 
-		const cultures = await db
+		const cultures = await this.db
 			.select({
 				culture_summary: channelCulturesTable.culture_summary,
 				last_analyzed_at: channelCulturesTable.last_analyzed_at,
@@ -613,7 +609,7 @@ export class DashboardRepository {
 			.where(eq(channelCulturesTable.channel_id, channelId))
 		const culture = cultures[0]
 
-		const recent = await db
+		const recent = await this.db
 			.select({
 				id: messagesTable.id,
 				content: messagesTable.content,
@@ -650,14 +646,13 @@ export class DashboardRepository {
 	}
 
 	async getTopReactions(limit: number) {
-		const db = getDatabase()
 		const cap = Math.min(Math.max(limit || 20, 1), 50)
 
 		// Top messages by net reactions (adds minus removes), joined to message
 		// content. `message_reactions.message_id` has no foreign key to messages,
 		// so reactions are grouped on their own and the messages are fetched
 		// afterwards by id.
-		const reactionRows = await db
+		const reactionRows = await this.db
 			.select({
 				message_id: reactionsTable.message_id,
 				reaction_type: reactionsTable.reaction_type,
@@ -683,7 +678,7 @@ export class DashboardRepository {
 		if (ranked.length === 0) return []
 
 		const ids = ranked.map(([id]) => id)
-		const messages = await db
+		const messages = await this.db
 			.select({
 				id: messagesTable.id,
 				content: messagesTable.content,
@@ -702,7 +697,7 @@ export class DashboardRepository {
 		const liveIds = live.map(([id]) => id)
 
 		// Top emoji per message (adds only) for the breakdown
-		const emojiRows = await db
+		const emojiRows = await this.db
 			.select({
 				message_id: reactionsTable.message_id,
 				emoji: reactionsTable.emoji,
@@ -742,14 +737,13 @@ export class DashboardRepository {
 	}
 
 	async getTopReactors(limit: number) {
-		const db = getDatabase()
 		const cap = Math.min(Math.max(limit || 20, 1), 50)
 
 		// Top users by net reactions given (adds minus removes). The distinct
 		// counts (messages, emojis) cannot be expressed through Prisma's groupBy,
 		// so this is a fetch and reduce. Grouping is by (user_id, username): a user
 		// whose name changed appears twice.
-		const rows = await db
+		const rows = await this.db
 			.select({
 				user_id: reactionsTable.user_id,
 				username: reactionsTable.username,
@@ -808,10 +802,8 @@ export class DashboardRepository {
 	}
 
 	async getUserDetail(userId: string) {
-		const db = getDatabase()
-
 		const rows = await messagesWithVerdict(
-			db,
+			this.db,
 			eq(messagesTable.user_id, userId),
 		)
 		if (rows.length === 0) return null
@@ -850,7 +842,7 @@ export class DashboardRepository {
 			(a, b) => b.total_messages - a.total_messages,
 		)[0]
 
-		const profiles = await db
+		const profiles = await this.db
 			.select({
 				profile_summary: userProfilesTable.profile_summary,
 				last_analyzed_at: userProfilesTable.last_analyzed_at,
@@ -859,7 +851,7 @@ export class DashboardRepository {
 			.where(eq(userProfilesTable.user_id, userId))
 		const profile = profiles[0]
 
-		const recent = await db
+		const recent = await this.db
 			.select({
 				id: messagesTable.id,
 				content: messagesTable.content,
@@ -894,5 +886,3 @@ export class DashboardRepository {
 		}
 	}
 }
-
-export const dashboardRepository = new DashboardRepository()

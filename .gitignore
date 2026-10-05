@@ -27,6 +27,12 @@ findings.md
 progress.md
 task_plan.md
 
+# `packages/db/` was deleted in b9d491b7, but biome check --write keeps
+# re-adding this line (it syncs the ignore list against what it sees on disk).
+# Leaving it out is deliberate: with the rule present, the 56 generated Prisma
+# client files still sitting in the working tree show up as untracked noise.
+# Delete the leftover directory to make that permanent.
+#
 # `.moon/` used to be ignored wholesale, which made the ENTIRE task graph
 # untracked. That is why the moon 1.x -> 2.x breakage survived the migration
 # unnoticed: the configs that never parsed were not in version control at all.

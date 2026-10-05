@@ -12,7 +12,8 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm"
-import { getDatabase } from "../../shared/database/drizzle.js"
+import { getDatabase } from "@/shared/database/drizzle"
+import type { DatabaseHandle } from "../../shared/database/handle.js"
 import {
 	analysisAttemptsTable,
 	messagesTable,
@@ -88,6 +89,8 @@ function parseJsonArray(value: unknown): string[] | null {
 }
 
 export class ModerationRepository {
+	constructor(private readonly db: DatabaseHandle) {}
+
 	/**
 	 * Headline moderation counts.
 	 *
@@ -103,7 +106,6 @@ export class ModerationRepository {
 	 * "actionable vs errored verdict" rather than "action succeeded".
 	 */
 	async getStats() {
-		const db = getDatabase()
 		// Grouped by `status` alone. This used to also group by
 		// `v.recommended_action`, but that was a second copy of the same decision:
 		// it could only be 'clean' or 'deleted', so every group was already
@@ -117,14 +119,14 @@ export class ModerationRepository {
 			// `groupBy` is a plain aggregate in Drizzle: select the grouping column
 			// alongside `count(*)`. Prisma's `{_count: {_all: true}}` shape has no
 			// equivalent, so the row count comes straight from SQL COUNT.
-			db
+			this.db
 				.select({ status: verdictsTable.status, n: count() })
 				.from(verdictsTable)
 				.groupBy(verdictsTable.status),
 			// `verdicts.message_id` is the primary key, so "no verdict" is exactly a
 			// LEFT JOIN miss. `NOT EXISTS` says that in one pass; Prisma spelled it
 			// `{verdicts: {is: null}}`.
-			db
+			this.db
 				.select({ n: count() })
 				.from(messagesTable)
 				.where(
@@ -176,8 +178,7 @@ export class ModerationRepository {
 	 * human — everything else resolves on its own.
 	 */
 	async getQueueStats() {
-		const db = getDatabase()
-		const groups = await db
+		const groups = await this.db
 			.select({ ai_status: messagesTable.ai_status, n: count() })
 			.from(messagesTable)
 			.where(
@@ -203,7 +204,6 @@ export class ModerationRepository {
 	}
 
 	async listActions(query: ListModerationQuery) {
-		const db = getDatabase()
 		const limit = Math.min(Math.max(query.limit ?? 50, 1), 200)
 
 		// The where-clause is built with the query builder rather than by
@@ -247,7 +247,7 @@ export class ModerationRepository {
 
 		// `limit + 1` rows are fetched so the extra row, if present, is the
 		// existence proof for `nextCursor` without a second COUNT query.
-		const rows = await db
+		const rows = await this.db
 			.select()
 			.from(moderationActionsTable)
 			.where(and(...conditions))
@@ -265,7 +265,7 @@ export class ModerationRepository {
 		]
 		const contents = new Map<string, string>()
 		if (messageIds.length > 0) {
-			const msgs = await db
+			const msgs = await this.db
 				.select({ id: messagesTable.id, content: messagesTable.content })
 				.from(messagesTable)
 				.where(inArray(messagesTable.id, messageIds))
@@ -334,7 +334,6 @@ export class ModerationRepository {
 	 * that could only ever return an empty table.
 	 */
 	async getTrends(days: number) {
-		const db = getDatabase()
 		const since = Date.now() - days * 24 * 60 * 60 * 1000
 
 		const CAT_LIMIT = 15
@@ -343,7 +342,7 @@ export class ModerationRepository {
 		// column holds two storage shapes (see normalizeCategories), and the
 		// cross-shape dedup plus "top 15" ordering is cheaper to express here
 		// than to emulate through the query builder.
-		const catRows = await db
+		const catRows = await this.db
 			.select({ categories: moderationActionsTable.categories })
 			.from(moderationActionsTable)
 			.where(
@@ -379,7 +378,7 @@ export class ModerationRepository {
 		// Both `decisions` and `actions` below read the SAME grouped rows. Prisma
 		// ran the identical `groupBy` twice; there is no reason to pay for the
 		// round trip twice, and one result set feeds both rankings.
-		const actGroups = await db
+		const actGroups = await this.db
 			.select({ action_type: moderationActionsTable.action_type, n: count() })
 			.from(moderationActionsTable)
 			.where(gte(moderationActionsTable.created_at, since))
@@ -425,10 +424,9 @@ export class ModerationRepository {
 	 * on every call.
 	 */
 	async getTopFlaggedDomains(days: number) {
-		const db = getDatabase()
 		const since = Date.now() - days * 24 * 60 * 60 * 1000
 
-		const actions = await db
+		const actions = await this.db
 			.select({
 				id: moderationActionsTable.id,
 				message_id: moderationActionsTable.message_id,
@@ -458,7 +456,7 @@ export class ModerationRepository {
 		]
 		const contents = new Map<string, string>()
 		if (messageIds.length > 0) {
-			const msgs = await db
+			const msgs = await this.db
 				.select({ id: messagesTable.id, content: messagesTable.content })
 				.from(messagesTable)
 				.where(inArray(messagesTable.id, messageIds))
@@ -495,10 +493,9 @@ export class ModerationRepository {
 	 * Powers the Top Flagged Channels panel.
 	 */
 	async getTopFlaggedChannels(days: number) {
-		const db = getDatabase()
 		const since = Date.now() - days * 24 * 60 * 60 * 1000
 
-		const actions = await db
+		const actions = await this.db
 			.select({ message_id: moderationActionsTable.message_id })
 			.from(moderationActionsTable)
 			.where(
@@ -525,7 +522,7 @@ export class ModerationRepository {
 		// equivalent for.
 		const channelOfMessage = new Map<string, { id: string; name?: string }>()
 		if (messageIds.length > 0) {
-			const msgs = await db
+			const msgs = await this.db
 				.select({
 					id: messagesTable.id,
 					channel_id: messagesTable.channel_id,
@@ -580,13 +577,12 @@ export class ModerationRepository {
 	 * Powers the Moderation Heatmap by Hour panel.
 	 */
 	async getHourlyModeration(days: number) {
-		const db = getDatabase()
 		const since = Date.now() - days * 24 * 60 * 60 * 1000
 
 		// `created_at` is epoch milliseconds. The hour-of-day is derived via
 		// `localHour`, which resolves in the database's timezone — see that helper
 		// for why UTC would be wrong here.
-		const rows = await db
+		const rows = await this.db
 			.select({ created_at: moderationActionsTable.created_at })
 			.from(moderationActionsTable)
 			.where(gte(moderationActionsTable.created_at, since))
@@ -614,10 +610,9 @@ export class ModerationRepository {
 	 * table as soon as ANY row used the bare shape.
 	 */
 	async getByCategory(days: number, category: string, limit = 50) {
-		const db = getDatabase()
 		const since = Date.now() - days * 24 * 60 * 60 * 1000
 
-		const candidates = await db
+		const candidates = await this.db
 			.select()
 			.from(moderationActionsTable)
 			.where(gte(moderationActionsTable.created_at, since))
@@ -638,7 +633,7 @@ export class ModerationRepository {
 		]
 		const contents = new Map<string, string>()
 		if (messageIds.length > 0) {
-			const msgs = await db
+			const msgs = await this.db
 				.select({ id: messagesTable.id, content: messagesTable.content })
 				.from(messagesTable)
 				.where(inArray(messagesTable.id, messageIds))
@@ -678,17 +673,16 @@ export class ModerationRepository {
 	 * or not — which makes it the honest denominator.
 	 */
 	async getCoverage(days: number) {
-		const db = getDatabase()
 		const since = Date.now() - days * 24 * 60 * 60 * 1000
 
 		const [attempts, pendingRows] = await Promise.all([
-			db
+			this.db
 				.select({ outcome: analysisAttemptsTable.outcome, n: count() })
 				.from(analysisAttemptsTable)
 				.where(gte(analysisAttemptsTable.created_at, since))
 				.groupBy(analysisAttemptsTable.outcome),
 			// Work still owed: claimed by a worker, or waiting out a retry backoff.
-			db
+			this.db
 				.select({ n: count() })
 				.from(messagesTable)
 				.where(
@@ -732,5 +726,3 @@ export class ModerationRepository {
 		}
 	}
 }
-
-export const moderationRepository = new ModerationRepository()

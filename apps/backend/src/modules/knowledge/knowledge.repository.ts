@@ -4,6 +4,7 @@ import {
 	channelCulturesTable,
 	termGlossaryCacheTable,
 } from "@/shared/database/schema"
+import type { DatabaseHandle } from "../../shared/database/handle.js"
 
 export interface ChannelCultureRow {
 	channel_id: string
@@ -38,10 +39,11 @@ export interface EditHistoryRow {
 }
 
 export class KnowledgeRepository {
+	constructor(private readonly db: DatabaseHandle) {}
+
 	/** Public read-only channel culture glossary (AI-generated norms/slang). */
 	async listChannelCultures(limit = 50, search?: string) {
-		const db = getDatabase()
-		const rows = await db
+		const rows = await this.db
 			.select()
 			.from(channelCulturesTable)
 			.where(
@@ -72,7 +74,7 @@ export class KnowledgeRepository {
 		channelIds: readonly string[],
 	): Promise<Map<string, string>> {
 		if (channelIds.length === 0) return new Map()
-		// `executeAll` rather than `db.$queryRaw`: the shared Drizzle handle is
+		// `executeAll` rather than `this.db.$queryRaw`: the shared Drizzle handle is
 		// typed `NodePgDatabase<Record<string, unknown>>` (no schema generic), so
 		// the query-builder escape hatches are not on it. `executeAll` is the
 		// established raw-SQL path on that handle — see `init-drizzle.ts` — and it
@@ -93,8 +95,7 @@ export class KnowledgeRepository {
 
 	/** Public read-only term knowledge base (resolved via Wikipedia/SearXNG). */
 	async listGlossary(limit = 50, search?: string) {
-		const db = getDatabase()
-		const rows = await db
+		const rows = await this.db
 			.select()
 			.from(termGlossaryCacheTable)
 			.where(
@@ -120,5 +121,3 @@ export class KnowledgeRepository {
 		}))
 	}
 }
-
-export const knowledgeRepository = new KnowledgeRepository()
