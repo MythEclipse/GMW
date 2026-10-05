@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { MessagesPage } from "@/app/(dashboard)/messages/page";
+import { createFileRoute } from "@tanstack/react-router"
+import { MessagesPage } from "@/app/(dashboard)/messages/page"
 
 /**
  * /messages
@@ -29,9 +29,9 @@ import { MessagesPage } from "@/app/(dashboard)/messages/page";
  * hand-edited or stale `?status=` degrade to "unfiltered" rather than erroring.
  */
 export const Route = createFileRoute("/messages")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    status: typeof search.status === "string" ? search.status : undefined,
-    verdict: typeof search.verdict === "string" ? search.verdict : undefined,
-  }),
-  component: MessagesPage,
-});
+	validateSearch: (search: Record<string, unknown>) => ({
+		status: typeof search.status === "string" ? search.status : undefined,
+		verdict: typeof search.verdict === "string" ? search.verdict : undefined,
+	}),
+	component: MessagesPage,
+})

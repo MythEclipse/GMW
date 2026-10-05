@@ -1,7 +1,7 @@
-import sharp from "sharp";
-import { createChildLogger } from "@/shared/logger/index";
+import sharp from "sharp"
+import { createChildLogger } from "@/shared/logger/index"
 
-const log = createChildLogger("imageResizer");
+const log = createChildLogger("imageResizer")
 
 /**
  * Prepare an image buffer for vision LLM analysis.
@@ -22,41 +22,41 @@ const log = createChildLogger("imageResizer");
  * @returns Resized buffer with detected MIME type
  */
 export async function resizeImageForVision(
-  buf: Buffer,
-  maxDim = 1024,
+	buf: Buffer,
+	maxDim = 1024,
 ): Promise<{ data: Buffer; mimeType: string }> {
-  try {
-    const metadata = await sharp(buf).metadata();
+	try {
+		const metadata = await sharp(buf).metadata()
 
-    // Always (re-)encode to JPEG and fit inside maxDim without upscaling.
-    // Skipping the encode for already-small images left raw originals in
-    // their native (often lossless PNG or full-quality) form, which could
-    // still bloat data URLs and trip the vision model's size limit.
-    const resized = await sharp(buf)
-      .resize(maxDim, maxDim, { fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality: 85 })
-      .toBuffer();
+		// Always (re-)encode to JPEG and fit inside maxDim without upscaling.
+		// Skipping the encode for already-small images left raw originals in
+		// their native (often lossless PNG or full-quality) form, which could
+		// still bloat data URLs and trip the vision model's size limit.
+		const resized = await sharp(buf)
+			.resize(maxDim, maxDim, { fit: "inside", withoutEnlargement: true })
+			.jpeg({ quality: 85 })
+			.toBuffer()
 
-    const inputFormat = metadata.format ?? "jpeg";
-    log.debug(
-      {
-        originalSize: buf.length,
-        originalFormat: inputFormat,
-        resizedSize: resized.length,
-        reductionPct: Math.round(
-          ((buf.length - resized.length) / buf.length) * 100,
-        ),
-      },
-      "Image resized for vision analysis (JPEG)",
-    );
+		const inputFormat = metadata.format ?? "jpeg"
+		log.debug(
+			{
+				originalSize: buf.length,
+				originalFormat: inputFormat,
+				resizedSize: resized.length,
+				reductionPct: Math.round(
+					((buf.length - resized.length) / buf.length) * 100,
+				),
+			},
+			"Image resized for vision analysis (JPEG)",
+		)
 
-    return { data: resized, mimeType: "image/jpeg" };
-  } catch (error) {
-    log.warn(
-      { error: error instanceof Error ? error.message : String(error) },
-      "Image resize failed — using original buffer",
-    );
-    // Fallback: return original buffer with best-effort MIME type
-    return { data: buf, mimeType: "image/jpeg" };
-  }
+		return { data: resized, mimeType: "image/jpeg" }
+	} catch (error) {
+		log.warn(
+			{ error: error instanceof Error ? error.message : String(error) },
+			"Image resize failed — using original buffer",
+		)
+		// Fallback: return original buffer with best-effort MIME type
+		return { data: buf, mimeType: "image/jpeg" }
+	}
 }

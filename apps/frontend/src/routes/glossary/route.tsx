@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { GlossaryPage } from "@/app/(dashboard)/glossary/page";
+import { createFileRoute } from "@tanstack/react-router"
+import { GlossaryPage } from "@/app/(dashboard)/glossary/page"
 
 /**
  * /glossary
@@ -18,5 +18,5 @@ import { GlossaryPage } from "@/app/(dashboard)/glossary/page";
  * resetting.
  */
 export const Route = createFileRoute("/glossary")({
-  component: GlossaryPage,
-});
+	component: GlossaryPage,
+})

@@ -1,234 +1,234 @@
 // ─── Shared Error Classes ────────────────────────────────────────────────────
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 // The bun:test → Vitest port deleted this file's hand-rolled compat facade.
 // It used to map `vi.fn` onto bun's `jest.fn`, `vi.useFakeTimers` onto
 // `jest.useFakeTimers`, and `vi.waitFor` onto a poll loop. Under Vitest the
 // real `vi` provides all three directly, so the shim is gone rather than
 // re-pointed — one less layer of indirection between a test and its runner.
-const useFakeTimers = () => vi.useFakeTimers();
-const useRealTimers = () => vi.useRealTimers();
-const advanceTimersByTime = (ms: number) => vi.advanceTimersByTime(ms);
-const waitForCompat = vi.waitFor;
+const useFakeTimers = () => vi.useFakeTimers()
+const useRealTimers = () => vi.useRealTimers()
+const advanceTimersByTime = (ms: number) => vi.advanceTimersByTime(ms)
+const waitForCompat = vi.waitFor
 
 import {
-  AppError,
-  ConfigError,
-  DatabaseError,
-  NotFoundError,
-  UnauthorizedError,
-  ValidationError,
-} from "../src/shared/errors/index.js";
+	AppError,
+	ConfigError,
+	DatabaseError,
+	NotFoundError,
+	UnauthorizedError,
+	ValidationError,
+} from "../src/shared/errors/index.js"
 // ─── Backend middleware ──────────────────────────────────────────────────────
 // ─── Shared utilities ─────────────────────────────────────────────────────────
 import {
-  decodeCursor,
-  delay,
-  encodeCursor,
-  pageResult,
-  retryWithBackoff,
-} from "../src/shared/utils/index.js";
+	decodeCursor,
+	delay,
+	encodeCursor,
+	pageResult,
+	retryWithBackoff,
+} from "../src/shared/utils/index.js"
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 1. AppError / Error Hierarchy Tests
 // ═══════════════════════════════════════════════════════════════════════════════
 describe("AppError subclasses", () => {
-  it("AppError stores message, code, statusCode, and details", () => {
-    const err = new AppError("custom", "CUSTOM", 418, { reason: "teapot" });
-    expect(err).toBeInstanceOf(Error);
-    expect(err.message).toBe("custom");
-    expect(err.code).toBe("CUSTOM");
-    expect(err.statusCode).toBe(418);
-    expect(err.details).toEqual({ reason: "teapot" });
-    expect(err.name).toBe("AppError");
-  });
+	it("AppError stores message, code, statusCode, and details", () => {
+		const err = new AppError("custom", "CUSTOM", 418, { reason: "teapot" })
+		expect(err).toBeInstanceOf(Error)
+		expect(err.message).toBe("custom")
+		expect(err.code).toBe("CUSTOM")
+		expect(err.statusCode).toBe(418)
+		expect(err.details).toEqual({ reason: "teapot" })
+		expect(err.name).toBe("AppError")
+	})
 
-  it("AppError defaults statusCode to 500", () => {
-    const err = new AppError("msg", "X");
-    expect(err.statusCode).toBe(500);
-  });
+	it("AppError defaults statusCode to 500", () => {
+		const err = new AppError("msg", "X")
+		expect(err.statusCode).toBe(500)
+	})
 
-  it("NotFoundError has 404 status and formatted message", () => {
-    const err = new NotFoundError("User");
-    expect(err).toBeInstanceOf(AppError);
-    expect(err.statusCode).toBe(404);
-    expect(err.code).toBe("NOT_FOUND");
-    expect(err.message).toBe("User not found");
-    expect(err.name).toBe("NotFoundError");
-  });
+	it("NotFoundError has 404 status and formatted message", () => {
+		const err = new NotFoundError("User")
+		expect(err).toBeInstanceOf(AppError)
+		expect(err.statusCode).toBe(404)
+		expect(err.code).toBe("NOT_FOUND")
+		expect(err.message).toBe("User not found")
+		expect(err.name).toBe("NotFoundError")
+	})
 
-  it("NotFoundError appends id when provided", () => {
-    const err = new NotFoundError("Message", "abc-123");
-    expect(err.message).toBe("Message not found: abc-123");
-  });
+	it("NotFoundError appends id when provided", () => {
+		const err = new NotFoundError("Message", "abc-123")
+		expect(err.message).toBe("Message not found: abc-123")
+	})
 
-  it("ValidationError has 400 status and forwards details", () => {
-    const details = { field: "email" };
-    const err = new ValidationError("Invalid input", details);
-    expect(err).toBeInstanceOf(AppError);
-    expect(err.statusCode).toBe(400);
-    expect(err.code).toBe("VALIDATION_ERROR");
-    expect(err.details).toBe(details);
-    expect(err.name).toBe("ValidationError");
-  });
+	it("ValidationError has 400 status and forwards details", () => {
+		const details = { field: "email" }
+		const err = new ValidationError("Invalid input", details)
+		expect(err).toBeInstanceOf(AppError)
+		expect(err.statusCode).toBe(400)
+		expect(err.code).toBe("VALIDATION_ERROR")
+		expect(err.details).toBe(details)
+		expect(err.name).toBe("ValidationError")
+	})
 
-  it("UnauthorizedError has 401 status and default message", () => {
-    const err = new UnauthorizedError();
-    expect(err.statusCode).toBe(401);
-    expect(err.code).toBe("UNAUTHORIZED");
-    expect(err.message).toBe("Unauthorized");
-  });
+	it("UnauthorizedError has 401 status and default message", () => {
+		const err = new UnauthorizedError()
+		expect(err.statusCode).toBe(401)
+		expect(err.code).toBe("UNAUTHORIZED")
+		expect(err.message).toBe("Unauthorized")
+	})
 
-  it("UnauthorizedError accepts custom message", () => {
-    const err = new UnauthorizedError("Access denied");
-    expect(err.message).toBe("Access denied");
-  });
+	it("UnauthorizedError accepts custom message", () => {
+		const err = new UnauthorizedError("Access denied")
+		expect(err.message).toBe("Access denied")
+	})
 
-  it("DatabaseError has 500 status and forwards details", () => {
-    const err = new DatabaseError("DB down", { cause: "timeout" });
-    expect(err.statusCode).toBe(500);
-    expect(err.code).toBe("DATABASE_ERROR");
-    expect(err.details).toEqual({ cause: "timeout" });
-  });
+	it("DatabaseError has 500 status and forwards details", () => {
+		const err = new DatabaseError("DB down", { cause: "timeout" })
+		expect(err.statusCode).toBe(500)
+		expect(err.code).toBe("DATABASE_ERROR")
+		expect(err.details).toEqual({ cause: "timeout" })
+	})
 
-  it("ConfigError has 500 status", () => {
-    const err = new ConfigError("Bad config");
-    expect(err.statusCode).toBe(500);
-    expect(err.code).toBe("CONFIG_ERROR");
-  });
-});
+	it("ConfigError has 500 status", () => {
+		const err = new ConfigError("Bad config")
+		expect(err.statusCode).toBe(500)
+		expect(err.code).toBe("CONFIG_ERROR")
+	})
+})
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 2. Utility Function Tests
 // ═══════════════════════════════════════════════════════════════════════════════
 describe("delay", () => {
-  afterEach(() => {
-    useRealTimers();
-  });
+	afterEach(() => {
+		useRealTimers()
+	})
 
-  it("resolves after the given time", async () => {
-    useFakeTimers();
-    const promise = delay(500);
-    advanceTimersByTime(500);
-    await expect(promise).resolves.toBeUndefined();
-  });
+	it("resolves after the given time", async () => {
+		useFakeTimers()
+		const promise = delay(500)
+		advanceTimersByTime(500)
+		await expect(promise).resolves.toBeUndefined()
+	})
 
-  it("rejects are not triggered on non-matching timer", async () => {
-    useFakeTimers();
-    const promise = delay(1000);
-    // Advance only part way — the timer should NOT fire yet
-    advanceTimersByTime(500);
-    // The timer is still pending; the promise has not resolved yet
-    // We advance the rest
-    advanceTimersByTime(500);
-    await expect(promise).resolves.toBeUndefined();
-  });
-});
+	it("rejects are not triggered on non-matching timer", async () => {
+		useFakeTimers()
+		const promise = delay(1000)
+		// Advance only part way — the timer should NOT fire yet
+		advanceTimersByTime(500)
+		// The timer is still pending; the promise has not resolved yet
+		// We advance the rest
+		advanceTimersByTime(500)
+		await expect(promise).resolves.toBeUndefined()
+	})
+})
 
 describe("retryWithBackoff", () => {
-  afterEach(() => {
-    useRealTimers();
-  });
+	afterEach(() => {
+		useRealTimers()
+	})
 
-  it("returns the result on first success without retrying", async () => {
-    const fn = vi.fn().mockResolvedValue("ok");
-    await expect(retryWithBackoff(fn)).resolves.toBe("ok");
-    expect(fn).toHaveBeenCalledTimes(1);
-  });
+	it("returns the result on first success without retrying", async () => {
+		const fn = vi.fn().mockResolvedValue("ok")
+		await expect(retryWithBackoff(fn)).resolves.toBe("ok")
+		expect(fn).toHaveBeenCalledTimes(1)
+	})
 
-  it("re-throws after exhausting all retries", async () => {
-    const fn = vi.fn().mockRejectedValue(new Error("persistent"));
-    await expect(
-      retryWithBackoff(fn, { retries: 1, minTimeout: 1, maxTimeout: 5 }),
-    ).rejects.toThrow("persistent");
-    // initial call + 1 retry
-    expect(fn.mock.calls.length).toBeGreaterThanOrEqual(2);
-  });
+	it("re-throws after exhausting all retries", async () => {
+		const fn = vi.fn().mockRejectedValue(new Error("persistent"))
+		await expect(
+			retryWithBackoff(fn, { retries: 1, minTimeout: 1, maxTimeout: 5 }),
+		).rejects.toThrow("persistent")
+		// initial call + 1 retry
+		expect(fn.mock.calls.length).toBeGreaterThanOrEqual(2)
+	})
 
-  it("throws AbortError immediately when signal is already aborted", async () => {
-    const ac = new AbortController();
-    ac.abort();
-    const fn = vi.fn().mockResolvedValue("ok");
-    await expect(
-      retryWithBackoff(fn, { retries: 3, signal: ac.signal }),
-    ).rejects.toThrow("Aborted");
-    expect(fn).not.toHaveBeenCalled();
-  });
+	it("throws AbortError immediately when signal is already aborted", async () => {
+		const ac = new AbortController()
+		ac.abort()
+		const fn = vi.fn().mockResolvedValue("ok")
+		await expect(
+			retryWithBackoff(fn, { retries: 3, signal: ac.signal }),
+		).rejects.toThrow("Aborted")
+		expect(fn).not.toHaveBeenCalled()
+	})
 
-  it("respects abort signal during retry", async () => {
-    useFakeTimers();
-    const ac = new AbortController();
-    const fn = vi.fn().mockRejectedValue(new Error("fail"));
+	it("respects abort signal during retry", async () => {
+		useFakeTimers()
+		const ac = new AbortController()
+		const fn = vi.fn().mockRejectedValue(new Error("fail"))
 
-    const promise = retryWithBackoff(fn, {
-      retries: 5,
-      minTimeout: 100,
-      signal: ac.signal,
-    });
+		const promise = retryWithBackoff(fn, {
+			retries: 5,
+			minTimeout: 100,
+			signal: ac.signal,
+		})
 
-    // Schedule abort after first failure + backoff starts
-    setTimeout(() => ac.abort(), 150);
-    advanceTimersByTime(200);
-    await waitForCompat(async () => {
-      await expect(promise).rejects.toThrow("Aborted");
-    });
-  });
-});
+		// Schedule abort after first failure + backoff starts
+		setTimeout(() => ac.abort(), 150)
+		advanceTimersByTime(200)
+		await waitForCompat(async () => {
+			await expect(promise).rejects.toThrow("Aborted")
+		})
+	})
+})
 
 describe("pagination utilities", () => {
-  it("encodeCursor produces a base64 string", () => {
-    const result = encodeCursor({ created_at: 1000, id: "msg-1" });
-    expect(typeof result).toBe("string");
-    expect(result.length).toBeGreaterThan(0);
-  });
+	it("encodeCursor produces a base64 string", () => {
+		const result = encodeCursor({ created_at: 1000, id: "msg-1" })
+		expect(typeof result).toBe("string")
+		expect(result.length).toBeGreaterThan(0)
+	})
 
-  it("encodeCursor round-trips through decodeCursor", () => {
-    const data = { created_at: 1234567890, id: "abc-def" };
-    const cursor = encodeCursor(data);
-    expect(decodeCursor(cursor)).toEqual(data);
-  });
+	it("encodeCursor round-trips through decodeCursor", () => {
+		const data = { created_at: 1234567890, id: "abc-def" }
+		const cursor = encodeCursor(data)
+		expect(decodeCursor(cursor)).toEqual(data)
+	})
 
-  it("decodeCursor returns null for undefined / empty", () => {
-    expect(decodeCursor()).toBeNull();
-    expect(decodeCursor("")).toBeNull();
-  });
+	it("decodeCursor returns null for undefined / empty", () => {
+		expect(decodeCursor()).toBeNull()
+		expect(decodeCursor("")).toBeNull()
+	})
 
-  it("decodeCursor returns null for malformed input", () => {
-    // Completely invalid base64
-    expect(decodeCursor("!!!not-valid!!!")).toBeNull();
-    // Valid base64 but not JSON
-    const notJson = Buffer.from("not-json").toString("base64");
-    expect(decodeCursor(notJson)).toBeNull();
-    // Valid JSON but wrong shape (missing created_at / id)
-    const wrongShape = Buffer.from(JSON.stringify({ foo: "bar" })).toString(
-      "base64",
-    );
-    expect(decodeCursor(wrongShape)).toBeNull();
-  });
+	it("decodeCursor returns null for malformed input", () => {
+		// Completely invalid base64
+		expect(decodeCursor("!!!not-valid!!!")).toBeNull()
+		// Valid base64 but not JSON
+		const notJson = Buffer.from("not-json").toString("base64")
+		expect(decodeCursor(notJson)).toBeNull()
+		// Valid JSON but wrong shape (missing created_at / id)
+		const wrongShape = Buffer.from(JSON.stringify({ foo: "bar" })).toString(
+			"base64",
+		)
+		expect(decodeCursor(wrongShape)).toBeNull()
+	})
 
-  it("pageResult truncates and sets nextCursor when rows exceed limit", () => {
-    const rows = [
-      { id: "a", created_at: 100 },
-      { id: "b", created_at: 200 },
-      { id: "c", created_at: 300 },
-    ];
-    const { data, nextCursor } = pageResult(rows, 2);
-    expect(data).toHaveLength(2);
-    expect(data[0].id).toBe("a");
-    expect(nextCursor).toBeTruthy();
-  });
+	it("pageResult truncates and sets nextCursor when rows exceed limit", () => {
+		const rows = [
+			{ id: "a", created_at: 100 },
+			{ id: "b", created_at: 200 },
+			{ id: "c", created_at: 300 },
+		]
+		const { data, nextCursor } = pageResult(rows, 2)
+		expect(data).toHaveLength(2)
+		expect(data[0].id).toBe("a")
+		expect(nextCursor).toBeTruthy()
+	})
 
-  it("pageResult returns null nextCursor when fewer rows than limit", () => {
-    const rows = [{ id: "a", created_at: 100 }];
-    const { data, nextCursor } = pageResult(rows, 2);
-    expect(data).toHaveLength(1);
-    expect(nextCursor).toBeNull();
-  });
+	it("pageResult returns null nextCursor when fewer rows than limit", () => {
+		const rows = [{ id: "a", created_at: 100 }]
+		const { data, nextCursor } = pageResult(rows, 2)
+		expect(data).toHaveLength(1)
+		expect(nextCursor).toBeNull()
+	})
 
-  it("pageResult returns empty data for empty input", () => {
-    const { data, nextCursor } = pageResult([], 10);
-    expect(data).toEqual([]);
-    expect(nextCursor).toBeNull();
-  });
-});
+	it("pageResult returns empty data for empty input", () => {
+		const { data, nextCursor } = pageResult([], 10)
+		expect(data).toEqual([])
+		expect(nextCursor).toBeNull()
+	})
+})

@@ -1,16 +1,16 @@
-"use client";
+"use client"
 
-import { Component, type ReactNode } from "react";
-import { Button } from "@/components/ui/button";
+import { Component, type ReactNode } from "react"
+import { Button } from "@/components/ui/button"
 
 interface Props {
-  children: ReactNode;
-  /** Rendered instead of the default card when a crash happens. */
-  fallback?: (error: Error, reset: () => void) => ReactNode;
+	children: ReactNode
+	/** Rendered instead of the default card when a crash happens. */
+	fallback?: (error: Error, reset: () => void) => ReactNode
 }
 
 interface State {
-  error: Error | null;
+	error: Error | null
 }
 
 /**
@@ -24,43 +24,43 @@ interface State {
  * scoped to the panel it wraps and offers a reset that remounts the subtree.
  */
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+	state: State = { error: null }
 
-  static getDerivedStateFromError(error: Error): State {
-    return { error };
-  }
+	static getDerivedStateFromError(error: Error): State {
+		return { error }
+	}
 
-  componentDidCatch(error: Error, info: React.ErrorInfo): void {
-    console.error("[ErrorBoundary] render crashed", error, info.componentStack);
-  }
+	componentDidCatch(error: Error, info: React.ErrorInfo): void {
+		console.error("[ErrorBoundary] render crashed", error, info.componentStack)
+	}
 
-  private reset = (): void => {
-    this.setState({ error: null });
-  };
+	private reset = (): void => {
+		this.setState({ error: null })
+	}
 
-  render(): ReactNode {
-    const { error } = this.state;
-    if (!error) return this.props.children;
+	render(): ReactNode {
+		const { error } = this.state
+		if (!error) return this.props.children
 
-    if (this.props.fallback) return this.props.fallback(error, this.reset);
+		if (this.props.fallback) return this.props.fallback(error, this.reset)
 
-    return (
-      <div
-        className="flex flex-col items-start gap-3 rounded-lg border border-hairline bg-surface px-4 py-6"
-        role="alert"
-      >
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-ink">
-            This panel failed to render
-          </p>
-          <p className="max-w-md text-xs text-ink-muted break-words">
-            {error.message}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={this.reset}>
-          Try again
-        </Button>
-      </div>
-    );
-  }
+		return (
+			<div
+				className="flex flex-col items-start gap-3 rounded-lg border border-hairline bg-surface px-4 py-6"
+				role="alert"
+			>
+				<div className="space-y-1">
+					<p className="text-sm font-medium text-ink">
+						This panel failed to render
+					</p>
+					<p className="max-w-md text-xs text-ink-muted break-words">
+						{error.message}
+					</p>
+				</div>
+				<Button variant="outline" size="sm" onClick={this.reset}>
+					Try again
+				</Button>
+			</div>
+		)
+	}
 }

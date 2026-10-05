@@ -1,12 +1,12 @@
-"use client";
+"use client"
 
-import { useCallback } from "react";
-import { ErrorState, LoadingState } from "@/components/shared/states";
-import { qk } from "@/hooks/use-data";
-import { useRouteSeed } from "@/hooks/use-route-seed";
-import { browserApi } from "@/lib/api/browser";
-import type { ChannelPage, Guild } from "@/lib/types";
-import { ChannelsView } from "./view";
+import { useCallback } from "react"
+import { ErrorState, LoadingState } from "@/components/shared/states"
+import { qk } from "@/hooks/use-data"
+import { useRouteSeed } from "@/hooks/use-route-seed"
+import { browserApi } from "@/lib/api/browser"
+import type { ChannelPage, Guild } from "@/lib/types"
+import { ChannelsView } from "./view"
 
 /**
  * Client route for /channels — was a server component.
@@ -25,44 +25,44 @@ import { ChannelsView } from "./view";
  * paint — that mismatch predates this migration and is left alone.
  */
 export function ChannelsPage() {
-  const fetcher = useCallback(async () => {
-    const [guilds, defaultGuildId] = await Promise.all([
-      browserApi.messages.guilds() as Promise<Guild[]>,
-      browserApi.config.defaultGuildId(),
-    ]);
+	const fetcher = useCallback(async () => {
+		const [guilds, defaultGuildId] = await Promise.all([
+			browserApi.messages.guilds() as Promise<Guild[]>,
+			browserApi.config.defaultGuildId(),
+		])
 
-    const scopedGuildId = defaultGuildId ?? guilds?.[0]?.id ?? null;
+		const scopedGuildId = defaultGuildId ?? guilds?.[0]?.id ?? null
 
-    const channels = (await browserApi.dashboard.channels({
-      limit: 50,
-      ...(scopedGuildId ? { guildId: scopedGuildId } : {}),
-    })) as unknown as ChannelPage;
+		const channels = (await browserApi.dashboard.channels({
+			limit: 50,
+			...(scopedGuildId ? { guildId: scopedGuildId } : {}),
+		})) as unknown as ChannelPage
 
-    // The whole `ChannelPage` is seeded, not just `.data`: the hook reads
-    // `nextCursor` too, and handing it a page-shaped object with no cursor
-    // would silently read as "this is the last page".
-    return { channels, scopedGuildId };
-  }, []);
+		// The whole `ChannelPage` is seeded, not just `.data`: the hook reads
+		// `nextCursor` too, and handing it a page-shaped object with no cursor
+		// would silently read as "this is the last page".
+		return { channels, scopedGuildId }
+	}, [])
 
-  const prime = useCallback(
-    (r: { channels: ChannelPage; scopedGuildId: string | null }) => [
-      {
-        key: [...qk.channels(""), r.scopedGuildId ?? "*"],
-        data: r.channels,
-      },
-    ],
-    [],
-  );
+	const prime = useCallback(
+		(r: { channels: ChannelPage; scopedGuildId: string | null }) => [
+			{
+				key: [...qk.channels(""), r.scopedGuildId ?? "*"],
+				data: r.channels,
+			},
+		],
+		[],
+	)
 
-  const seed = useRouteSeed(fetcher, prime);
+	const seed = useRouteSeed(fetcher, prime)
 
-  if (seed.error) {
-    return <ErrorState error={seed.error} onRetry={seed.retry} />;
-  }
+	if (seed.error) {
+		return <ErrorState error={seed.error} onRetry={seed.retry} />
+	}
 
-  if (seed.isPending || !seed.data) {
-    return <LoadingState label="Loading channels" />;
-  }
+	if (seed.isPending || !seed.data) {
+		return <LoadingState label="Loading channels" />
+	}
 
-  return <ChannelsView scopedGuildId={seed.data.scopedGuildId} />;
+	return <ChannelsView scopedGuildId={seed.data.scopedGuildId} />
 }

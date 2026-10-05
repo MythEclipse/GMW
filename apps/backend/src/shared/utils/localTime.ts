@@ -20,27 +20,27 @@
  * — instead of being a setting that can drift away from it and re-introduce
  * the off-by-N-hours bug.
  */
-const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 const dayFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: ZONE,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
+	timeZone: ZONE,
+	year: "numeric",
+	month: "2-digit",
+	day: "2-digit",
+})
 
 const hourFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: ZONE,
-  hour: "numeric",
-  hourCycle: "h23",
-});
+	timeZone: ZONE,
+	hour: "numeric",
+	hourCycle: "h23",
+})
 
 /** `YYYY-MM-DD` in the database timezone — matches `to_char(..., 'YYYY-MM-DD')`. */
 export function localDay(epochMillis: number | bigint): string {
-  return dayFormatter.format(new Date(Number(epochMillis)));
+	return dayFormatter.format(new Date(Number(epochMillis)))
 }
 
 /** Hour 0-23 in the database timezone — matches `EXTRACT(HOUR FROM to_timestamp(...))`. */
 export function localHour(epochMillis: number | bigint): number {
-  return Number(hourFormatter.format(new Date(Number(epochMillis))));
+	return Number(hourFormatter.format(new Date(Number(epochMillis))))
 }

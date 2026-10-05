@@ -1,5 +1,5 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { DEFAULT_ROUTE } from "@/lib/navigation";
+import { createFileRoute, redirect } from "@tanstack/react-router"
+import { DEFAULT_ROUTE } from "@/lib/navigation"
 
 /**
  * `/` — redirects to the first nav destination.
@@ -9,7 +9,7 @@ import { DEFAULT_ROUTE } from "@/lib/navigation";
  * bounce through "/" and re-trigger the redirect.
  */
 export const Route = createFileRoute("/")({
-  beforeLoad: () => {
-    throw redirect({ to: DEFAULT_ROUTE, replace: true });
-  },
-});
+	beforeLoad: () => {
+		throw redirect({ to: DEFAULT_ROUTE, replace: true })
+	},
+})

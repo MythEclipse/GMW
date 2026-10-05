@@ -1,6 +1,6 @@
-"use client";
+"use client"
 
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query"
 
 /**
  * The single QueryClient for the dashboard.
@@ -24,32 +24,32 @@ import { QueryClient } from "@tanstack/react-query";
  * staleness and freshness are different problems.
  */
 export function makeQueryClient(): QueryClient {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 5_000,
-        gcTime: 5 * 60_000,
-        refetchOnWindowFocus: false,
-        refetchOnReconnect: true,
-        retry: 3,
-        // Bounded exponential backoff: 1s, 2s, 4s. Long enough to ride out a
-        // gateway blip, short enough that a genuinely bad request does not feel
-        // hung for twenty seconds.
-        retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 8_000),
-      },
-      mutations: {
-        // Panel-level acknowledgements (approve, dismiss). They must not vanish
-        // because a refetch landed.
-        retry: 0,
-      },
-    },
-  });
+	return new QueryClient({
+		defaultOptions: {
+			queries: {
+				staleTime: 5_000,
+				gcTime: 5 * 60_000,
+				refetchOnWindowFocus: false,
+				refetchOnReconnect: true,
+				retry: 3,
+				// Bounded exponential backoff: 1s, 2s, 4s. Long enough to ride out a
+				// gateway blip, short enough that a genuinely bad request does not feel
+				// hung for twenty seconds.
+				retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 8_000),
+			},
+			mutations: {
+				// Panel-level acknowledgements (approve, dismiss). They must not vanish
+				// because a refetch landed.
+				retry: 0,
+			},
+		},
+	})
 }
 
-let browserClient: QueryClient | undefined;
+let browserClient: QueryClient | undefined
 
 /** Client-only app (no SSR), so there is exactly one client lifetime. */
 export function getQueryClient(): QueryClient {
-  browserClient ??= makeQueryClient();
-  return browserClient;
+	browserClient ??= makeQueryClient()
+	return browserClient
 }

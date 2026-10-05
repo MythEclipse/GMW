@@ -1,5 +1,5 @@
-import { createRootRoute } from "@tanstack/react-router";
-import { Providers } from "@/components/providers";
+import { createRootRoute } from "@tanstack/react-router"
+import { Providers } from "@/components/providers"
 
 /**
  * Root route. Was `router.tsx`'s pathless `<Providers />` layout route.
@@ -16,5 +16,5 @@ import { Providers } from "@/components/providers";
  * here rather than by discipline.
  */
 export const Route = createRootRoute({
-  component: Providers,
-});
+	component: Providers,
+})

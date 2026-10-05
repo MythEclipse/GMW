@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { AnalysisPage } from "@/app/(dashboard)/analysis/page";
+import { createFileRoute } from "@tanstack/react-router"
+import { AnalysisPage } from "@/app/(dashboard)/analysis/page"
 
 /**
  * /analysis
@@ -18,5 +18,5 @@ import { AnalysisPage } from "@/app/(dashboard)/analysis/page";
  * resetting.
  */
 export const Route = createFileRoute("/analysis")({
-  component: AnalysisPage,
-});
+	component: AnalysisPage,
+})

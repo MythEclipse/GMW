@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { NotFoundPage } from "@/app/not-found";
+import { createFileRoute } from "@tanstack/react-router"
+import { NotFoundPage } from "@/app/not-found"
 
 /**
  * `*` — the catch-all. The static host answers an unknown deep link with
@@ -9,5 +9,5 @@ import { NotFoundPage } from "@/app/not-found";
  * handler also renders, so both paths land on the same component.
  */
 export const Route = createFileRoute("/$")({
-  notFoundComponent: NotFoundPage,
-});
+	notFoundComponent: NotFoundPage,
+})

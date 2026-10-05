@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { ModerationPage } from "@/app/(dashboard)/moderation/page";
+import { createFileRoute } from "@tanstack/react-router"
+import { ModerationPage } from "@/app/(dashboard)/moderation/page"
 
 /**
  * /moderation
@@ -18,14 +18,14 @@ import { ModerationPage } from "@/app/(dashboard)/moderation/page";
  * resetting.
  */
 export const Route = createFileRoute("/moderation")({
-  // Same drill-down contract as /messages: these two keys are what the
-  // dashboard's stat tiles link with. Read as `string | undefined` and left to
-  // `filterFromUrl`'s allow-list inside the view, so an unknown value degrades
-  // to "unfiltered" instead of erroring the router.
-  validateSearch: (search: Record<string, unknown>) => ({
-    status: typeof search.status === "string" ? search.status : undefined,
-    actionType:
-      typeof search.actionType === "string" ? search.actionType : undefined,
-  }),
-  component: ModerationPage,
-});
+	// Same drill-down contract as /messages: these two keys are what the
+	// dashboard's stat tiles link with. Read as `string | undefined` and left to
+	// `filterFromUrl`'s allow-list inside the view, so an unknown value degrades
+	// to "unfiltered" instead of erroring the router.
+	validateSearch: (search: Record<string, unknown>) => ({
+		status: typeof search.status === "string" ? search.status : undefined,
+		actionType:
+			typeof search.actionType === "string" ? search.actionType : undefined,
+	}),
+	component: ModerationPage,
+})

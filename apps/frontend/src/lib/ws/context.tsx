@@ -1,63 +1,63 @@
-"use client";
+"use client"
 
 import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { WsConnection } from "./connection";
-import type { ConnectionStatus, WsEvent, WsEventType } from "./types";
+	createContext,
+	type ReactNode,
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react"
+import { WsConnection } from "./connection"
+import type { ConnectionStatus, WsEvent, WsEventType } from "./types"
 
 interface WsContextValue {
-  connection: WsConnection;
-  status: ConnectionStatus;
-  statusDetail: string | undefined;
+	connection: WsConnection
+	status: ConnectionStatus
+	statusDetail: string | undefined
 }
 
-const WsContext = createContext<WsContextValue | null>(null);
+const WsContext = createContext<WsContextValue | null>(null)
 
 export function WsProvider({ children }: { children: ReactNode }) {
-  const connectionRef = useRef<WsConnection | null>(null);
-  if (!connectionRef.current) {
-    connectionRef.current = new WsConnection();
-  }
-  const connection = connectionRef.current;
+	const connectionRef = useRef<WsConnection | null>(null)
+	if (!connectionRef.current) {
+		connectionRef.current = new WsConnection()
+	}
+	const connection = connectionRef.current
 
-  const [status, setStatus] = useState<ConnectionStatus>("connecting");
-  const [statusDetail, setStatusDetail] = useState<string | undefined>(
-    undefined,
-  );
+	const [status, setStatus] = useState<ConnectionStatus>("connecting")
+	const [statusDetail, setStatusDetail] = useState<string | undefined>(
+		undefined,
+	)
 
-  useEffect(() => {
-    connection.connect();
-    const unsubscribe = connection.onStatusChange((next, detail) => {
-      setStatus(next);
-      setStatusDetail(detail);
-    });
-    return () => {
-      unsubscribe();
-      connection.close();
-    };
-  }, [connection]);
+	useEffect(() => {
+		connection.connect()
+		const unsubscribe = connection.onStatusChange((next, detail) => {
+			setStatus(next)
+			setStatusDetail(detail)
+		})
+		return () => {
+			unsubscribe()
+			connection.close()
+		}
+	}, [connection])
 
-  const value = useMemo<WsContextValue>(
-    () => ({ connection, status, statusDetail }),
-    [connection, status, statusDetail],
-  );
+	const value = useMemo<WsContextValue>(
+		() => ({ connection, status, statusDetail }),
+		[connection, status, statusDetail],
+	)
 
-  return <WsContext.Provider value={value}>{children}</WsContext.Provider>;
+	return <WsContext.Provider value={value}>{children}</WsContext.Provider>
 }
 
 /** Access the shared socket. Throws outside `WsProvider`. */
 export function useWs(): WsContextValue {
-  const ctx = useContext(WsContext);
-  if (!ctx) throw new Error("useWs must be used inside <WsProvider>");
-  return ctx;
+	const ctx = useContext(WsContext)
+	if (!ctx) throw new Error("useWs must be used inside <WsProvider>")
+	return ctx
 }
 
 /**
@@ -67,20 +67,20 @@ export function useWs(): WsContextValue {
  * re-subscribing on every render — the subscription is keyed on `type` alone.
  */
 export function useWsEvent<T = unknown>(
-  type: WsEventType,
-  handler: (event: WsEvent<T>) => void,
+	type: WsEventType,
+	handler: (event: WsEvent<T>) => void,
 ): void {
-  const { connection } = useWs();
-  const handlerRef = useRef(handler);
-  handlerRef.current = handler;
+	const { connection } = useWs()
+	const handlerRef = useRef(handler)
+	handlerRef.current = handler
 
-  const stableHandler = useCallback(
-    (event: WsEvent) => handlerRef.current(event as WsEvent<T>),
-    [],
-  );
+	const stableHandler = useCallback(
+		(event: WsEvent) => handlerRef.current(event as WsEvent<T>),
+		[],
+	)
 
-  useEffect(
-    () => connection.subscribe(type, stableHandler),
-    [connection, type, stableHandler],
-  );
+	useEffect(
+		() => connection.subscribe(type, stableHandler),
+		[connection, type, stableHandler],
+	)
 }

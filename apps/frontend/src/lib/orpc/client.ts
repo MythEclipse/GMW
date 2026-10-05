@@ -1,5 +1,5 @@
-import { type ClientLink, createORPCClient } from "@orpc/client";
-import { RPCLink } from "@orpc/client/fetch";
+import { type ClientLink, createORPCClient } from "@orpc/client"
+import { RPCLink } from "@orpc/client/fetch"
 
 /**
  * Browser-side oRPC client: RPC over HTTP POST to `/trpc`.
@@ -20,41 +20,41 @@ import { RPCLink } from "@orpc/client/fetch";
  * genuinely separate concerns and only this one moved.
  */
 function rpcUrl(): string {
-  const configured = import.meta.env.VITE_API_URL;
-  if (configured) return `${configured.replace(/\/$/, "")}/trpc`;
+	const configured = import.meta.env.VITE_API_URL
+	if (configured) return `${configured.replace(/\/$/, "")}/trpc`
 
-  // Same-origin: the reverse proxy forwards /trpc to the backend, so no host is
-  // ever hardcoded here.
-  return "/trpc";
+	// Same-origin: the reverse proxy forwards /trpc to the backend, so no host is
+	// ever hardcoded here.
+	return "/trpc"
 }
 
-let link: ClientLink<Record<string, never>> | null = null;
+let link: ClientLink<Record<string, never>> | null = null
 
 function getLink(): ClientLink<Record<string, never>> {
-  if (link) return link;
-  link = new RPCLink({
-    url: rpcUrl(),
-    // Cookies, not headers: the dashboard is a private reverse-proxy app with
-    // no auth of its own, so nothing here may require a bearer token.
-    //
-    // Same class name as the WebSocket adapter's `RPCLink`, imported from
-    // `@orpc/client/fetch` instead of `@orpc/client/websocket`. Same RPC
-    // protocol, different transport.
-    fetch: (request, init) =>
-      fetch(request, { ...init, credentials: "include" }),
-  }) as ClientLink<Record<string, never>>;
-  return link;
+	if (link) return link
+	link = new RPCLink({
+		url: rpcUrl(),
+		// Cookies, not headers: the dashboard is a private reverse-proxy app with
+		// no auth of its own, so nothing here may require a bearer token.
+		//
+		// Same class name as the WebSocket adapter's `RPCLink`, imported from
+		// `@orpc/client/fetch` instead of `@orpc/client/websocket`. Same RPC
+		// protocol, different transport.
+		fetch: (request, init) =>
+			fetch(request, { ...init, credentials: "include" }),
+	}) as ClientLink<Record<string, never>>
+	return link
 }
 
-let client: unknown = null;
+let client: unknown = null
 
 /**
  * Lazily-built client, so a server render never constructs anything
  * browser-only. Only safe to call from a client component.
  */
 export function getBrowserClient() {
-  if (!client) {
-    client = createORPCClient(getLink() as never);
-  }
-  return client as ReturnType<typeof createORPCClient>;
+	if (!client) {
+		client = createORPCClient(getLink() as never)
+	}
+	return client as ReturnType<typeof createORPCClient>
 }

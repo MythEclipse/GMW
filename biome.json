@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.2.0/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -24,8 +24,9 @@
   },
   "formatter": {
     "enabled": true,
-    "indentStyle": "space",
-    "indentWidth": 2
+    "indentStyle": "tab",
+    "indentWidth": 2,
+    "lineWidth": 80
   },
   "linter": {
     "enabled": true,
@@ -68,7 +69,9 @@
   },
   "overrides": [
     {
-      "includes": ["apps/frontend/src/components/ui/**"],
+      "includes": [
+        "apps/frontend/src/components/ui/**"
+      ],
       "linter": {
         "rules": {
           "a11y": {
@@ -76,8 +79,12 @@
             "useKeyWithClickEvents": "off",
             "noLabelWithoutControl": "off"
           },
-          "suspicious": { "noDocumentCookie": "off" },
-          "security": { "noDangerouslySetInnerHtml": "warn" }
+          "suspicious": {
+            "noDocumentCookie": "off"
+          },
+          "security": {
+            "noDangerouslySetInnerHtml": "warn"
+          }
         }
       }
     }
@@ -87,6 +94,14 @@
       "source": {
         "organizeImports": "on"
       }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "semicolons": "asNeeded",
+      "quoteStyle": "double",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
     }
   }
 }

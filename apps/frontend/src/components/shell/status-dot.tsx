@@ -1,8 +1,8 @@
-"use client";
+"use client"
 
-import { cn } from "cn";
-import { useWs } from "@/lib/ws/context";
-import type { ConnectionStatus } from "@/lib/ws/types";
+import { cn } from "cn"
+import { useWs } from "@/lib/ws/context"
+import type { ConnectionStatus } from "@/lib/ws/types"
 
 /**
  * Live-connection indicator.
@@ -13,38 +13,38 @@ import type { ConnectionStatus } from "@/lib/ws/types";
  * carries the attempt count.
  */
 const COPY: Record<
-  ConnectionStatus,
-  { label: string; dot: string; pulse: boolean }
+	ConnectionStatus,
+	{ label: string; dot: string; pulse: boolean }
 > = {
-  connecting: { label: "Connecting", dot: "bg-ink-faint", pulse: true },
-  connected: { label: "Live", dot: "bg-ink-muted", pulse: false },
-  reconnecting: { label: "Reconnecting", dot: "bg-amber", pulse: true },
-  error: { label: "Offline", dot: "bg-vermilion", pulse: false },
-};
+	connecting: { label: "Connecting", dot: "bg-ink-faint", pulse: true },
+	connected: { label: "Live", dot: "bg-ink-muted", pulse: false },
+	reconnecting: { label: "Reconnecting", dot: "bg-amber", pulse: true },
+	error: { label: "Offline", dot: "bg-vermilion", pulse: false },
+}
 
 export function StatusDot({ className }: { className?: string }) {
-  const { status, statusDetail } = useWs();
-  const copy = COPY[status];
+	const { status, statusDetail } = useWs()
+	const copy = COPY[status]
 
-  return (
-    <div
-      className={cn("flex items-center gap-2", className)}
-      title={statusDetail ? `Reconnecting (${statusDetail})` : copy.label}
-    >
-      <span className="relative flex size-2" aria-hidden>
-        {copy.pulse && (
-          <span
-            className={cn(
-              "animate-pulse-ring absolute inline-flex size-full rounded-full",
-              copy.dot,
-            )}
-          />
-        )}
-        <span
-          className={cn("relative inline-flex size-2 rounded-full", copy.dot)}
-        />
-      </span>
-      <span className="text-xs text-ink-muted">{copy.label}</span>
-    </div>
-  );
+	return (
+		<div
+			className={cn("flex items-center gap-2", className)}
+			title={statusDetail ? `Reconnecting (${statusDetail})` : copy.label}
+		>
+			<span className="relative flex size-2" aria-hidden>
+				{copy.pulse && (
+					<span
+						className={cn(
+							"animate-pulse-ring absolute inline-flex size-full rounded-full",
+							copy.dot,
+						)}
+					/>
+				)}
+				<span
+					className={cn("relative inline-flex size-2 rounded-full", copy.dot)}
+				/>
+			</span>
+			<span className="text-xs text-ink-muted">{copy.label}</span>
+		</div>
+	)
 }

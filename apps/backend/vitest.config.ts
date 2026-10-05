@@ -1,5 +1,5 @@
-import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url"
+import { defineConfig } from "vitest/config"
 
 /**
  * Vitest replaces `bun test` as the runner (skill §7).
@@ -73,4 +73,4 @@ export default defineConfig({
 		 * vitest.integration.config.ts.
 		 */
 	},
-});
+})

@@ -16,12 +16,12 @@
  * `discord.js` and `sharp` into the browser bundle — which is exactly why the
  * frontend reaches the backend for types only, never for runtime.
  */
-import type { InferClientOutputs } from "@orpc/client";
-import type { RouterClient } from "@orpc/server";
-import type { appRouter } from "./orpc/router.js";
+import type { InferClientOutputs } from "@orpc/client"
+import type { RouterClient } from "@orpc/server"
+import type { appRouter } from "./orpc/router.js"
 
-export type { appRouter, InferClientOutputs as InferClientOutput };
-export type AppRouter = typeof appRouter;
+export type { appRouter, InferClientOutputs as InferClientOutput }
+export type AppRouter = typeof appRouter
 
 /**
  * The typed client the frontend gets from `createORPCClient`.
@@ -36,4 +36,4 @@ export type AppRouter = typeof appRouter;
  * The client context is `Record<never, never>` because the dashboard has no
  * auth: `context: {}` is what both HTTP transports pass.
  */
-export type AppRouterClient = RouterClient<AppRouter>;
+export type AppRouterClient = RouterClient<AppRouter>

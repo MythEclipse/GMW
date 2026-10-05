@@ -13,52 +13,52 @@
  * `{type, data, timestamp, source}` envelope by the backend.
  */
 export type WsEventType =
-  | "message_created"
-  | "message_updated"
-  | "message_deleted"
-  | "message_analyzed"
-  | "attachment_created"
-  | "attachment_uploaded"
-  | "analysis_queue_status"
-  | "reaction_added"
-  | "reaction_removed"
-  | "thread_created"
-  | "thread_deleted"
-  | "thread_updated"
-  | "channel_topic_updated"
-  | "presence_updated"
-  | "guild_member_added"
-  | "guild_member_removed"
-  | "moderation_action"
-  | "message_snapshot"
-  | "message_snapshot_end"
-  | "ui_state"
-  | "user_state"
-  | "heartbeat";
+	| "message_created"
+	| "message_updated"
+	| "message_deleted"
+	| "message_analyzed"
+	| "attachment_created"
+	| "attachment_uploaded"
+	| "analysis_queue_status"
+	| "reaction_added"
+	| "reaction_removed"
+	| "thread_created"
+	| "thread_deleted"
+	| "thread_updated"
+	| "channel_topic_updated"
+	| "presence_updated"
+	| "guild_member_added"
+	| "guild_member_removed"
+	| "moderation_action"
+	| "message_snapshot"
+	| "message_snapshot_end"
+	| "ui_state"
+	| "user_state"
+	| "heartbeat"
 
 export interface WsEvent<T = unknown> {
-  type: WsEventType;
-  data: T;
-  timestamp: string;
+	type: WsEventType
+	data: T
+	timestamp: string
 }
 
 /** Payload of `analysis_queue_status`, straight from the gateway worker. */
 export interface AnalysisQueueStatus {
-  queuedConversations: number;
-  activeRequests: number;
-  activeIndividualRequests: number;
-  individualInFlightCount: number;
-  individualCircuitBreakerActive: boolean;
-  lastError: string | null;
-  activeTextRequests?: number;
-  activeMediaRequests?: number;
+	queuedConversations: number
+	activeRequests: number
+	activeIndividualRequests: number
+	individualInFlightCount: number
+	individualCircuitBreakerActive: boolean
+	lastError: string | null
+	activeTextRequests?: number
+	activeMediaRequests?: number
 }
 
 /** Payload of `message_snapshot_end` — end of a streamed replay. */
 export interface MessageSnapshotEnd {
-  sent: number;
-  nextCursor: string | null;
-  error?: boolean;
+	sent: number
+	nextCursor: string | null
+	error?: boolean
 }
 
 /**
@@ -66,12 +66,12 @@ export interface MessageSnapshotEnd {
  * string silently yields "undefined" in the UI.
  */
 export interface MessageDeletedPayload {
-  id: string;
-  deleted_at?: number;
+	id: string
+	deleted_at?: number
 }
 
 export type ConnectionStatus =
-  | "connecting"
-  | "connected"
-  | "reconnecting"
-  | "error";
+	| "connecting"
+	| "connected"
+	| "reconnecting"
+	| "error"

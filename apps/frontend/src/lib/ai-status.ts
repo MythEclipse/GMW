@@ -1,4 +1,4 @@
-import type { DisplayVerdict, PipelineStatus, VerdictStatus } from "./types";
+import type { DisplayVerdict, PipelineStatus, VerdictStatus } from "./types"
 
 /**
  * The moderation state machine, in one place.
@@ -27,33 +27,33 @@ import type { DisplayVerdict, PipelineStatus, VerdictStatus } from "./types";
  */
 
 export const PIPELINE_STATUSES: readonly PipelineStatus[] = [
-  "pending",
-  "claimed",
-  "analyzed",
-  "retry_wait",
-  "dead",
-  "skipped",
-] as const;
+	"pending",
+	"claimed",
+	"analyzed",
+	"retry_wait",
+	"dead",
+	"skipped",
+] as const
 
 export const VERDICT_STATUSES: readonly VerdictStatus[] = [
-  "clean",
-  "deleted",
-  "error",
-] as const;
+	"clean",
+	"deleted",
+	"error",
+] as const
 
 /** True only for values the DB CHECK constraint will accept. */
 export function isPipelineStatus(value: unknown): value is PipelineStatus {
-  return (
-    typeof value === "string" &&
-    (PIPELINE_STATUSES as readonly string[]).includes(value)
-  );
+	return (
+		typeof value === "string" &&
+		(PIPELINE_STATUSES as readonly string[]).includes(value)
+	)
 }
 
 export function isVerdictStatus(value: unknown): value is VerdictStatus {
-  return (
-    typeof value === "string" &&
-    (VERDICT_STATUSES as readonly string[]).includes(value)
-  );
+	return (
+		typeof value === "string" &&
+		(VERDICT_STATUSES as readonly string[]).includes(value)
+	)
 }
 
 /**
@@ -68,14 +68,14 @@ export function isVerdictStatus(value: unknown): value is VerdictStatus {
  * Shared by the messages and moderation views so both validate identically.
  */
 export function filterFromUrl(
-  value: string | null,
-  allowed: readonly string[],
-  unfiltered: string,
+	value: string | null,
+	allowed: readonly string[],
+	unfiltered: string,
 ): string {
-  return value !== null && allowed.includes(value) ? value : unfiltered;
+	return value !== null && allowed.includes(value) ? value : unfiltered
 }
 
-export type VerdictTone = "neutral" | "positive" | "warning" | "danger";
+export type VerdictTone = "neutral" | "positive" | "warning" | "danger"
 
 /**
  * Map a verdict to a tone. `"unjudged"` is neutral, NOT positive: it means the
@@ -85,38 +85,38 @@ export type VerdictTone = "neutral" | "positive" | "warning" | "danger";
  * that acted on the message, and the one a moderator needs to see.
  */
 export function verdictTone(
-  verdict: DisplayVerdict | null | undefined,
+	verdict: DisplayVerdict | null | undefined,
 ): VerdictTone {
-  switch (verdict) {
-    case "deleted":
-      return "danger";
-    case "error":
-      return "warning";
-    case "clean":
-      return "positive";
-    default:
-      return "neutral";
-  }
+	switch (verdict) {
+		case "deleted":
+			return "danger"
+		case "error":
+			return "warning"
+		case "clean":
+			return "positive"
+		default:
+			return "neutral"
+	}
 }
 
 export function verdictLabel(
-  verdict: DisplayVerdict | null | undefined,
+	verdict: DisplayVerdict | null | undefined,
 ): string {
-  switch (verdict) {
-    // The DECISION is called "flagged", not "deleted": deletion is a separate,
-    // downstream fact (see `deletedBy`). Labelling both "Deleted" printed the
-    // word twice on every bot-removed message and read as a stutter.
-    case "deleted":
-      return "Flagged";
-    case "error":
-      return "Error";
-    case "clean":
-      return "Clean";
-    case "unjudged":
-      return "Unjudged";
-    default:
-      return "Unknown";
-  }
+	switch (verdict) {
+		// The DECISION is called "flagged", not "deleted": deletion is a separate,
+		// downstream fact (see `deletedBy`). Labelling both "Deleted" printed the
+		// word twice on every bot-removed message and read as a stutter.
+		case "deleted":
+			return "Flagged"
+		case "error":
+			return "Error"
+		case "clean":
+			return "Clean"
+		case "unjudged":
+			return "Unjudged"
+		default:
+			return "Unknown"
+	}
 }
 
 /**
@@ -138,59 +138,59 @@ export function verdictLabel(
  * `pending`/`claimed` count as the bot: the bot DID act, and had a human beaten
  * it to the message its Discord call would have failed, leaving `failed`.
  */
-export type DeletedBy = "bot" | "human";
+export type DeletedBy = "bot" | "human"
 
 export function deletedBy(message: {
-  deleted_at?: number | null;
-  auto_delete_state?: string | null;
+	deleted_at?: number | null
+	auto_delete_state?: string | null
 }): DeletedBy | null {
-  if (message.deleted_at == null) return null;
-  return message.auto_delete_state != null ? "bot" : "human";
+	if (message.deleted_at == null) return null
+	return message.auto_delete_state != null ? "bot" : "human"
 }
 
 /** Queue position as a label, with the meaning spelled out. */
 export function pipelineLabel(
-  status: PipelineStatus | null | undefined,
+	status: PipelineStatus | null | undefined,
 ): string {
-  switch (status) {
-    case "pending":
-      return "Queued";
-    case "claimed":
-      return "Analyzing";
-    case "analyzed":
-      return "Analyzed";
-    case "retry_wait":
-      return "Retrying";
-    case "dead":
-      return "Abandoned";
-    // Deliberately not analysed: a channel on the skip list. NOT an error
-    // and not "queued" — the message was captured and will never be judged.
-    case "skipped":
-      return "Not moderated";
-    default:
-      return "Unknown";
-  }
+	switch (status) {
+		case "pending":
+			return "Queued"
+		case "claimed":
+			return "Analyzing"
+		case "analyzed":
+			return "Analyzed"
+		case "retry_wait":
+			return "Retrying"
+		case "dead":
+			return "Abandoned"
+		// Deliberately not analysed: a channel on the skip list. NOT an error
+		// and not "queued" — the message was captured and will never be judged.
+		case "skipped":
+			return "Not moderated"
+		default:
+			return "Unknown"
+	}
 }
 
 export function pipelineTone(
-  status: PipelineStatus | null | undefined,
+	status: PipelineStatus | null | undefined,
 ): VerdictTone {
-  switch (status) {
-    case "dead":
-      return "danger";
-    // Neutral, not positive: `analyzed` is green because a judgement was
-    // reached, and nothing was judged here. Not a warning either.
-    case "skipped":
-      return "neutral";
-    case "retry_wait":
-      return "warning";
-    case "claimed":
-      return "neutral";
-    case "analyzed":
-      return "positive";
-    default:
-      return "neutral";
-  }
+	switch (status) {
+		case "dead":
+			return "danger"
+		// Neutral, not positive: `analyzed` is green because a judgement was
+		// reached, and nothing was judged here. Not a warning either.
+		case "skipped":
+			return "neutral"
+		case "retry_wait":
+			return "warning"
+		case "claimed":
+			return "neutral"
+		case "analyzed":
+			return "positive"
+		default:
+			return "neutral"
+	}
 }
 
 /**
@@ -204,10 +204,10 @@ export function pipelineTone(
  * not "this is waiting for someone to APPROVE it".
  */
 export function isUnresolved(message: {
-  ai_status?: PipelineStatus | null;
-  verdict_status?: DisplayVerdict | null;
+	ai_status?: PipelineStatus | null
+	verdict_status?: DisplayVerdict | null
 }): boolean {
-  return message.ai_status === "dead" || message.verdict_status === "error";
+	return message.ai_status === "dead" || message.verdict_status === "error"
 }
 
 /**
@@ -220,9 +220,7 @@ export function isUnresolved(message: {
  * in the backlog permanently.
  */
 export function isBacklogged(
-  status: PipelineStatus | null | undefined,
+	status: PipelineStatus | null | undefined,
 ): boolean {
-  return (
-    status === "pending" || status === "claimed" || status === "retry_wait"
-  );
+	return status === "pending" || status === "claimed" || status === "retry_wait"
 }
