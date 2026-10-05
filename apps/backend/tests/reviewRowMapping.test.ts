@@ -131,9 +131,7 @@ describe("mapMessageRow converts every BigInt column, none by cast", () => {
   // because a hand-maintained list only knows about the columns someone already
   // got bitten by.
   const schema = readFileSync(
-    fileURLToPath(
-      new URL("../src/shared/database/schema.ts", import.meta.url),
-    ),
+    fileURLToPath(new URL("../src/shared/database/schema.ts", import.meta.url)),
     "utf8",
   );
 

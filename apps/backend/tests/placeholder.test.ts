@@ -21,7 +21,6 @@ import {
   ValidationError,
 } from "../src/shared/errors/index.js";
 // ─── Backend middleware ──────────────────────────────────────────────────────
-import { asyncHandler, requireParam } from "../src/shared/middlewares/index.js";
 // ─── Shared utilities ─────────────────────────────────────────────────────────
 import {
   decodeCursor,
@@ -231,59 +230,5 @@ describe("pagination utilities", () => {
     const { data, nextCursor } = pageResult([], 10);
     expect(data).toEqual([]);
     expect(nextCursor).toBeNull();
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 3. Middleware Tests
-// ═══════════════════════════════════════════════════════════════════════════════
-describe("asyncHandler", () => {
-  it("passes thrown errors to next()", async () => {
-    const error = new Error("handler-error");
-    const wrapped = asyncHandler(async () => {
-      throw error;
-    });
-    const next = vi.fn();
-
-    wrapped({} as any, {} as any, next);
-
-    // .catch(next) is a microtask — flush the queue
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(next).toHaveBeenCalledWith(error);
-  });
-
-  it("does not call next when handler resolves successfully", async () => {
-    const wrapped = asyncHandler(async (_req: any, _res: any, _next: any) => {
-      // no-op
-    });
-    const next = vi.fn();
-
-    wrapped({} as any, {} as any, next);
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(next).not.toHaveBeenCalled();
-  });
-});
-
-describe("requireParam", () => {
-  it("returns the value for a non-empty string", () => {
-    expect(requireParam("hello", "param", "name")).toBe("hello");
-  });
-
-  it("throws ValidationError for undefined", () => {
-    expect(() => requireParam(undefined, "query", "q")).toThrow(
-      ValidationError,
-    );
-  });
-
-  it("throws ValidationError for empty string", () => {
-    expect(() => requireParam("", "param", "id")).toThrow(ValidationError);
-  });
-
-  it("throws with a descriptive message", () => {
-    expect(() => requireParam(null, "header", "X-Token")).toThrow(
-      "Missing header: X-Token",
-    );
   });
 });

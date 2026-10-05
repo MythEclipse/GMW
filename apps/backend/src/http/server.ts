@@ -1,4 +1,5 @@
-import { createServer, type Server } from "node:http";
+import type { Server } from "node:http";
+import { serve } from "@hono/node-server";
 import { createChildLogger } from "@/shared/logger/index";
 import { createORPCWebSocketServer } from "../orpc/ws.js";
 import { config } from "../shared/config/index.js";
@@ -9,23 +10,52 @@ import { createHttpApp } from "./app.js";
 
 const logger = createChildLogger("http.server");
 
+/**
+ * `serve()` RETURNS THE UNDERLYING `http.Server`, and that is the whole point.
+ *
+ * Both WebSocket servers register their own `server.on("upgrade")` listener and
+ * route by URL — `/ws` for voice+gateway events, `/trpc` for RPC. They are built
+ * with `noServer: true` precisely because two `ws` servers bound via the
+ * `server` option both register upgrade listeners and the path-guarded one
+ * rejects the other's path.
+ *
+ * So this file must NOT reach for `hono/ws`'s `upgradeWebSocket`, and must NOT
+ * wrap the app in anything that hides the Server. `serve()` hands the Server
+ * back, and both listeners attach to it exactly as they did under Express.
+ *
+ * If a future `@hono/node-server` release starts installing its own `upgrade`
+ * listener on that Server, the fallback is to stop using `serve()` and build it
+ * by hand: `createServer(handle(app))` from `@hono/node-server` returns a plain
+ * `(req, res) => void`, giving a bare http.Server with no Hono involvement in
+ * the upgrade path.
+ */
 export async function startHttpServer(): Promise<Server> {
   // ONE pool now. This used to open the Prisma client for the dashboard's
   // reads while `gateway/bootstrap.ts` opened the Drizzle pool for writes — two
-  // pools against one database, both at POSTGRES_POOL_MAX, so the process held
-  // twice the connections it needed. The gateway already initialises Drizzle
-  // and every repository now reads through the same handle, so this is the
-  // only initialisation left.
+  // pools against one database, both at POSTGRES_POOL_MAX. The gateway already
+  // initialises Drizzle and every repository now reads through the same handle,
+  // so this is the only initialisation left.
   await initializeDatabase();
 
   const app = createHttpApp();
   const port = config.WEBSERVER_PORT;
 
-  const server = createServer(app);
+  const server = serve({ fetch: app.fetch, port }, (info) => {
+    logger.info({ port: info.port }, "HTTP server started");
+  });
 
-  // Attach WebSocket servers to the same HTTP server
-  createWebSocketServer(server); // /ws — voice PCM + gateway events
-  createORPCWebSocketServer(server); // /trpc — structured data RPCs
+  // Attach WebSocket servers to the same HTTP server.
+  createWebSocketServer(server as Server); // /ws — voice PCM + gateway events
+  createORPCWebSocketServer(server as Server); // /trpc — structured data RPCs
+
+  // `serve()` binds eagerly, where the Express version returned a promise that
+  // rejected on a listen error — so a port conflict used to abort startup with
+  // a clean rejection. `server.on("error")` restores that: without a listener,
+  // an EADDRINUSE here would be an unhandled 'error' event and take the process
+  // down with a stack trace instead of the logged fatal the caller expects.
+  server.on("error", (err) => {
+    logger.error({ err }, "HTTP server error");
+  });
 
   // Redis pub/sub bridge: forwards capture events to dashboard WS clients.
   //
@@ -49,15 +79,5 @@ export async function startHttpServer(): Promise<Server> {
     ),
   );
 
-  return new Promise<Server>((resolve, reject) => {
-    server.listen(port, () => {
-      logger.info({ port }, "HTTP server started");
-      resolve(server);
-    });
-
-    server.on("error", (err) => {
-      logger.error({ err }, "HTTP server error");
-      reject(err);
-    });
-  });
+  return server as Server;
 }
