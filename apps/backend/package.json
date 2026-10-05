@@ -1,7 +1,7 @@
 {
   "name": "discord-moderation-backend",
   "version": "1.0.0",
-  "description": "GMW \u2014 Discord moderation backend: HTTP/oRPC dashboard, Discord capture, and the moderation worker in one process",
+  "description": "GMW — Discord moderation backend: HTTP/oRPC dashboard, Discord capture, and the moderation worker in one process",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -14,9 +14,8 @@
     "format": "biome format --write .",
     "lint": "biome check --diagnostic-level=error .",
     "start": "node dist/index.js",
-    "test": "bun test tests/ tests-gateway/",
-    "typecheck": "tsc --noEmit",
-    "test:e2e": "bun test src/e2e.test.ts"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@gmw/db": "workspace:*",
@@ -52,7 +51,9 @@
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.2",
     "drizzle-kit": "^0.31.11",
+    "pino-pretty": "^13.2.0",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
   }
 }

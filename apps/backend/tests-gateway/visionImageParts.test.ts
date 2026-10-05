@@ -21,8 +21,9 @@
  * The fix is structural, and this asserts the structure: the URL must appear
  * in `LlmRequest.images`, never in `LlmRequest.user`.
  */
-import { describe, expect, it } from "bun:test";
+
 import type { Pool } from "pg";
+import { describe, expect, it } from "vitest";
 import type {
   LlmGateway,
   LlmRequest,

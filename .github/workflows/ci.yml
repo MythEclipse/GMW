@@ -1,0 +1,99 @@
+name: CI
+
+# Runs the same checks as deploy.yml's `test` job, on every PR and on pushes
+# that are not to main.
+#
+# WHY THIS EXISTS: deploy.yml triggers on push-to-main and deploys straight to
+# the VPS. Until this file existed there was NO PR-triggered CI at all, so a
+# broken push to main was discovered by production rather than by a check.
+# deploy.yml stays the deploy path; this is the gate in front of it.
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # 11 of the 29 backend test files are real-Postgres integration tests and 10
+    # of those TRUNCATE shared tables, so the suite needs a live database. The
+    # port here is deliberately NOT 6432: tests/setup-env.ts points DATABASE_URL
+    # at a dead port on purpose so a unit test that accidentally opens a pool
+    # fails loudly. Only the files that explicitly want a pool opt in.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: gmw_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/gmw_test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      # Apply the Drizzle baseline so the integration tests have tables to
+      # truncate. Drizzle owns the schema — there is exactly one baseline and no
+      # incremental migrations.
+      - name: Install + generate (packages/db)
+        working-directory: packages/db
+        run: |
+          bun install --frozen-lockfile
+          bun run generate
+
+      - name: Install + typecheck + test (backend)
+        working-directory: apps/backend
+        run: |
+          bun install --frozen-lockfile
+          ./node_modules/.bin/tsc --noEmit
+          bun run test
+
+      - name: Biome check (all apps)
+        run: |
+          cd apps/backend && ./node_modules/.bin/biome check src/ tests/ tests-gateway/
+
+      - name: Install + typecheck + build (frontend)
+        working-directory: apps/frontend
+        run: |
+          bun install --frozen-lockfile
+          ./node_modules/.bin/tsc --noEmit
+          ./node_modules/.bin/vite build
+
+      - name: Biome + design lint (frontend)
+        working-directory: apps/frontend
+        run: |
+          ./node_modules/.bin/biome check .
+          # @shadcn/lint via oxlint: keeps the Tailwind classes on the
+          # shadcn theme instead of raw colors and arbitrary values.
+          ./node_modules/.bin/oxlint

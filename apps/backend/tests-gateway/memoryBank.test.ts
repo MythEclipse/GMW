@@ -16,8 +16,9 @@
  *    test below runs a real worker against a real DB and asserts on the
  *    captured prompt string.
  */
-import { expect, test } from "bun:test";
+import { createServer } from "node:http";
 import pg from "pg";
+import { expect, test } from "vitest";
 import type { LlmGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js";
 import {
   buildMemoryTags,
@@ -498,21 +499,28 @@ test("a recall that overruns its deadline ABORTS the request", async () => {
     return realFetch(input, init);
   }) as typeof globalThis.fetch;
   let releaseFetch: (() => void) | undefined;
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      // Held open until the test lets go, so a request that is never cancelled
-      // is still pending here when the assertion runs.
-      await new Promise<void>((r) => {
-        releaseFetch = r;
-      });
-      return new Response("{}");
-    },
+  // Was `Bun.serve`, now a bare `node:http` server. Vitest runs on Node, where
+  // `Bun` does not exist — but the only thing this needs is "a listener that
+  // accepts the connection and never answers", which node:http does with no
+  // dependency and no ceremony. `listen(0)` still picks a free port, read back
+  // from the address the kernel assigned.
+  const server = createServer((_req, res) => {
+    // Held open until the test lets go, so a request that is never cancelled
+    // is still pending here when the assertion runs.
+    releaseFetch = () => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+    };
   });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("expected a TCP address from the test server");
+  }
   const started = Date.now();
   try {
     const bank = new ModerationMemoryBank({
-      baseUrl: `http://127.0.0.1:${server.port}`,
+      baseUrl: `http://127.0.0.1:${address.port}`,
       bankId: "gmw-moderation",
       enabled: true,
       recallMaxTokens: 500,
@@ -532,7 +540,7 @@ test("a recall that overruns its deadline ABORTS the request", async () => {
     expect(seenSignal?.aborted).toBe(true);
   } finally {
     releaseFetch?.();
-    server.stop(true);
+    server.close();
     globalThis.fetch = realFetch;
   }
 });

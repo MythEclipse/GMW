@@ -21,8 +21,9 @@
  * Measured against the running stack: a headless browser on /messages/
  * received 0 WebSocket frames while the worker was actively writing verdicts.
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+
 import pg from "pg";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 const DB_URL =
   process.env.TEST_DATABASE_URL ??

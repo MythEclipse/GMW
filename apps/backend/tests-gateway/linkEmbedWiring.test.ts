@@ -8,8 +8,9 @@
  * would have received null and the prompt would have stayed exactly as blind
  * as before.
  */
-import { expect, test } from "bun:test";
+
 import pg from "pg";
+import { expect, test } from "vitest";
 import type { LlmGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js";
 import {
   DEFAULT_WORKER_CONFIG,

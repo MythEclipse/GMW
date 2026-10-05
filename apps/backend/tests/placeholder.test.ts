@@ -1,31 +1,16 @@
 // ─── Shared Error Classes ────────────────────────────────────────────────────
 
-// bun:test compat facade — vitest's `vi` maps onto bun's `jest`/`mock`/`spyOn`.
-// bun:test 1.3.14 exports both `jest` (fn, useFakeTimers, spyOn) and `mock`
-// (module, restore). `vi.fn` -> `jest.fn`, `vi.useFakeTimers` -> `jest.useFakeTimers`,
-// `vi.waitFor` -> waitForCompat (poll until the assertion passes).
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { afterEach, describe, expect, it, jest } from "bun:test";
-
-const useFakeTimers = () => jest.useFakeTimers();
-const useRealTimers = () => jest.useRealTimers();
-const advanceTimersByTime = (ms: number) => jest.advanceTimersByTime(ms);
-async function waitForCompat(fn: () => Promise<unknown>, timeoutMs = 2_000) {
-  const start = Date.now();
-  let lastErr: unknown;
-  while (Date.now() - start < timeoutMs) {
-    try {
-      await fn();
-      return;
-    } catch (err) {
-      lastErr = err;
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  }
-  throw lastErr instanceof Error
-    ? lastErr
-    : new Error("waitForCompat timed out");
-}
+// The bun:test → Vitest port deleted this file's hand-rolled compat facade.
+// It used to map `vi.fn` onto bun's `jest.fn`, `vi.useFakeTimers` onto
+// `jest.useFakeTimers`, and `vi.waitFor` onto a poll loop. Under Vitest the
+// real `vi` provides all three directly, so the shim is gone rather than
+// re-pointed — one less layer of indirection between a test and its runner.
+const useFakeTimers = () => vi.useFakeTimers();
+const useRealTimers = () => vi.useRealTimers();
+const advanceTimersByTime = (ms: number) => vi.advanceTimersByTime(ms);
+const waitForCompat = vi.waitFor;
 
 import {
   AppError,
@@ -148,13 +133,13 @@ describe("retryWithBackoff", () => {
   });
 
   it("returns the result on first success without retrying", async () => {
-    const fn = jest.fn().mockResolvedValue("ok");
+    const fn = vi.fn().mockResolvedValue("ok");
     await expect(retryWithBackoff(fn)).resolves.toBe("ok");
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
   it("re-throws after exhausting all retries", async () => {
-    const fn = jest.fn().mockRejectedValue(new Error("persistent"));
+    const fn = vi.fn().mockRejectedValue(new Error("persistent"));
     await expect(
       retryWithBackoff(fn, { retries: 1, minTimeout: 1, maxTimeout: 5 }),
     ).rejects.toThrow("persistent");
@@ -165,7 +150,7 @@ describe("retryWithBackoff", () => {
   it("throws AbortError immediately when signal is already aborted", async () => {
     const ac = new AbortController();
     ac.abort();
-    const fn = jest.fn().mockResolvedValue("ok");
+    const fn = vi.fn().mockResolvedValue("ok");
     await expect(
       retryWithBackoff(fn, { retries: 3, signal: ac.signal }),
     ).rejects.toThrow("Aborted");
@@ -175,7 +160,7 @@ describe("retryWithBackoff", () => {
   it("respects abort signal during retry", async () => {
     useFakeTimers();
     const ac = new AbortController();
-    const fn = jest.fn().mockRejectedValue(new Error("fail"));
+    const fn = vi.fn().mockRejectedValue(new Error("fail"));
 
     const promise = retryWithBackoff(fn, {
       retries: 5,
@@ -258,7 +243,7 @@ describe("asyncHandler", () => {
     const wrapped = asyncHandler(async () => {
       throw error;
     });
-    const next = jest.fn();
+    const next = vi.fn();
 
     wrapped({} as any, {} as any, next);
 
@@ -272,7 +257,7 @@ describe("asyncHandler", () => {
     const wrapped = asyncHandler(async (_req: any, _res: any, _next: any) => {
       // no-op
     });
-    const next = jest.fn();
+    const next = vi.fn();
 
     wrapped({} as any, {} as any, next);
     await Promise.resolve();

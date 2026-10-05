@@ -4,7 +4,7 @@
  * Each pins a defect that was live in production, so the fix cannot be
  * quietly reverted.
  */
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import {
   AttachmentTooLargeError,
   downloadDiscordAttachment,

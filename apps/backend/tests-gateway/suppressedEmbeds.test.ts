@@ -11,7 +11,7 @@
  * so an embed-only message produced no evidence at all and the model was asked
  * to judge a blank. Auto-delete then acted on that blank.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import { isEligibleForAutoDelete } from "../src/modules-gateway/ai-moderation/autoDeleteEligibility.js";
 import {

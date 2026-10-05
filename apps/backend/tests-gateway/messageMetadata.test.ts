@@ -4,8 +4,9 @@
  * Each of these pins a bug that was live in production, so a future refactor
  * that reintroduces it fails here rather than in the dashboard.
  */
-import { describe, expect, it } from "bun:test";
+
 import type { Message } from "discord.js-selfbot-v13";
+import { describe, expect, it } from "vitest";
 import {
   decodeMessageFlags,
   getAttachmentsFromMetadata,

@@ -15,8 +15,9 @@
  *
  * Run: bun test tests/
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+
 import pg from "pg";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import type {
   LlmGateway,
   LlmRequest,

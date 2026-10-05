@@ -17,7 +17,7 @@
  * guarded?") and points it at the gate that now exists — confidence, evidence,
  * and the allow-lists — instead of at a tier that no longer does.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   isEligibleForAutoDelete,
   isNicknameOnlyViolation,

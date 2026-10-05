@@ -11,7 +11,7 @@
  * recording gateway and assert on the captured prompt string.
  */
 
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import {
   extractSpans,
   selectBatchDictionaryWordPlan,

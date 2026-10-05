@@ -12,8 +12,9 @@
  * Skipped (not failed) when the database is unreachable, so the default
  * `bun test tests/` run stays green on a machine without it.
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+
 import pg from "pg";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import type {
   LlmGateway,
   LlmRequest,

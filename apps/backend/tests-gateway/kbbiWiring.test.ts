@@ -20,8 +20,8 @@
  * `channelContextWiring.test.ts` and `linkEmbedWiring.test.ts`.
  */
 
-import { expect, test } from "bun:test";
 import pg from "pg";
+import { expect, test } from "vitest";
 import {
   type DictionaryConfig,
   KbbiDictionary,

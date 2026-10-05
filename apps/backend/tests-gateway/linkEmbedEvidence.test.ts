@@ -26,7 +26,7 @@
  *
  * Both are pinned here so neither can be quietly reverted.
  */
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { isEligibleForAutoDelete } from "../src/modules-gateway/ai-moderation/autoDeleteEligibility.js";
 import {
   buildSystemPrompt,

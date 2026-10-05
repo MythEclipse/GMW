@@ -47,12 +47,11 @@ jobs:
         run: |
           bun install --frozen-lockfile
           ./node_modules/.bin/tsc --noEmit
-          # src/e2e.test.ts requires a live backend (API_BASE) — unit tests
-          # live in the two test dirs and are excluded from the bun test path.
-          # tests-gateway/ came from the old discord-gateway app; it has its own
-          # setup-env values, which bunfig's single preload path cannot carry for
-          # two dirs, so tests/setup-env.ts is the env block for BOTH suites.
-          bun test tests/ tests-gateway/
+          # Vitest (migrated from `bun test` in P0). The include globs and the
+          # setup-env preload both live in vitest.config.ts now — the stale
+          # src/e2e.test.ts that needed a live API_BASE has been deleted, so this
+          # one command covers every suite.
+          bun run test
 
       - name: Biome check (all apps)
         run: |

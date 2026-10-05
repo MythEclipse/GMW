@@ -8,8 +8,9 @@
  * descriptions died (resolved, then dropped on the floor). So this asserts the
  * captured PROMPT string, the same way `linkEmbedWiring.test.ts` does.
  */
-import { expect, test } from "bun:test";
+
 import pg from "pg";
+import { expect, test } from "vitest";
 import type { LlmGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js";
 import {
   buildSystemPrompt,

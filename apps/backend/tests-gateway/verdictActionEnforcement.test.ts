@@ -23,14 +23,24 @@
  * Discord call. The assertions are on what the manager DECIDED and what it
  * recorded, not on how many times a function ran.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // ── Boundary mocks ────────────────────────────────────────────────
 // Registered before importing the manager, because the manager captures these
 // bindings at module load.
-const moderationActions: Array<Record<string, unknown>> = [];
+//
+// `vi.hoisted` is REQUIRED here, not stylistic. Vitest statically hoists every
+// `vi.mock` call to the top of the file — above the imports — so a factory that
+// closed over a plain `const` would run in the temporal dead zone. bun's
+// `mock.module` was a runtime call with no hoisting, which is why this file
+// could declare the arrays inline. `vi.hoisted` lifts them above the mocks so
+// the factories, and the `beforeEach` reset below, see the same instances.
+const { moderationActions, loggerCalls } = vi.hoisted(() => ({
+  moderationActions: [] as Array<Record<string, unknown>>,
+  loggerCalls: [] as string[],
+}));
 
-mock.module("../src/modules-gateway/message-capture/messageStore.js", () => ({
+vi.mock("../src/modules-gateway/message-capture/messageStore.js", () => ({
   messageStore: {
     async createModerationAction(action: Record<string, unknown>) {
       moderationActions.push(action);
@@ -42,8 +52,7 @@ mock.module("../src/modules-gateway/message-capture/messageStore.js", () => ({
   },
 }));
 
-const loggerCalls: string[] = [];
-mock.module("../src/modules-gateway/ai-moderation/autoDeleteLogger.js", () => ({
+vi.mock("../src/modules-gateway/ai-moderation/autoDeleteLogger.js", () => ({
   logDeletionToChannel: async () => {
     loggerCalls.push("channel-logged");
   },

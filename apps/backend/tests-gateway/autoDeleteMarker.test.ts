@@ -24,8 +24,9 @@
  * the same score is still not a material change — and must not re-open a
  * settled row, or every routine re-analysis would refill the enforcer's queue.
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+
 import pg from "pg";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 const DB_URL =
   process.env.TEST_DATABASE_URL ??

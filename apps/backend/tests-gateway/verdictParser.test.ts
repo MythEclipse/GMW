@@ -4,7 +4,7 @@
  * Each test here corresponds to a real defect in the v1 parser that is now
  * impossible. Run: bun test tests/ (picked up automatically by bunfig preload).
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   clampScore,
   extractJson,
