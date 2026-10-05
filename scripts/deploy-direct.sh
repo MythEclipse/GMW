@@ -28,12 +28,12 @@ RELEASES_DIR="$INSTALL_ROOT/releases"
 CURRENT_LINK="$INSTALL_ROOT/current"
 BIN_DIR="$INSTALL_ROOT/bin"
 
-# bun is installed under the invoking user's home. SSH non-interactive
-# sessions do not source ~/.bashrc / ~/.zshrc, so bun is not on PATH there.
-# Add it explicitly; the location is stable (bun's own installer).
-export PATH="$HOME/.bun/bin:$PATH"
-if ! command -v bun >/dev/null 2>&1; then
-  echo "FATAL: bun not found on PATH (looked in $HOME/.bun/bin)" >&2
+# pnpm is installed under the invoking user's home. SSH non-interactive sessions
+# do not source ~/.bashrc / ~/.zshrc, so it is not on PATH there. Add it
+# explicitly; the location is stable (corepack's default).
+export PATH="$HOME/.local/share/pnpm:$HOME/.local/bin:$PATH"
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "FATAL: pnpm not found on PATH (looked in $HOME/.local/share/pnpm)" >&2
   exit 1
 fi
 
@@ -92,11 +92,11 @@ cd "$RELEASE_DIR"
 
 # A release directory is a BUILD ARTIFACT, not an archive. Once built it is no
 # longer a pristine checkout, and both later steps are destructive to a second
-# `bun install`:
+# `pnpm install`:
 #
 #   * step 3 prunes devDependencies out of node_modules
 #   * step 7 chowns the whole tree to gmw so the service can read it, after
-#     which `bun install` (running as the deploy user) cannot write into it
+#     which `pnpm install` (running as the deploy user) cannot write into it
 #
 # Observed on re-deploying an already-deployed sha:
 #   ENOENT: failed to symlink dependencies for package: discord-moderation-backend
@@ -106,28 +106,33 @@ cd "$RELEASE_DIR"
 # and `--frozen-lockfile` on top of that reports "no changes" over an install
 # that is missing typescript and biome, so the build would fail later at tsc.
 #
-# `bun install` here takes ~1s and `tsc` ~10s, so rebuilding from a clean
+# `pnpm install` here takes ~1s and `tsc` ~10s, so rebuilding from a clean
 # checkout is far cheaper than making a mutated tree idempotent. The reuse
 # branch above therefore only fires for a dir that was fetched but never built.
 
 # ---------------------------------------------------------------------------
 # 2. Build
 # ---------------------------------------------------------------------------
-log "Installing dependencies (bun install)"
+log "Installing dependencies (pnpm install)"
 export HOME="${HOME:-/var/lib/gmw}"
-mkdir -p "$HOME/.bun"
-bun install --frozen-lockfile
+mkdir -p "$HOME/.local/share/pnpm"
+pnpm install --frozen-lockfile
 
 log "Building backend (HTTP + capture + moderation worker)"
-(cd apps/backend && bun run build)
+(cd apps/backend && pnpm run build)
 
 log "Building frontend"
-(cd apps/frontend && bun run build)
+(cd apps/frontend && pnpm run build)
 
 # ---------------------------------------------------------------------------
 # 3. Prune devDependencies (keep runtime node_modules lean)
 # ---------------------------------------------------------------------------
 log "Pruning devDependencies"
+# Under pnpm, node_modules is a SYMLINK FARM: top-level entries point into
+# node_modules/.pnpm, which holds the real content. Removing a top-level
+# devDependency therefore removes a symlink, not the shared store — runtime
+# dependencies are symlinks of the same shape and are left alone. The broken-
+# symlink sweep afterwards cleans up anything the prune left dangling.
 for app_dir in apps/backend; do
   if [ -d "$app_dir/node_modules" ]; then
     find "$app_dir/node_modules" -maxdepth 2 -type d \
