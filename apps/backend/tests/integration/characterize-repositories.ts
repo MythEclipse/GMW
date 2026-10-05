@@ -21,6 +21,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { executeTool } from "../../src/modules/chatbot/chatbot.tools.js";
 import { dashboardRepository } from "../../src/modules/dashboard/dashboard.repository.js";
 import { messagesRepository } from "../../src/modules/messages/messages.repository.js";
 import { moderationRepository } from "../../src/modules/moderation/moderation.repository.js";
@@ -44,8 +45,47 @@ const { GUILD, CH_A } = FIXTURE;
  * Methods whose output is EXPECTED to differ once the ORM changes, with the
  * reason. An empty list is the goal — anything added here is a behaviour change
  * that has to be justified, not papered over.
+ *
+ * These are not cosmetic. Every entry below was ALREADY BROKEN under Prisma,
+ * and returns a `Tool <name> gagal: <reason>` string instead of JSON. The
+ * Drizzle port fixes them, so the baseline has to record the broken behaviour
+ * or the fix reads as a regression:
+ *
+ *   - `voice_recordings` has no `transcription` column. Prisma rejected the
+ *     whole select, so `get_voice_recordings` always answered "gagal".
+ *   - Prisma returns `messages.created_at` as a raw `bigint`, and
+ *     `JSON.stringify` throws on one — so every tool that returns a message
+ *     row (get_message_detail, get_recent_activity, search_messages,
+ *     get_user_messages, get_top_flagged, get_server_stats) 500'd at the
+ *     chatbot. This is the same BigInt-to-JSON hazard that
+ *     `messages.getReviewMessages` was patched for, in a tool that was missed.
+ *     Drizzle's `mode: "number"` columns return numbers, so the port fixes it.
  */
-const BASELINE_NOTES: Record<string, string> = {};
+const BASELINE_NOTES: Record<string, string> = {
+  "chatbot.get_server_stats":
+    "Prisma returned created_at as bigint; JSON.stringify threw",
+  "chatbot.get_server_stats.scoped":
+    "Prisma returned created_at as bigint; JSON.stringify threw",
+  "chatbot.get_recent_activity":
+    "Prisma returned created_at as bigint; JSON.stringify threw",
+  "chatbot.get_top_flagged":
+    "Prisma returned created_at as bigint; JSON.stringify threw",
+  "chatbot.search_messages":
+    "Prisma returned created_at as bigint; JSON.stringify threw",
+  "chatbot.get_user_messages":
+    "Prisma returned created_at as bigint; JSON.stringify threw",
+  "chatbot.get_message_detail":
+    "Prisma returned created_at as bigint; JSON.stringify threw",
+  "chatbot.get_voice_recordings":
+    "transcription column does not exist; Prisma rejected the select",
+  // Surfaced by running the port rather than by reading the file: these two
+  // failed for the same bigint reason but were not in the first list, and both
+  // pass `last_analyzed_at` straight through `JSON.stringify`.
+  "chatbot.get_user_profile":
+    "Prisma returned last_analyzed_at as bigint; JSON.stringify threw",
+  "chatbot.get_channel_culture":
+    "Prisma returned last_analyzed_at as bigint; JSON.stringify threw",
+};
 
 /** Stable stringify: object keys sorted, so key-order churn is not a diff. */
 function stable(value: unknown): unknown {
@@ -187,12 +227,94 @@ async function collect(): Promise<Record<string, unknown>> {
       "dashboard.getUserDetail",
       () => dashboardRepository.getUserDetail("char-user-1"),
     ],
+
+    // ── chatbot tools ─────────────────────────────────────────────────
+    // Every executor that touches the database. Each returns a JSON STRING, so
+    // the collector parses it before snapshotting — otherwise key order inside
+    // the string would register as a diff on every port.
+    [
+      "chatbot.get_server_stats",
+      () => executeTool("get_server_stats", { guildId: GUILD }),
+    ],
+    [
+      "chatbot.get_server_stats.scoped",
+      () =>
+        executeTool("get_server_stats", { guildId: GUILD, channelId: CH_A }),
+    ],
+    [
+      "chatbot.get_top_channels",
+      () => executeTool("get_top_channels", { guildId: GUILD }),
+    ],
+    [
+      "chatbot.get_recent_activity",
+      () => executeTool("get_recent_activity", { guildId: GUILD }),
+    ],
+    [
+      "chatbot.get_top_flagged",
+      () => executeTool("get_top_flagged", { guildId: GUILD }),
+    ],
+    [
+      "chatbot.search_messages",
+      () => executeTool("search_messages", { query: "halo", guildId: GUILD }),
+    ],
+    [
+      "chatbot.get_user_messages",
+      () =>
+        executeTool("get_user_messages", {
+          userId: "char-user-1",
+          guildId: GUILD,
+        }),
+    ],
+    [
+      "chatbot.get_user_profile",
+      () =>
+        executeTool("get_user_profile", {
+          userId: "char-user-1",
+          guildId: GUILD,
+        }),
+    ],
+    [
+      "chatbot.get_user_reputation",
+      () => executeTool("get_user_reputation", { userId: "char-user-1" }),
+    ],
+    [
+      "chatbot.get_channel_culture",
+      () => executeTool("get_channel_culture", { channelId: CH_A }),
+    ],
+    [
+      "chatbot.get_message_detail",
+      () => executeTool("get_message_detail", { messageId: "char-msg-1" }),
+    ],
+    [
+      "chatbot.get_message_reviews",
+      () => executeTool("get_message_reviews", { guildId: GUILD }),
+    ],
+    [
+      "chatbot.get_voice_recordings",
+      () => executeTool("get_voice_recordings", { guildId: GUILD }),
+    ],
+    [
+      "chatbot.get_moderation_timeline",
+      () =>
+        executeTool("get_moderation_timeline", { guildId: GUILD, days: 60 }),
+    ],
+    [
+      "chatbot.get_corrections",
+      () => executeTool("get_corrections", { guildId: GUILD }),
+    ],
   ];
 
   const out: Record<string, unknown> = {};
   for (const [name, run] of calls) {
     try {
-      out[name] = stable(await run());
+      const result = await run();
+      // The chatbot tools answer with a JSON STRING, not an object. Parsing it
+      // here means a key-order change inside the payload does not read as a
+      // behavioural difference — only the values are compared.
+      out[name] =
+        typeof result === "string"
+          ? stable(JSON.parse(result))
+          : stable(result);
     } catch (err) {
       // Recorded, not swallowed: a method that throws today must still
       // throw after the port, and that IS the baseline.
@@ -277,6 +399,7 @@ async function main() {
 
   const expected = JSON.parse(readFileSync(SNAPSHOT_PATH, "utf8"));
   const problems: string[] = [];
+  const skipped: string[] = [];
   for (const name of new Set([
     ...Object.keys(expected),
     ...Object.keys(actual),
@@ -289,8 +412,29 @@ async function main() {
       problems.push(`${name}: MISSING from the current run`);
       continue;
     }
-    if (name in BASELINE_NOTES) continue;
+    // A skipped method still has to SUCCEED now. If it throws again, the fix
+    // regressed and that must not pass quietly.
+    if (name in BASELINE_NOTES) {
+      const value = actual[name];
+      const stillBroken =
+        typeof value === "object" && value !== null && "__threw" in value;
+      if (stillBroken) {
+        problems.push(
+          `${name}: was expected to be FIXED by the port but still throws`,
+        );
+      } else {
+        skipped.push(`${name} — ${BASELINE_NOTES[name]}`);
+      }
+      continue;
+    }
     problems.push(...diff(expected[name], actual[name], name));
+  }
+
+  if (skipped.length > 0) {
+    console.log(
+      `${skipped.length} method(s) were broken before the port and now return data:`,
+    );
+    for (const s of skipped) console.log(`  fixed: ${s}`);
   }
 
   if (problems.length === 0) {
