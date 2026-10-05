@@ -82,15 +82,15 @@
  * untouched.
  */
 
-import { HindsightClient } from "@vectorize-io/hindsight-client";
-import { config } from "@/shared/config/index";
-import { createChildLogger } from "@/shared/logger/index";
+import { HindsightClient } from "@vectorize-io/hindsight-client"
+import { config } from "@/shared/config/index"
+import { createChildLogger } from "@/shared/logger/index"
 import {
-  escapeMessageBody,
-  escapeXmlAttr,
-} from "../message-capture/messageMetadata.js";
+	escapeMessageBody,
+	escapeXmlAttr,
+} from "../message-capture/messageMetadata.js"
 
-const log = createChildLogger("ai-moderation/memory");
+const log = createChildLogger("ai-moderation/memory")
 
 /**
  * One message's identity and evidence, as captured in `messages.metadata`.
@@ -99,18 +99,18 @@ const log = createChildLogger("ai-moderation/memory");
  * rows predate some of these keys.
  */
 export type MemoryAuthor = {
-  /** Snowflake. Kept for exact match, not for search. */
-  userId: string;
-  /** Discord's login name, unique account-wide — "budi_dev". */
-  username: string | null;
-  /** The user's chosen display name — "Budi S." */
-  globalName: string | null;
-  /** Per-guild display name, i.e. the nickname when one is set. */
-  serverName: string | null;
-  bot: boolean;
-  /** Discord's legacy discriminator, when the account still has one. */
-  tag: string | null;
-};
+	/** Snowflake. Kept for exact match, not for search. */
+	userId: string
+	/** Discord's login name, unique account-wide — "budi_dev". */
+	username: string | null
+	/** The user's chosen display name — "Budi S." */
+	globalName: string | null
+	/** Per-guild display name, i.e. the nickname when one is set. */
+	serverName: string | null
+	bot: boolean
+	/** Discord's legacy discriminator, when the account still has one. */
+	tag: string | null
+}
 
 /**
  * Where a message sat in the conversation, as captured in `messages.metadata`.
@@ -125,61 +125,61 @@ export type MemoryAuthor = {
  * captured before a key existed simply do not have it.
  */
 export type MemoryContext = {
-  /** The thread the message was posted in, when it was not the channel root. */
-  threadId?: string | null;
-  /** Human-readable thread name — what people actually call the thread. */
-  threadName?: string | null;
-  /** Parent channel name, so `#general` is a word in the bank, not just an id. */
-  channelName?: string | null;
-  /** The channel topic. Says what the channel is FOR, which is the single
-   *  strongest signal for "does this message belong here". */
-  topic?: string | null;
-  /** Discord channel type, so an announcement channel is distinguishable from
-   *  a support thread without resolving the id. */
-  channelType?: string | null;
-  /** The message this replies to, when it is a reply. */
-  referenceMessageId?: string | null;
-  /** The parent channel id when `threadId` is set. */
-  referenceChannelId?: string | null;
-};
+	/** The thread the message was posted in, when it was not the channel root. */
+	threadId?: string | null
+	/** Human-readable thread name — what people actually call the thread. */
+	threadName?: string | null
+	/** Parent channel name, so `#general` is a word in the bank, not just an id. */
+	channelName?: string | null
+	/** The channel topic. Says what the channel is FOR, which is the single
+	 *  strongest signal for "does this message belong here". */
+	topic?: string | null
+	/** Discord channel type, so an announcement channel is distinguishable from
+	 *  a support thread without resolving the id. */
+	channelType?: string | null
+	/** The message this replies to, when it is a reply. */
+	referenceMessageId?: string | null
+	/** The parent channel id when `threadId` is set. */
+	referenceChannelId?: string | null
+}
 
 export type MemoryMessage = {
-  messageId: string;
-  guildId: string;
-  channelId: string;
-  content: string;
-  createdAt: string;
-  author: MemoryAuthor;
-  /** The moderation model's own reading of the message, for the bank. */
-  analysis: string;
-  status: string;
-  categories: string[];
-  mediaDescription?: string;
-  /** Where the message sat in the conversation. Empty when nothing was captured. */
-  context: MemoryContext;
-};
+	messageId: string
+	guildId: string
+	channelId: string
+	content: string
+	createdAt: string
+	author: MemoryAuthor
+	/** The moderation model's own reading of the message, for the bank. */
+	analysis: string
+	status: string
+	categories: string[]
+	mediaDescription?: string
+	/** Where the message sat in the conversation. Empty when nothing was captured. */
+	context: MemoryContext
+}
 
 export type MemoryBankConfig = {
-  baseUrl: string;
-  bankId: string;
-  /** Token budget for one recall. Small: this is prompt context, not a report. */
-  recallMaxTokens: number;
-  /** Recall retrieval budget. `low` keeps latency near the measured 0.7s. */
-  recallBudget: "low" | "mid" | "high";
-  /** Per-call deadline for recall, counted against the moderation call. */
-  recallTimeoutMs: number;
-  /** Hard cap on retained items per batch. */
-  retainBatchSize: number;
-};
+	baseUrl: string
+	bankId: string
+	/** Token budget for one recall. Small: this is prompt context, not a report. */
+	recallMaxTokens: number
+	/** Recall retrieval budget. `low` keeps latency near the measured 0.7s. */
+	recallBudget: "low" | "mid" | "high"
+	/** Per-call deadline for recall, counted against the moderation call. */
+	recallTimeoutMs: number
+	/** Hard cap on retained items per batch. */
+	retainBatchSize: number
+}
 
 export const DEFAULT_MEMORY_BANK_CONFIG: MemoryBankConfig = {
-  baseUrl: "http://127.0.0.1:8890",
-  bankId: "gmw-moderation",
-  recallMaxTokens: 1200,
-  recallBudget: "low",
-  recallTimeoutMs: 8_000,
-  retainBatchSize: 40,
-};
+	baseUrl: "http://127.0.0.1:8890",
+	bankId: "gmw-moderation",
+	recallMaxTokens: 1200,
+	recallBudget: "low",
+	recallTimeoutMs: 8_000,
+	retainBatchSize: 40,
+}
 
 /**
  * Tags applied to every retained item, so recall can scope to a place.
@@ -197,13 +197,13 @@ export const DEFAULT_MEMORY_BANK_CONFIG: MemoryBankConfig = {
  * thread gets its own tag instead, so both scopes are available.
  */
 export function buildMemoryTags(m: {
-  guildId: string;
-  channelId: string;
-  context?: MemoryContext;
+	guildId: string
+	channelId: string
+	context?: MemoryContext
 }): string[] {
-  const tags = [`channel:${m.channelId}`, `guild:${m.guildId}`];
-  if (m.context?.threadId) tags.push(`thread:${m.context.threadId}`);
-  return tags;
+	const tags = [`channel:${m.channelId}`, `guild:${m.guildId}`]
+	if (m.context?.threadId) tags.push(`thread:${m.context.threadId}`)
+	return tags
 }
 
 /**
@@ -220,42 +220,42 @@ export function buildMemoryTags(m: {
  * parent's topic — exactly what a moderator would read.
  */
 export function extractMemoryContext(
-  metadata: string | null | undefined,
+	metadata: string | null | undefined,
 ): MemoryContext {
-  const empty: MemoryContext = {};
-  if (!metadata) return empty;
+	const empty: MemoryContext = {}
+	if (!metadata) return empty
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(metadata);
-  } catch {
-    return empty;
-  }
-  if (typeof parsed !== "object" || parsed === null) return empty;
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(metadata)
+	} catch {
+		return empty
+	}
+	if (typeof parsed !== "object" || parsed === null) return empty
 
-  const root = parsed as {
-    channel?: Record<string, unknown>;
-    reference?: Record<string, unknown> | null;
-  };
-  const c = root.channel ?? {};
-  const ref = root.reference ?? {};
-  const str = (v: unknown): string | null =>
-    typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+	const root = parsed as {
+		channel?: Record<string, unknown>
+		reference?: Record<string, unknown> | null
+	}
+	const c = root.channel ?? {}
+	const ref = root.reference ?? {}
+	const str = (v: unknown): string | null =>
+		typeof v === "string" && v.trim().length > 0 ? v.trim() : null
 
-  const context: MemoryContext = {
-    threadId: str(c.threadId),
-    threadName: str(c.threadName),
-    channelName: str(c.channelName),
-    topic: str(c.topic),
-    channelType: str(c.channelType),
-    referenceMessageId: str(ref.messageId),
-    referenceChannelId: str(ref.channelId),
-  };
+	const context: MemoryContext = {
+		threadId: str(c.threadId),
+		threadName: str(c.threadName),
+		channelName: str(c.channelName),
+		topic: str(c.topic),
+		channelType: str(c.channelType),
+		referenceMessageId: str(ref.messageId),
+		referenceChannelId: str(ref.channelId),
+	}
 
-  // An all-null object is noise in the metadata and in the tests. Return the
-  // empty shape so "nothing was captured" stays distinguishable from "a place
-  // was captured but happened to have no name".
-  return Object.values(context).some((v) => v !== null) ? context : empty;
+	// An all-null object is noise in the metadata and in the tests. Return the
+	// empty shape so "nothing was captured" stays distinguishable from "a place
+	// was captured but happened to have no name".
+	return Object.values(context).some((v) => v !== null) ? context : empty
 }
 
 /**
@@ -274,37 +274,37 @@ export function extractMemoryContext(
  * a behaviour log.
  */
 export function formatMemoryContent(m: MemoryMessage): string {
-  const names = [
-    m.author.globalName,
-    m.author.serverName,
-    m.author.username,
-  ].filter((n): n is string => Boolean(n && n.trim()));
-  const named = names.length > 0 ? names.join(" / ") : m.author.userId;
+	const names = [
+		m.author.globalName,
+		m.author.serverName,
+		m.author.username,
+	].filter((n): n is string => Boolean(n && n.trim()))
+	const named = names.length > 0 ? names.join(" / ") : m.author.userId
 
-  const parts: string[] = [
-    m.author.bot
-      ? `Bot ${named} mengirim pesan ${describePlace(m.context)}.`
-      : `Anggota ${named} mengirim pesan ${describePlace(m.context)}.`,
-  ];
+	const parts: string[] = [
+		m.author.bot
+			? `Bot ${named} mengirim pesan ${describePlace(m.context)}.`
+			: `Anggota ${named} mengirim pesan ${describePlace(m.context)}.`,
+	]
 
-  const body = m.content.trim();
-  parts.push(
-    body.length > 0
-      ? `Isi pesan: "${body}"`
-      : "Pesan tanpa teks (hanya lampiran atau embed).",
-  );
+	const body = m.content.trim()
+	parts.push(
+		body.length > 0
+			? `Isi pesan: "${body}"`
+			: "Pesan tanpa teks (hanya lampiran atau embed).",
+	)
 
-  if (m.mediaDescription?.trim()) {
-    parts.push(`Deskripsi media: ${m.mediaDescription.trim()}`);
-  }
+	if (m.mediaDescription?.trim()) {
+		parts.push(`Deskripsi media: ${m.mediaDescription.trim()}`)
+	}
 
-  parts.push(
-    `Penilaian moderasi: status=${m.status}` +
-      (m.categories.length > 0 ? `, kategori=${m.categories.join(", ")}` : ""),
-  );
-  if (m.analysis.trim()) parts.push(`Analisis moderator: ${m.analysis.trim()}`);
+	parts.push(
+		`Penilaian moderasi: status=${m.status}` +
+			(m.categories.length > 0 ? `, kategori=${m.categories.join(", ")}` : ""),
+	)
+	if (m.analysis.trim()) parts.push(`Analisis moderator: ${m.analysis.trim()}`)
 
-  return parts.join(" ");
+	return parts.join(" ")
 }
 
 /**
@@ -320,17 +320,17 @@ export function formatMemoryContent(m: MemoryMessage): string {
  * grammatical after "mengirim pesan".
  */
 function describePlace(ctx: MemoryContext): string {
-  const channel = ctx.channelName ? `#${ctx.channelName}` : null;
-  const thread = ctx.threadName ? `thread "${ctx.threadName}"` : null;
+	const channel = ctx.channelName ? `#${ctx.channelName}` : null
+	const thread = ctx.threadName ? `thread "${ctx.threadName}"` : null
 
-  let place: string;
-  if (thread && channel) place = `di ${thread} pada ${channel}`;
-  else if (thread) place = `di ${thread}`;
-  else if (channel) place = `di ${channel}`;
-  else place = "di channel tanpa nama";
+	let place: string
+	if (thread && channel) place = `di ${thread} pada ${channel}`
+	else if (thread) place = `di ${thread}`
+	else if (channel) place = `di ${channel}`
+	else place = "di channel tanpa nama"
 
-  const topic = ctx.topic ? ` (topik channel: "${ctx.topic}")` : "";
-  return `${place}${topic}`;
+	const topic = ctx.topic ? ` (topik channel: "${ctx.topic}")` : ""
+	return `${place}${topic}`
 }
 
 /**
@@ -347,25 +347,25 @@ function describePlace(ctx: MemoryContext): string {
  * was never captured while the batch as a whole is in a named channel.
  */
 function describePlaces(messages: readonly MemoryMessage[]): string[] {
-  const threads = [
-    ...new Set(
-      messages
-        .map((m) => m.context.threadName)
-        .filter((n): n is string => Boolean(n && n.trim())),
-    ),
-  ];
-  if (threads.length > 0) return threads.slice(0, 4);
+	const threads = [
+		...new Set(
+			messages
+				.map((m) => m.context.threadName)
+				.filter((n): n is string => Boolean(n && n.trim())),
+		),
+	]
+	if (threads.length > 0) return threads.slice(0, 4)
 
-  const channels = [
-    ...new Set(
-      messages
-        .map((m) => m.context.channelName)
-        .filter((n): n is string => Boolean(n && n.trim())),
-    ),
-  ];
-  if (channels.length > 0) return channels.slice(0, 4).map((c) => `#${c}`);
+	const channels = [
+		...new Set(
+			messages
+				.map((m) => m.context.channelName)
+				.filter((n): n is string => Boolean(n && n.trim())),
+		),
+	]
+	if (channels.length > 0) return channels.slice(0, 4).map((c) => `#${c}`)
 
-  return ["tanpa nama"];
+	return ["tanpa nama"]
 }
 
 /**
@@ -377,60 +377,60 @@ function describePlaces(messages: readonly MemoryMessage[]): string[] {
  * only an id is worse than a memory that admits it knows the id.
  */
 export function extractMemoryAuthor(
-  authorId: string,
-  metadata: string | null | undefined,
+	authorId: string,
+	metadata: string | null | undefined,
 ): MemoryAuthor {
-  const empty: MemoryAuthor = {
-    userId: authorId,
-    username: null,
-    globalName: null,
-    serverName: null,
-    bot: false,
-    tag: null,
-  };
-  if (!metadata) return empty;
+	const empty: MemoryAuthor = {
+		userId: authorId,
+		username: null,
+		globalName: null,
+		serverName: null,
+		bot: false,
+		tag: null,
+	}
+	if (!metadata) return empty
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(metadata);
-  } catch {
-    return empty;
-  }
-  if (typeof parsed !== "object" || parsed === null) return empty;
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(metadata)
+	} catch {
+		return empty
+	}
+	if (typeof parsed !== "object" || parsed === null) return empty
 
-  const root = parsed as {
-    author?: Record<string, unknown>;
-    member?: Record<string, unknown> | null;
-  };
-  const a = root.author ?? {};
-  const m = root.member ?? {};
-  const str = (v: unknown): string | null =>
-    typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+	const root = parsed as {
+		author?: Record<string, unknown>
+		member?: Record<string, unknown> | null
+	}
+	const a = root.author ?? {}
+	const m = root.member ?? {}
+	const str = (v: unknown): string | null =>
+		typeof v === "string" && v.trim().length > 0 ? v.trim() : null
 
-  // `member.displayName` IS the nickname on a guild message, so it is the
-  // server-scoped name. `author.globalName` is the account-wide display name,
-  // which is what this library populates on the author object.
-  return {
-    userId: authorId,
-    username: str(a.username),
-    globalName: str(a.globalName),
-    serverName: str(m.nickname) ?? str(m.displayName),
-    bot: a.bot === true,
-    tag: str(a.tag),
-  };
+	// `member.displayName` IS the nickname on a guild message, so it is the
+	// server-scoped name. `author.globalName` is the account-wide display name,
+	// which is what this library populates on the author object.
+	return {
+		userId: authorId,
+		username: str(a.username),
+		globalName: str(a.globalName),
+		serverName: str(m.nickname) ?? str(m.displayName),
+		bot: a.bot === true,
+		tag: str(a.tag),
+	}
 }
 
 /** The wire shape of one result row, narrowed to what we consume. */
 type RecallRow = {
-  text?: string | null;
-  type?: string | null;
-  tags?: string[] | null;
-};
+	text?: string | null
+	type?: string | null
+	tags?: string[] | null
+}
 
 export type ModerationMemory = {
-  text: string;
-  type: string;
-};
+	text: string
+	type: string
+}
 
 /**
  * Thin wrapper over the Hindsight client.
@@ -440,193 +440,193 @@ export type ModerationMemory = {
  * worker receives this like the LLM gateway, so nothing here needs a network.
  */
 export class ModerationMemoryBank {
-  private client: HindsightClient | null = null;
+	private client: HindsightClient | null = null
 
-  constructor(
-    private readonly cfg: MemoryBankConfig = DEFAULT_MEMORY_BANK_CONFIG,
-  ) {}
+	constructor(
+		private readonly cfg: MemoryBankConfig = DEFAULT_MEMORY_BANK_CONFIG,
+	) {}
 
-  /**
-   * The Hindsight client, built once and kept.
-   *
-   * Recycling it was tried and is deliberately NOT done here. Measured
-   * production data drove that: one worker process logged 296 of 309 recalls
-   * timing out at the 8s deadline between 08:17 and 16:58, and a plain restart
-   * made the identical code succeed 295 times with 1 timeout — same bank, same
-   * deadline, same payload. That looks like per-process state, so throwing the
-   * client away every couple of minutes looked like the fix.
-   *
-   * It is not, and shipping it would have been a fix with a story attached. The
-   * SDK holds nothing but a config object: it delegates to `globalThis.fetch`
-   * and owns no pool, no sockets and no dispatcher, so a fresh client reuses the
-   * very same shared connection pool the stale one was using. Rebuilding it
-   * cannot drop a socket that the client never held. The per-process cause of
-   * the 08:17–16:58 run is therefore still unidentified, and the honest state of
-   * it is recorded above rather than papered over with a change that cannot
-   * work.
-   *
-   * What is kept is the deadline itself, which does bound the damage: see
-   * `withTimeout`.
-   */
-  private getClient(): HindsightClient {
-    if (!this.client) {
-      this.client = new HindsightClient({
-        baseUrl: this.cfg.baseUrl,
-        userAgent: "gmw-moderation-worker/1.0",
-        // Recall is idempotent, so the SDK's capacity retry is worth having.
-        // Writes are never retried by the SDK, which is correct for a memory
-        // write we must not duplicate.
-        maxAttempts: 2,
-      });
-    }
-    return this.client;
-  }
+	/**
+	 * The Hindsight client, built once and kept.
+	 *
+	 * Recycling it was tried and is deliberately NOT done here. Measured
+	 * production data drove that: one worker process logged 296 of 309 recalls
+	 * timing out at the 8s deadline between 08:17 and 16:58, and a plain restart
+	 * made the identical code succeed 295 times with 1 timeout — same bank, same
+	 * deadline, same payload. That looks like per-process state, so throwing the
+	 * client away every couple of minutes looked like the fix.
+	 *
+	 * It is not, and shipping it would have been a fix with a story attached. The
+	 * SDK holds nothing but a config object: it delegates to `globalThis.fetch`
+	 * and owns no pool, no sockets and no dispatcher, so a fresh client reuses the
+	 * very same shared connection pool the stale one was using. Rebuilding it
+	 * cannot drop a socket that the client never held. The per-process cause of
+	 * the 08:17–16:58 run is therefore still unidentified, and the honest state of
+	 * it is recorded above rather than papered over with a change that cannot
+	 * work.
+	 *
+	 * What is kept is the deadline itself, which does bound the damage: see
+	 * `withTimeout`.
+	 */
+	private getClient(): HindsightClient {
+		if (!this.client) {
+			this.client = new HindsightClient({
+				baseUrl: this.cfg.baseUrl,
+				userAgent: "gmw-moderation-worker/1.0",
+				// Recall is idempotent, so the SDK's capacity retry is worth having.
+				// Writes are never retried by the SDK, which is correct for a memory
+				// write we must not duplicate.
+				maxAttempts: 2,
+			})
+		}
+		return this.client
+	}
 
-  /**
-   * Fetch what this channel's history already knows.
-   *
-   * Returns "" on every failure path, including "nothing relevant". The caller
-   * interpolates the result straight into the prompt, so an empty string must
-   * mean "say nothing", never "say something went wrong".
-   */
-  async recallChannelContext(messages: MemoryMessage[]): Promise<string> {
-    if (messages.length === 0) return "";
+	/**
+	 * Fetch what this channel's history already knows.
+	 *
+	 * Returns "" on every failure path, including "nothing relevant". The caller
+	 * interpolates the result straight into the prompt, so an empty string must
+	 * mean "say nothing", never "say something went wrong".
+	 */
+	async recallChannelContext(messages: MemoryMessage[]): Promise<string> {
+		if (messages.length === 0) return ""
 
-    // One query per batch, scoped to the places in it. A batch spans channels
-    // (claim_messages does not group), so the tags are the union — and the
-    // client-side filter below is what actually keeps them apart.
-    //
-    // `channel:` alone is the scope; `thread:` is ADDED to it as a ranking hint
-    // rather than a second scope. Filtering on the union client-side is
-    // deliberate: a message posted in the channel root carries no `thread:` tag
-    // at all, so demanding a thread tag would silently drop every root message
-    // in the channel from its own channel's context.
-    const channels = [...new Set(messages.map((m) => m.channelId))];
-    const threadIds = [
-      ...new Set(
-        messages
-          .map((m) => m.context.threadId)
-          .filter((t): t is string => Boolean(t && t.trim())),
-      ),
-    ];
-    const tags = [
-      ...channels.map((c) => `channel:${c}`),
-      ...threadIds.map((t) => `thread:${t}`),
-    ];
+		// One query per batch, scoped to the places in it. A batch spans channels
+		// (claim_messages does not group), so the tags are the union — and the
+		// client-side filter below is what actually keeps them apart.
+		//
+		// `channel:` alone is the scope; `thread:` is ADDED to it as a ranking hint
+		// rather than a second scope. Filtering on the union client-side is
+		// deliberate: a message posted in the channel root carries no `thread:` tag
+		// at all, so demanding a thread tag would silently drop every root message
+		// in the channel from its own channel's context.
+		const channels = [...new Set(messages.map((m) => m.channelId))]
+		const threadIds = [
+			...new Set(
+				messages
+					.map((m) => m.context.threadId)
+					.filter((t): t is string => Boolean(t && t.trim())),
+			),
+		]
+		const tags = [
+			...channels.map((c) => `channel:${c}`),
+			...threadIds.map((t) => `thread:${t}`),
+		]
 
-    try {
-      const client = this.getClient();
-      const response = await withTimeout(
-        (signal) =>
-          client.recall(this.cfg.bankId, buildRecallQuery(messages), {
-            budget: this.cfg.recallBudget,
-            maxTokens: this.cfg.recallMaxTokens,
-            tags,
-            tagsMatch: "any_strict",
-            // Without this, recall returns both the consolidated observation and
-            // the raw facts it was built from, and the prompt carries the same
-            // sentence twice.
-            preferObservations: true,
-            // Carries the deadline all the way down: on timeout the request is
-            // cancelled, not just abandoned.
-            signal,
-          }),
-        this.cfg.recallTimeoutMs,
-      );
+		try {
+			const client = this.getClient()
+			const response = await withTimeout(
+				(signal) =>
+					client.recall(this.cfg.bankId, buildRecallQuery(messages), {
+						budget: this.cfg.recallBudget,
+						maxTokens: this.cfg.recallMaxTokens,
+						tags,
+						tagsMatch: "any_strict",
+						// Without this, recall returns both the consolidated observation and
+						// the raw facts it was built from, and the prompt carries the same
+						// sentence twice.
+						preferObservations: true,
+						// Carries the deadline all the way down: on timeout the request is
+						// cancelled, not just abandoned.
+						signal,
+					}),
+				this.cfg.recallTimeoutMs,
+			)
 
-      const kept = filterByTags(response.results, tags);
-      if (kept.length === 0) return "";
+			const kept = filterByTags(response.results, tags)
+			if (kept.length === 0) return ""
 
-      // Name the places in the attribute, not the ids: the block is read by the
-      // model, and "#general" tells it which conversation this is while
-      // "1122334455667788" tells it nothing.
-      return formatMemoryContext(kept, describePlaces(messages));
-    } catch (e) {
-      log.warn(
-        {
-          err: e instanceof Error ? e.message : String(e),
-          channels: channels.length,
-          threads: threadIds.length,
-          messages: messages.length,
-        },
-        "hindsight recall failed — analysing without memory context",
-      );
-      return "";
-    }
-  }
+			// Name the places in the attribute, not the ids: the block is read by the
+			// model, and "#general" tells it which conversation this is while
+			// "1122334455667788" tells it nothing.
+			return formatMemoryContext(kept, describePlaces(messages))
+		} catch (e) {
+			log.warn(
+				{
+					err: e instanceof Error ? e.message : String(e),
+					channels: channels.length,
+					threads: threadIds.length,
+					messages: messages.length,
+				},
+				"hindsight recall failed — analysing without memory context",
+			)
+			return ""
+		}
+	}
 
-  /**
-   * Store a batch of judged messages. Fire-and-forget by design.
-   *
-   * The worker calls this WITHOUT awaiting, so the cost (measured 3.3s for a
-   * 2-item sync retain, and that is an LLM extraction) never lands on the
-   * claim. Retention therefore lags analysis by however long Hindsight's queue
-   * takes, which is the accepted trade for leaving the lease arithmetic
-   * untouched.
-   */
-  retainBatch(messages: MemoryMessage[]): void {
-    if (messages.length === 0) return;
+	/**
+	 * Store a batch of judged messages. Fire-and-forget by design.
+	 *
+	 * The worker calls this WITHOUT awaiting, so the cost (measured 3.3s for a
+	 * 2-item sync retain, and that is an LLM extraction) never lands on the
+	 * claim. Retention therefore lags analysis by however long Hindsight's queue
+	 * takes, which is the accepted trade for leaving the lease arithmetic
+	 * untouched.
+	 */
+	retainBatch(messages: MemoryMessage[]): void {
+		if (messages.length === 0) return
 
-    const items = messages.slice(0, this.cfg.retainBatchSize).map((m) => ({
-      content: formatMemoryContent(m),
-      timestamp: m.createdAt,
-      context: "discord-moderation-verdict",
-      // Per-message document_id makes a retried write idempotent: retaining
-      // the same message twice updates the same document instead of creating
-      // a near-duplicate memory.
-      document_id: `msg-${m.messageId}`,
-      metadata: {
-        message_id: m.messageId,
-        guild_id: m.guildId,
-        channel_id: m.channelId,
-        user_id: m.author.userId,
-        username: m.author.username ?? "",
-        global_name: m.author.globalName ?? "",
-        server_name: m.author.serverName ?? "",
-        // The conversation placement, kept as metadata as well as prose. Prose
-        // is what recall can match semantically; metadata is what a future
-        // scoped query can filter on exactly without re-parsing Indonesian
-        // sentences. Both, because they answer different questions.
-        thread_id: m.context.threadId ?? "",
-        thread_name: m.context.threadName ?? "",
-        channel_name: m.context.channelName ?? "",
-        channel_topic: m.context.topic ?? "",
-        reference_message_id: m.context.referenceMessageId ?? "",
-        status: m.status,
-        categories: m.categories.join(","),
-      },
-      tags: buildMemoryTags(m),
-    }));
+		const items = messages.slice(0, this.cfg.retainBatchSize).map((m) => ({
+			content: formatMemoryContent(m),
+			timestamp: m.createdAt,
+			context: "discord-moderation-verdict",
+			// Per-message document_id makes a retried write idempotent: retaining
+			// the same message twice updates the same document instead of creating
+			// a near-duplicate memory.
+			document_id: `msg-${m.messageId}`,
+			metadata: {
+				message_id: m.messageId,
+				guild_id: m.guildId,
+				channel_id: m.channelId,
+				user_id: m.author.userId,
+				username: m.author.username ?? "",
+				global_name: m.author.globalName ?? "",
+				server_name: m.author.serverName ?? "",
+				// The conversation placement, kept as metadata as well as prose. Prose
+				// is what recall can match semantically; metadata is what a future
+				// scoped query can filter on exactly without re-parsing Indonesian
+				// sentences. Both, because they answer different questions.
+				thread_id: m.context.threadId ?? "",
+				thread_name: m.context.threadName ?? "",
+				channel_name: m.context.channelName ?? "",
+				channel_topic: m.context.topic ?? "",
+				reference_message_id: m.context.referenceMessageId ?? "",
+				status: m.status,
+				categories: m.categories.join(","),
+			},
+			tags: buildMemoryTags(m),
+		}))
 
-    const client = this.getClient();
-    // Deliberately not awaited: this runs inside the worker's lease, and the
-    // promise can take seconds. The catch keeps an unhandled rejection from
-    // taking down the worker process.
-    void client
-      .retainBatch(this.cfg.bankId, items, { async: true })
-      .catch((e: unknown) => {
-        log.warn(
-          {
-            err: e instanceof Error ? e.message : String(e),
-            bank: this.cfg.bankId,
-            items: items.length,
-          },
-          "hindsight retain failed — memory will lag, moderation is unaffected",
-        );
-      });
-  }
+		const client = this.getClient()
+		// Deliberately not awaited: this runs inside the worker's lease, and the
+		// promise can take seconds. The catch keeps an unhandled rejection from
+		// taking down the worker process.
+		void client
+			.retainBatch(this.cfg.bankId, items, { async: true })
+			.catch((e: unknown) => {
+				log.warn(
+					{
+						err: e instanceof Error ? e.message : String(e),
+						bank: this.cfg.bankId,
+						items: items.length,
+					},
+					"hindsight retain failed — memory will lag, moderation is unaffected",
+				)
+			})
+	}
 
-  /** Config from env, with Hindsight off unless explicitly enabled. */
-  static fromConfig(): ModerationMemoryBank {
-    return new ModerationMemoryBank({
-      baseUrl: config.AI_MEMORY_BASE_URL,
-      bankId: config.AI_MEMORY_BANK_ID,
-      recallMaxTokens: config.AI_MEMORY_RECALL_MAX_TOKENS,
-      recallBudget: config.AI_MEMORY_RECALL_BUDGET,
-      recallTimeoutMs: config.AI_MEMORY_RECALL_TIMEOUT_MS,
-      retainBatchSize: config.AI_MEMORY_RETAIN_BATCH_SIZE,
-    });
-  }
+	/** Config from env, with Hindsight off unless explicitly enabled. */
+	static fromConfig(): ModerationMemoryBank {
+		return new ModerationMemoryBank({
+			baseUrl: config.AI_MEMORY_BASE_URL,
+			bankId: config.AI_MEMORY_BANK_ID,
+			recallMaxTokens: config.AI_MEMORY_RECALL_MAX_TOKENS,
+			recallBudget: config.AI_MEMORY_RECALL_BUDGET,
+			recallTimeoutMs: config.AI_MEMORY_RECALL_TIMEOUT_MS,
+			retainBatchSize: config.AI_MEMORY_RETAIN_BATCH_SIZE,
+		})
+	}
 }
 
 /**
@@ -638,11 +638,11 @@ export class ModerationMemoryBank {
  * without tags, so this second gate is what actually holds.
  */
 export function filterByTags(
-  results: readonly RecallRow[],
-  want: readonly string[],
+	results: readonly RecallRow[],
+	want: readonly string[],
 ): RecallRow[] {
-  const wanted = new Set(want);
-  return results.filter((r) => (r.tags ?? []).some((t) => wanted.has(t)));
+	const wanted = new Set(want)
+	return results.filter((r) => (r.tags ?? []).some((t) => wanted.has(t)))
 }
 
 /**
@@ -670,88 +670,88 @@ export function filterByTags(
  * `tags`, which is what `any_strict` and `filterByTags` are for.
  */
 export function buildRecallQuery(messages: MemoryMessage[]): string {
-  const threads = [
-    ...new Set(
-      messages
-        .map((m) => m.context.threadName)
-        .filter((n): n is string => Boolean(n && n.trim())),
-    ),
-  ].slice(0, 3);
-  const channels = [
-    ...new Set(
-      messages
-        .map((m) => m.context.channelName)
-        .filter((n): n is string => Boolean(n && n.trim())),
-    ),
-  ].slice(0, 3);
-  const topics = [
-    ...new Set(
-      messages
-        .map((m) => m.context.topic)
-        .filter((n): n is string => Boolean(n && n.trim())),
-    ),
-  ].slice(0, 2);
-  const authors = [
-    ...new Set(
-      messages
-        .flatMap((m) => [
-          m.author.globalName,
-          m.author.serverName,
-          m.author.username,
-        ])
-        .filter((n): n is string => Boolean(n && n.trim())),
-    ),
-  ].slice(0, 4);
+	const threads = [
+		...new Set(
+			messages
+				.map((m) => m.context.threadName)
+				.filter((n): n is string => Boolean(n && n.trim())),
+		),
+	].slice(0, 3)
+	const channels = [
+		...new Set(
+			messages
+				.map((m) => m.context.channelName)
+				.filter((n): n is string => Boolean(n && n.trim())),
+		),
+	].slice(0, 3)
+	const topics = [
+		...new Set(
+			messages
+				.map((m) => m.context.topic)
+				.filter((n): n is string => Boolean(n && n.trim())),
+		),
+	].slice(0, 2)
+	const authors = [
+		...new Set(
+			messages
+				.flatMap((m) => [
+					m.author.globalName,
+					m.author.serverName,
+					m.author.username,
+				])
+				.filter((n): n is string => Boolean(n && n.trim())),
+		),
+	].slice(0, 4)
 
-  const parts: string[] = [];
+	const parts: string[] = []
 
-  // The place leads, because it is the strongest filter and the least noisy.
-  if (threads.length > 0) {
-    parts.push(
-      `Apa yang sedang dan pernah dibahas di thread ${threads
-        .map((t) => `"${t}"`)
-        .join(", ")}`,
-    );
-  }
-  if (channels.length > 0) {
-    parts.push(
-      threads.length > 0
-        ? `pada channel ${channels.map((c) => `#${c}`).join(", ")}`
-        : `Apa yang pernah dibahas di channel ${channels
-            .map((c) => `#${c}`)
-            .join(", ")}`,
-    );
-  }
-  if (topics.length > 0) {
-    parts.push(`topik channel: ${topics.map((t) => `"${t}"`).join("; ")}`);
-  }
+	// The place leads, because it is the strongest filter and the least noisy.
+	if (threads.length > 0) {
+		parts.push(
+			`Apa yang sedang dan pernah dibahas di thread ${threads
+				.map((t) => `"${t}"`)
+				.join(", ")}`,
+		)
+	}
+	if (channels.length > 0) {
+		parts.push(
+			threads.length > 0
+				? `pada channel ${channels.map((c) => `#${c}`).join(", ")}`
+				: `Apa yang pernah dibahas di channel ${channels
+						.map((c) => `#${c}`)
+						.join(", ")}`,
+		)
+	}
+	if (topics.length > 0) {
+		parts.push(`topik channel: ${topics.map((t) => `"${t}"`).join("; ")}`)
+	}
 
-  // A batch whose metadata was never captured has no place to ask about. Naming
-  // the participants instead is the one thing it must NOT do: that produced the
-  // "who is this person" query that turned the bank into a behaviour log, and a
-  // place-less batch is exactly the case where that failure is most tempting.
-  const hasPlace =
-    threads.length > 0 || channels.length > 0 || topics.length > 0;
+	// A batch whose metadata was never captured has no place to ask about. Naming
+	// the participants instead is the one thing it must NOT do: that produced the
+	// "who is this person" query that turned the bank into a behaviour log, and a
+	// place-less batch is exactly the case where that failure is most tempting.
+	const hasPlace =
+		threads.length > 0 || channels.length > 0 || topics.length > 0
 
-  if (authors.length > 0 && hasPlace) {
-    // Participant names, not "people who behave a certain way". They sit last
-    // so they can only ever disambiguate a place that is already named.
-    parts.push(`peserta: ${authors.join(", ")}`);
-  }
+	if (authors.length > 0 && hasPlace) {
+		// Participant names, not "people who behave a certain way". They sit last
+		// so they can only ever disambiguate a place that is already named.
+		parts.push(`peserta: ${authors.join(", ")}`)
+	}
 
-  // The tail states the question in the shape the answer should take. It keeps
-  // "what is being discussed" and "what does this guild treat as normal" —
-  // the negative space, which is why the full chronicle is retained — and drops
-  // the "who habitually sends gambling links" clause that made this a
-  // behaviour query.
-  if (!hasPlace) {
-    parts.push("Riwayat pesan dan penilaian moderasi di kanal ini");
-  }
-  parts.push(
-    "termasuk topik, istilah, dan hal yang sudah pernah dibahas atau diperdebatkan di sini",
-  );
+	// The tail states the question in the shape the answer should take. It keeps
+	// "what is being discussed" and "what does this guild treat as normal" —
+	// the negative space, which is why the full chronicle is retained — and drops
+	// the "who habitually sends gambling links" clause that made this a
+	// behaviour query.
+	if (!hasPlace) {
+		parts.push("Riwayat pesan dan penilaian moderasi di kanal ini")
+	}
+	parts.push(
+		"termasuk topik, istilah, dan hal yang sudah pernah dibahas atau diperdebatkan di sini",
+	)
 
-  return parts.join(" — ");
+	return parts.join(" — ")
 }
 
 /**
@@ -766,32 +766,32 @@ export function buildRecallQuery(messages: MemoryMessage[]): string {
  * Escaped for an XML attribute — display names are user-controlled.
  */
 export function formatAuthorForPrompt(author: MemoryAuthor): string {
-  const parts = [author.username, author.globalName, author.serverName].filter(
-    (n): n is string => Boolean(n && n.trim()),
-  );
-  // The snowflake always closes it, so an id-only author is still
-  // distinguishable and never renders as an empty attribute.
-  parts.push(author.userId);
-  return escapeXmlAttr([...new Set(parts)].join(" | "));
+	const parts = [author.username, author.globalName, author.serverName].filter(
+		(n): n is string => Boolean(n && n.trim()),
+	)
+	// The snowflake always closes it, so an id-only author is still
+	// distinguishable and never renders as an empty attribute.
+	parts.push(author.userId)
+	return escapeXmlAttr([...new Set(parts)].join(" | "))
 }
 
 /** Render recall rows as the `<memory_context>` block. */
 export function formatMemoryContext(
-  rows: readonly RecallRow[],
-  channels: readonly string[],
+	rows: readonly RecallRow[],
+	channels: readonly string[],
 ): string {
-  const body = rows
-    .map((r) => {
-      const text = (r.text ?? "").trim();
-      return text ? `- (${r.type ?? "fact"}) ${text}` : "";
-    })
-    .filter(Boolean)
-    .join("\n");
-  if (!body) return "";
+	const body = rows
+		.map((r) => {
+			const text = (r.text ?? "").trim()
+			return text ? `- (${r.type ?? "fact"}) ${text}` : ""
+		})
+		.filter(Boolean)
+		.join("\n")
+	if (!body) return ""
 
-  return `<memory_context bank="gmw-moderation" channels="${escapeXmlAttr(
-    channels.join(","),
-  )}">\n${body}\n</memory_context>`;
+	return `<memory_context bank="gmw-moderation" channels="${escapeXmlAttr(
+		channels.join(","),
+	)}">\n${body}\n</memory_context>`
 }
 
 /**
@@ -808,26 +808,26 @@ export function formatMemoryContext(
  * handle keeping the process alive.
  */
 async function withTimeout<T>(
-  send: (signal: AbortSignal) => Promise<T>,
-  ms: number,
+	send: (signal: AbortSignal) => Promise<T>,
+	ms: number,
 ): Promise<T> {
-  // A non-positive deadline means "no deadline": pass through untouched rather
-  // than abort instantly.
-  if (!(ms > 0)) return send(new AbortController().signal);
+	// A non-positive deadline means "no deadline": pass through untouched rather
+	// than abort instantly.
+	if (!(ms > 0)) return send(new AbortController().signal)
 
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      send(controller.signal),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          controller.abort(new Error(`hindsight recall exceeded ${ms}ms`));
-          reject(new Error(`hindsight recall exceeded ${ms}ms`));
-        }, ms);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+	const controller = new AbortController()
+	let timer: ReturnType<typeof setTimeout> | undefined
+	try {
+		return await Promise.race([
+			send(controller.signal),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => {
+					controller.abort(new Error(`hindsight recall exceeded ${ms}ms`))
+					reject(new Error(`hindsight recall exceeded ${ms}ms`))
+				}, ms)
+			}),
+		])
+	} finally {
+		if (timer) clearTimeout(timer)
+	}
 }

@@ -20,7 +20,15 @@ function walk(dir) {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
     if (e.isDirectory()) walk(p);
-    else if (e.name.endsWith(".js")) {
+    // `.d.ts` TOO, not just `.js`.
+    //
+    // The declaration emit carries the same `@/foo` specifiers as the JS, and a
+    // consumer resolving `dist/index.d.ts` cannot follow them — it fails with
+    // "Cannot find module '@/shared/...'". That is not hypothetical for anything
+    // downstream of this build: an editor, a dependent package, or a future
+    // switch of the frontend alias from backend SOURCE to built declarations.
+    // Rewriting both keeps `dist/` self-contained.
+    else if (e.name.endsWith(".js") || e.name.endsWith(".d.ts")) {
       const c = readFileSync(p, "utf8");
       const pat = /from\s+['"]([^'"]+)['"]/g;
       const n = c.replace(pat, (m, spec) => {

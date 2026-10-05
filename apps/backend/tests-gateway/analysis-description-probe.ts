@@ -14,77 +14,75 @@
  * Run: bun tests/analysis-description-probe.ts
  */
 
-import { createDefaultGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js";
-import { buildSystemPrompt } from "../src/modules-gateway/ai-moderation/policy.js";
+import { createDefaultGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js"
+import { buildSystemPrompt } from "../src/modules-gateway/ai-moderation/policy.js"
 
 const BOILERPLATE = [
-  "tidak mengandung unsur pelanggaran",
-  "tidak ada indikasi pelanggaran",
-  "tidak melanggar kebijakan",
-  "tidak mengandung pelanggaran",
-  "tidak ada pelanggaran",
-  "tidak menunjukkan tanda-tanda",
-  "tidak menunjukkan pelanggaran",
-  "nihil",
-  "bersih dari pelanggaran",
-];
+	"tidak mengandung unsur pelanggaran",
+	"tidak ada indikasi pelanggaran",
+	"tidak melanggar kebijakan",
+	"tidak mengandung pelanggaran",
+	"tidak ada pelanggaran",
+	"tidak menunjukkan tanda-tanda",
+	"tidak menunjukkan pelanggaran",
+	"nihil",
+	"bersih dari pelanggaran",
+]
 
-const gateway = createDefaultGateway();
-const system = buildSystemPrompt({ mode: "text" });
+const gateway = createDefaultGateway()
+const system = buildSystemPrompt({ mode: "text" })
 
 interface Case {
-  text: string;
-  why: string;
+	text: string
+	why: string
 }
 
 const CASES: Case[] = [
-  { text: "pecicilan", why: "slang — must be explained, not just judged" },
-  { text: "masih pecicilan", why: "slang in a sentence" },
-  { text: "biji", why: "vulgar Indonesian — must stay clean but be explained" },
-  { text: "3,14er life crisis", why: "a joke that needs unpacking" },
-  { text: "halo", why: "trivial, but should still say something true" },
-  { text: "cuckholdin", why: "the nsfw case — description plus verdict" },
-  { text: "dasar goblok", why: "mild insult — should name the insult" },
-];
+	{ text: "pecicilan", why: "slang — must be explained, not just judged" },
+	{ text: "masih pecicilan", why: "slang in a sentence" },
+	{ text: "biji", why: "vulgar Indonesian — must stay clean but be explained" },
+	{ text: "3,14er life crisis", why: "a joke that needs unpacking" },
+	{ text: "halo", why: "trivial, but should still say something true" },
+	{ text: "cuckholdin", why: "the nsfw case — description plus verdict" },
+	{ text: "dasar goblok", why: "mild insult — should name the insult" },
+]
 
-let boilerplate = 0;
+let boilerplate = 0
 
 console.log(`model: ${gateway.modelLabel ?? "unknown"}
-`);
+`)
 
 for (const c of CASES) {
-  try {
-    const raw = await gateway.complete({
-      system,
-      user: `## PESAN\n1. ${c.text}\n`,
-      timeoutMs: 90_000,
-    });
-    const pick = (key: string): string | undefined =>
-      raw
-        .replace(/```[a-z]*/gi, "")
-        .match(new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`))?.[1];
-    const pickNum = (key: string): number => {
-      const m = raw.match(new RegExp(`"${key}"\\s*:\\s*([0-9.]+)`));
-      return m ? Number(m[1]) : NaN;
-    };
-    const status = pick("status") ?? "?";
-    const analysis = pick("analysis") ?? "(missing)";
-    const isBoiler = BOILERPLATE.some((p) =>
-      analysis.toLowerCase().includes(p),
-    );
-    if (isBoiler) boilerplate++;
+	try {
+		const raw = await gateway.complete({
+			system,
+			user: `## PESAN\n1. ${c.text}\n`,
+			timeoutMs: 90_000,
+		})
+		const pick = (key: string): string | undefined =>
+			raw
+				.replace(/```[a-z]*/gi, "")
+				.match(new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`))?.[1]
+		const pickNum = (key: string): number => {
+			const m = raw.match(new RegExp(`"${key}"\\s*:\\s*([0-9.]+)`))
+			return m ? Number(m[1]) : NaN
+		}
+		const status = pick("status") ?? "?"
+		const analysis = pick("analysis") ?? "(missing)"
+		const isBoiler = BOILERPLATE.some((p) => analysis.toLowerCase().includes(p))
+		if (isBoiler) boilerplate++
 
-    console.log(
-      `${isBoiler ? "BOILER" : "REAL  "}  ${JSON.stringify(c.text).padEnd(22)} ` +
-        `status=${String(status).padEnd(8)} conf=${pickNum("confidence")}  (${c.why})`,
-    );
-    console.log(`          ${analysis}`);
-  } catch (e) {
-    console.log(`ERROR  ${JSON.stringify(c.text)} — ${String(e).slice(0, 90)}`);
-  }
+		console.log(
+			`${isBoiler ? "BOILER" : "REAL  "}  ${JSON.stringify(c.text).padEnd(22)} ` +
+				`status=${String(status).padEnd(8)} conf=${pickNum("confidence")}  (${c.why})`,
+		)
+		console.log(`          ${analysis}`)
+	} catch (e) {
+		console.log(`ERROR  ${JSON.stringify(c.text)} — ${String(e).slice(0, 90)}`)
+	}
 }
 
 console.log(
-  `\nboilerplate: ${boilerplate}/${CASES.length} ` +
-    `(before the change, the production corpus ran 26%)`,
-);
+	`\nboilerplate: ${boilerplate}/${CASES.length} ` +
+		`(before the change, the production corpus ran 26%)`,
+)

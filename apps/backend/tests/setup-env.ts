@@ -10,17 +10,17 @@
 // Values are all synthetic. DATABASE_URL points at a port nothing serves, so a
 // test that accidentally opens a pool fails loudly instead of touching a real
 // database.
-process.env.DISCORD_TOKEN = "test-discord-token";
-process.env.DATABASE_URL = "postgres://localhost:6432/test";
-process.env.AI_ANALYSIS_ENABLED = "true";
-process.env.AI_LLM_API_KEY = "sk-test";
+process.env.DISCORD_TOKEN = "test-discord-token"
+process.env.DATABASE_URL = "postgres://localhost:6432/test"
+process.env.AI_ANALYSIS_ENABLED = "true"
+process.env.AI_LLM_API_KEY = "sk-test"
 // Deterministic exclusion list so the capture-filter tests do not depend on
 // the host environment.
-process.env.EXCLUDED_CHANNEL_IDS = "blocked-chan,blocked-chan-2";
+process.env.EXCLUDED_CHANNEL_IDS = "blocked-chan,blocked-chan-2"
 
 // The schema asserts at parse time that the claim lease outlives the worst-case
 // batch (ceil(batch / vision concurrency) vision waves + the LLM call). Under
 // test that arithmetic must hold or EVERY test that imports the config singleton
 // throws before its first assertion, which reads as a config bug rather than a
 // lease-arithmetic bug.
-process.env.AI_ANALYSIS_PROCESSING_TIMEOUT_MS = "1500000";
+process.env.AI_ANALYSIS_PROCESSING_TIMEOUT_MS = "1500000"

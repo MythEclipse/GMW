@@ -1,10 +1,10 @@
-"use client";
+"use client"
 
-import ReconnectingWebSocket from "partysocket/ws";
-import type { ConnectionStatus, WsEvent, WsEventType } from "./types";
+import ReconnectingWebSocket from "partysocket/ws"
+import type { ConnectionStatus, WsEvent, WsEventType } from "./types"
 
-type Listener = (event: WsEvent) => void;
-type StatusListener = (status: ConnectionStatus, detail?: string) => void;
+type Listener = (event: WsEvent) => void
+type StatusListener = (status: ConnectionStatus, detail?: string) => void
 
 /**
  * The `/ws` event socket: a thin, typed wrapper over a reconnecting WebSocket.
@@ -15,129 +15,129 @@ type StatusListener = (status: ConnectionStatus, detail?: string) => void;
  * asked for, and a re-render does not silently drop a listener.
  */
 export class WsConnection {
-  private socket: ReconnectingWebSocket | null = null;
-  private readonly listeners = new Map<WsEventType, Set<Listener>>();
-  private readonly statusListeners = new Set<StatusListener>();
-  private status: ConnectionStatus = "connecting";
-  private reconnectAttempts = 0;
+	private socket: ReconnectingWebSocket | null = null
+	private readonly listeners = new Map<WsEventType, Set<Listener>>()
+	private readonly statusListeners = new Set<StatusListener>()
+	private status: ConnectionStatus = "connecting"
+	private reconnectAttempts = 0
 
-  connect(): void {
-    if (this.socket) return;
+	connect(): void {
+		if (this.socket) return
 
-    const url = this.url();
-    this.setStatus("connecting");
+		const url = this.url()
+		this.setStatus("connecting")
 
-    const socket = new ReconnectingWebSocket(url, null, {
-      maxRetries: Number.POSITIVE_INFINITY,
-      minReconnectionDelay: 500,
-      maxReconnectionDelay: 10_000,
-      reconnectionDelayGrowFactor: 1.5,
-    });
-    this.socket = socket;
+		const socket = new ReconnectingWebSocket(url, null, {
+			maxRetries: Number.POSITIVE_INFINITY,
+			minReconnectionDelay: 500,
+			maxReconnectionDelay: 10_000,
+			reconnectionDelayGrowFactor: 1.5,
+		})
+		this.socket = socket
 
-    socket.addEventListener("open", () => {
-      this.reconnectAttempts = 0;
-      this.setStatus("connected");
-    });
+		socket.addEventListener("open", () => {
+			this.reconnectAttempts = 0
+			this.setStatus("connected")
+		})
 
-    socket.addEventListener("message", (event: MessageEvent) => {
-      this.handleMessage(event.data);
-    });
+		socket.addEventListener("message", (event: MessageEvent) => {
+			this.handleMessage(event.data)
+		})
 
-    socket.addEventListener("error", () => {
-      this.reconnectAttempts += 1;
-      this.setStatus("reconnecting", `attempt ${this.reconnectAttempts}`);
-    });
+		socket.addEventListener("error", () => {
+			this.reconnectAttempts += 1
+			this.setStatus("reconnecting", `attempt ${this.reconnectAttempts}`)
+		})
 
-    socket.addEventListener("close", () => {
-      this.reconnectAttempts += 1;
-      this.setStatus("reconnecting", `attempt ${this.reconnectAttempts}`);
-    });
-  }
+		socket.addEventListener("close", () => {
+			this.reconnectAttempts += 1
+			this.setStatus("reconnecting", `attempt ${this.reconnectAttempts}`)
+		})
+	}
 
-  private url(): string {
-    // `import.meta.env`, not `process.env` — see the same note in
-    // `@/lib/orpc/client.ts`. Both sockets read one VITE_WS_URL so the two
-    // cannot drift apart.
-    const configured = import.meta.env.VITE_WS_URL;
-    if (configured) return configured;
+	private url(): string {
+		// `import.meta.env`, not `process.env` — see the same note in
+		// `@/lib/orpc/client.ts`. Both sockets read one VITE_WS_URL so the two
+		// cannot drift apart.
+		const configured = import.meta.env.VITE_WS_URL
+		if (configured) return configured
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    // Same-origin: the proxy forwards /ws to the backend.
-    return `${protocol}//${window.location.host}/ws`;
-  }
+		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+		// Same-origin: the proxy forwards /ws to the backend.
+		return `${protocol}//${window.location.host}/ws`
+	}
 
-  private handleMessage(raw: unknown): void {
-    if (typeof raw !== "string") return; // binary frames are voice PCM
+	private handleMessage(raw: unknown): void {
+		if (typeof raw !== "string") return // binary frames are voice PCM
 
-    let parsed: WsEvent;
-    try {
-      parsed = JSON.parse(raw) as WsEvent;
-    } catch {
-      return;
-    }
+		let parsed: WsEvent
+		try {
+			parsed = JSON.parse(raw) as WsEvent
+		} catch {
+			return
+		}
 
-    if (!parsed?.type) return;
+		if (!parsed?.type) return
 
-    const set = this.listeners.get(parsed.type);
-    if (!set) return;
-    for (const listener of set) {
-      try {
-        listener(parsed);
-      } catch (err) {
-        // One bad subscriber must not stop the others from being notified.
-        console.error(`[ws] listener for "${parsed.type}" threw`, err);
-      }
-    }
-  }
+		const set = this.listeners.get(parsed.type)
+		if (!set) return
+		for (const listener of set) {
+			try {
+				listener(parsed)
+			} catch (err) {
+				// One bad subscriber must not stop the others from being notified.
+				console.error(`[ws] listener for "${parsed.type}" threw`, err)
+			}
+		}
+	}
 
-  private setStatus(status: ConnectionStatus, detail?: string): void {
-    this.status = status;
-    for (const listener of this.statusListeners) listener(status, detail);
-  }
+	private setStatus(status: ConnectionStatus, detail?: string): void {
+		this.status = status
+		for (const listener of this.statusListeners) listener(status, detail)
+	}
 
-  getStatus(): ConnectionStatus {
-    return this.status;
-  }
+	getStatus(): ConnectionStatus {
+		return this.status
+	}
 
-  subscribe(type: WsEventType, listener: Listener): () => void {
-    let set = this.listeners.get(type);
-    if (!set) {
-      set = new Set();
-      this.listeners.set(type, set);
-    }
-    set.add(listener);
+	subscribe(type: WsEventType, listener: Listener): () => void {
+		let set = this.listeners.get(type)
+		if (!set) {
+			set = new Set()
+			this.listeners.set(type, set)
+		}
+		set.add(listener)
 
-    return () => {
-      set?.delete(listener);
-      if (set && set.size === 0) this.listeners.delete(type);
-    };
-  }
+		return () => {
+			set?.delete(listener)
+			if (set && set.size === 0) this.listeners.delete(type)
+		}
+	}
 
-  onStatusChange(listener: StatusListener): () => void {
-    this.statusListeners.add(listener);
-    listener(this.status);
-    return () => this.statusListeners.delete(listener);
-  }
+	onStatusChange(listener: StatusListener): () => void {
+		this.statusListeners.add(listener)
+		listener(this.status)
+		return () => this.statusListeners.delete(listener)
+	}
 
-  /**
-   * Ask the backend to replay messages into this socket as
-   * `message_snapshot` frames, oldest-last, then one `message_snapshot_end`.
-   */
-  streamMessages(options: {
-    guildId?: string;
-    channelId?: string;
-    cursor?: string;
-    limit?: number;
-  }): void {
-    if (this.socket?.readyState !== 1) return;
-    this.socket.send(
-      JSON.stringify({ type: "stream_messages", payload: options }),
-    );
-  }
+	/**
+	 * Ask the backend to replay messages into this socket as
+	 * `message_snapshot` frames, oldest-last, then one `message_snapshot_end`.
+	 */
+	streamMessages(options: {
+		guildId?: string
+		channelId?: string
+		cursor?: string
+		limit?: number
+	}): void {
+		if (this.socket?.readyState !== 1) return
+		this.socket.send(
+			JSON.stringify({ type: "stream_messages", payload: options }),
+		)
+	}
 
-  close(): void {
-    this.socket?.close();
-    this.socket = null;
-  }
+	close(): void {
+		this.socket?.close()
+		this.socket = null
+	}
 }

@@ -9,21 +9,21 @@
  *   broadcastEvent("message_created", messageData);
  */
 
-import { createChildLogger } from "@/shared/logger/index";
+import { createChildLogger } from "@/shared/logger/index"
 
-const logger = createChildLogger("broadcast");
+const logger = createChildLogger("broadcast")
 
-type BroadcastFn = (type: string, data: unknown) => void;
-type BroadcastBinaryFn = (data: Buffer) => void;
+type BroadcastFn = (type: string, data: unknown) => void
+type BroadcastBinaryFn = (data: Buffer) => void
 
-let _broadcast: BroadcastFn | null = null;
-let _broadcastBinary: BroadcastBinaryFn | null = null;
+let _broadcast: BroadcastFn | null = null
+let _broadcastBinary: BroadcastBinaryFn | null = null
 
-let _enabled = true;
+let _enabled = true
 
 /** Enable or disable broadcast logging (disabled by default to reduce noise). */
 export function setBroadcastLogging(enabled: boolean): void {
-  _enabled = enabled;
+	_enabled = enabled
 }
 
 /**
@@ -31,34 +31,34 @@ export function setBroadcastLogging(enabled: boolean): void {
  * Must be called once during server startup before any broadcast is used.
  */
 export function setBroadcastFunctions(
-  bf: BroadcastFn,
-  bfBinary: BroadcastBinaryFn,
+	bf: BroadcastFn,
+	bfBinary: BroadcastBinaryFn,
 ): void {
-  _broadcast = bf;
-  _broadcastBinary = bfBinary;
-  logger.info("Broadcast functions initialized");
+	_broadcast = bf
+	_broadcastBinary = bfBinary
+	logger.info("Broadcast functions initialized")
 }
 
 /** Clear injected functions (used during cleanup). */
 export function clearBroadcastFunctions(): void {
-  _broadcast = null;
-  _broadcastBinary = null;
-  logger.info("Broadcast functions cleared");
+	_broadcast = null
+	_broadcastBinary = null
+	logger.info("Broadcast functions cleared")
 }
 
 /**
  * Broadcast a JSON event to all connected WebSocket clients.
  */
 export function broadcastEvent(type: string, data: unknown): void {
-  if (_enabled) {
-    logger.debug({ event: type }, "Broadcasting event");
-  }
-  _broadcast?.(type, data);
+	if (_enabled) {
+		logger.debug({ event: type }, "Broadcasting event")
+	}
+	_broadcast?.(type, data)
 }
 
 /**
  * Broadcast binary data to all connected WebSocket clients.
  */
 export function broadcastBinary(data: Buffer): void {
-  _broadcastBinary?.(data);
+	_broadcastBinary?.(data)
 }

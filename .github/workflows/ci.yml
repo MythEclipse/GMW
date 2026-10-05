@@ -1,0 +1,79 @@
+name: CI
+
+# Runs the same checks as deploy.yml's `test` job, on every PR and on pushes
+# that are not to main.
+#
+# WHY THIS EXISTS: deploy.yml triggers on push-to-main and deploys straight to
+# the VPS. Until this file existed there was NO PR-triggered CI at all, so a
+# broken push to main was discovered by production rather than by a check.
+# deploy.yml stays the deploy path; this is the gate in front of it.
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # 11 of the 29 backend test files are real-Postgres integration tests and 10
+    # of those TRUNCATE shared tables, so the suite needs a live database. The
+    # port here is deliberately NOT 6432: tests/setup-env.ts points DATABASE_URL
+    # at a dead port on purpose so a unit test that accidentally opens a pool
+    # fails loudly. Only the files that explicitly want a pool opt in.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: gmw_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/gmw_test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck + lint + test
+        run: |
+          moon run :typecheck
+          moon run :lint
+          moon run :test
+
+
+      - name: Build
+        run: moon run :build
+
+      - name: Design lint (frontend only)
+        run: moon run frontend:lint:design

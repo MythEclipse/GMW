@@ -12,48 +12,48 @@
 // Event channels (capture -> dashboard, via pub/sub)
 // ---------------------------------------------------------------------------
 
-export const DISCORD_MESSAGE_CREATED = "discord:message:created";
-export const DISCORD_MESSAGE_UPDATED = "discord:message:updated";
-export const DISCORD_MESSAGE_DELETED = "discord:message:deleted";
-export const DISCORD_MESSAGE_ANALYZED = "discord:message:analyzed";
-export const DISCORD_ATTACHMENT_CREATED = "discord:attachment:created";
-export const DISCORD_ATTACHMENT_UPLOADED = "discord:attachment:uploaded";
-export const DISCORD_ANALYSIS_QUEUE_STATUS = "discord:analysis:queue_status";
-export const DISCORD_REACTION_ADDED = "discord:reaction:added";
-export const DISCORD_REACTION_REMOVED = "discord:reaction:removed";
-export const DISCORD_THREAD_CREATED = "discord:thread:created";
-export const DISCORD_THREAD_DELETED = "discord:thread:deleted";
-export const DISCORD_THREAD_UPDATED = "discord:thread:updated";
-export const DISCORD_CHANNEL_TOPIC_UPDATED = "discord:channel:topic_updated";
-export const DISCORD_PRESENCE_UPDATED = "discord:presence:updated";
-export const DISCORD_GUILD_MEMBER_ADDED = "discord:guild_member:added";
-export const DISCORD_GUILD_MEMBER_REMOVED = "discord:guild_member:removed";
-export const DISCORD_MODERATION_ACTION = "discord:moderation:action";
+export const DISCORD_MESSAGE_CREATED = "discord:message:created"
+export const DISCORD_MESSAGE_UPDATED = "discord:message:updated"
+export const DISCORD_MESSAGE_DELETED = "discord:message:deleted"
+export const DISCORD_MESSAGE_ANALYZED = "discord:message:analyzed"
+export const DISCORD_ATTACHMENT_CREATED = "discord:attachment:created"
+export const DISCORD_ATTACHMENT_UPLOADED = "discord:attachment:uploaded"
+export const DISCORD_ANALYSIS_QUEUE_STATUS = "discord:analysis:queue_status"
+export const DISCORD_REACTION_ADDED = "discord:reaction:added"
+export const DISCORD_REACTION_REMOVED = "discord:reaction:removed"
+export const DISCORD_THREAD_CREATED = "discord:thread:created"
+export const DISCORD_THREAD_DELETED = "discord:thread:deleted"
+export const DISCORD_THREAD_UPDATED = "discord:thread:updated"
+export const DISCORD_CHANNEL_TOPIC_UPDATED = "discord:channel:topic_updated"
+export const DISCORD_PRESENCE_UPDATED = "discord:presence:updated"
+export const DISCORD_GUILD_MEMBER_ADDED = "discord:guild_member:added"
+export const DISCORD_GUILD_MEMBER_REMOVED = "discord:guild_member:removed"
+export const DISCORD_MODERATION_ACTION = "discord:moderation:action"
 
 // ---------------------------------------------------------------------------
 // Command channels (dashboard -> capture)
 // ---------------------------------------------------------------------------
 
-export const BACKEND_COMMAND = "backend:command";
-export const BACKEND_COMMAND_REPLY_PREFIX = "backend:command:reply:";
+export const BACKEND_COMMAND = "backend:command"
+export const BACKEND_COMMAND_REPLY_PREFIX = "backend:command:reply:"
 
 // ---------------------------------------------------------------------------
 // Command types (used as the `type` field in CommandMessage envelopes)
 // ---------------------------------------------------------------------------
 
-export const COMMAND_GUILDS_LIST = "guilds:list";
-export const COMMAND_GUILDS_TEXT_CHANNELS = "guilds:text-channels";
-export const COMMAND_MODERATION_ACTION = "moderation:action";
+export const COMMAND_GUILDS_LIST = "guilds:list"
+export const COMMAND_GUILDS_TEXT_CHANNELS = "guilds:text-channels"
+export const COMMAND_MODERATION_ACTION = "moderation:action"
 
 // ---------------------------------------------------------------------------
 // Event envelope — used by capture when publishing to Redis
 // ---------------------------------------------------------------------------
 
 export interface DiscordGatewayEvent {
-  type: string;
-  data: unknown;
-  timestamp: number;
-  source: string;
+	type: string
+	data: unknown
+	timestamp: number
+	source: string
 }
 
 // ---------------------------------------------------------------------------
@@ -61,17 +61,17 @@ export interface DiscordGatewayEvent {
 // ---------------------------------------------------------------------------
 
 export interface CommandMessage {
-  id: string;
-  type: string;
-  payload: Record<string, unknown>;
-  replyChannel: string;
+	id: string
+	type: string
+	payload: Record<string, unknown>
+	replyChannel: string
 }
 
 export interface CommandReply<T = unknown> {
-  id: string;
-  success: boolean;
-  data?: T;
-  error?: string;
+	id: string
+	success: boolean
+	data?: T
+	error?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -83,21 +83,21 @@ export interface CommandReply<T = unknown> {
  * Used by the backend Redis bridge to dispatch events to frontend WS clients.
  */
 export const DISCORD_CHANNEL_TO_WS_EVENT: Record<string, string> = {
-  [DISCORD_MESSAGE_CREATED]: "message_created",
-  [DISCORD_MESSAGE_UPDATED]: "message_updated",
-  [DISCORD_MESSAGE_DELETED]: "message_deleted",
-  [DISCORD_MESSAGE_ANALYZED]: "message_analyzed",
-  [DISCORD_ATTACHMENT_CREATED]: "attachment_created",
-  [DISCORD_ATTACHMENT_UPLOADED]: "attachment_uploaded",
-  [DISCORD_ANALYSIS_QUEUE_STATUS]: "analysis_queue_status",
-  [DISCORD_REACTION_ADDED]: "reaction_added",
-  [DISCORD_REACTION_REMOVED]: "reaction_removed",
-  [DISCORD_THREAD_CREATED]: "thread_created",
-  [DISCORD_THREAD_DELETED]: "thread_deleted",
-  [DISCORD_THREAD_UPDATED]: "thread_updated",
-  [DISCORD_CHANNEL_TOPIC_UPDATED]: "channel_topic_updated",
-  [DISCORD_PRESENCE_UPDATED]: "presence_updated",
-  [DISCORD_GUILD_MEMBER_ADDED]: "guild_member_added",
-  [DISCORD_GUILD_MEMBER_REMOVED]: "guild_member_removed",
-  [DISCORD_MODERATION_ACTION]: "moderation_action",
-};
+	[DISCORD_MESSAGE_CREATED]: "message_created",
+	[DISCORD_MESSAGE_UPDATED]: "message_updated",
+	[DISCORD_MESSAGE_DELETED]: "message_deleted",
+	[DISCORD_MESSAGE_ANALYZED]: "message_analyzed",
+	[DISCORD_ATTACHMENT_CREATED]: "attachment_created",
+	[DISCORD_ATTACHMENT_UPLOADED]: "attachment_uploaded",
+	[DISCORD_ANALYSIS_QUEUE_STATUS]: "analysis_queue_status",
+	[DISCORD_REACTION_ADDED]: "reaction_added",
+	[DISCORD_REACTION_REMOVED]: "reaction_removed",
+	[DISCORD_THREAD_CREATED]: "thread_created",
+	[DISCORD_THREAD_DELETED]: "thread_deleted",
+	[DISCORD_THREAD_UPDATED]: "thread_updated",
+	[DISCORD_CHANNEL_TOPIC_UPDATED]: "channel_topic_updated",
+	[DISCORD_PRESENCE_UPDATED]: "presence_updated",
+	[DISCORD_GUILD_MEMBER_ADDED]: "guild_member_added",
+	[DISCORD_GUILD_MEMBER_REMOVED]: "guild_member_removed",
+	[DISCORD_MODERATION_ACTION]: "moderation_action",
+}

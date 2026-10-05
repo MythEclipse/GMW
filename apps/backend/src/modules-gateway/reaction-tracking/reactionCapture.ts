@@ -1,194 +1,194 @@
 import type {
-  Client,
-  MessageReaction,
-  PartialMessageReaction,
-  PartialUser,
-  User,
-} from "discord.js-selfbot-v13";
-import { createChildLogger } from "@/shared/logger/index";
-import { isMonitoredGuild } from "../../shared/config/guildScope.js";
-import { config } from "../../shared/config/index.js";
-import { getDatabase } from "../../shared/database/drizzle.js";
-import { reactionsTable } from "../../shared/database/schema.js";
-import type { EventBroadcaster } from "../event-broadcaster/eventBroadcaster.js";
+	Client,
+	MessageReaction,
+	PartialMessageReaction,
+	PartialUser,
+	User,
+} from "discord.js-selfbot-v13"
+import { createChildLogger } from "@/shared/logger/index"
+import { isMonitoredGuild } from "../../shared/config/guildScope.js"
+import { config } from "../../shared/config/index.js"
+import { getDatabase } from "../../shared/database/drizzle.js"
+import { reactionsTable } from "../../shared/database/schema.js"
+import type { EventBroadcaster } from "../event-broadcaster/eventBroadcaster.js"
 
-const logger = createChildLogger("reaction-tracking");
+const logger = createChildLogger("reaction-tracking")
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 function getEmojiIdentifier(
-  reaction: MessageReaction | PartialMessageReaction,
+	reaction: MessageReaction | PartialMessageReaction,
 ): {
-  emoji: string;
-  emojiId: string | null;
-  animated: boolean;
+	emoji: string
+	emojiId: string | null
+	animated: boolean
 } {
-  const emoji = reaction.emoji;
-  if (emoji.id) {
-    return {
-      emoji: emoji.name ?? emoji.id,
-      emojiId: emoji.id,
-      animated: Boolean((emoji as any).animated),
-    };
-  }
-  return {
-    emoji: emoji.name ?? "unknown",
-    emojiId: null,
-    animated: false,
-  };
+	const emoji = reaction.emoji
+	if (emoji.id) {
+		return {
+			emoji: emoji.name ?? emoji.id,
+			emojiId: emoji.id,
+			animated: Boolean((emoji as any).animated),
+		}
+	}
+	return {
+		emoji: emoji.name ?? "unknown",
+		emojiId: null,
+		animated: false,
+	}
 }
 
 // ─── Event Handlers ──────────────────────────────────────────────────────
 
 async function handleReactionAdd(
-  reaction: MessageReaction | PartialMessageReaction,
-  user: User | PartialUser,
+	reaction: MessageReaction | PartialMessageReaction,
+	user: User | PartialUser,
 ): Promise<void> {
-  const guildId = reaction.message.guildId;
-  if (!isMonitoredGuild(config, guildId)) return;
-  if (user.bot) return;
+	const guildId = reaction.message.guildId
+	if (!isMonitoredGuild(config, guildId)) return
+	if (user.bot) return
 
-  const { emoji, emojiId, animated } = getEmojiIdentifier(reaction);
-  const now = Date.now();
-  const id = `${reaction.message.id}-${emojiId ?? emoji}-${user.id}`;
+	const { emoji, emojiId, animated } = getEmojiIdentifier(reaction)
+	const now = Date.now()
+	const id = `${reaction.message.id}-${emojiId ?? emoji}-${user.id}`
 
-  try {
-    const db = getDatabase();
-    await (db as any)
-      .insert(reactionsTable)
-      .values({
-        id,
-        message_id: reaction.message.id,
-        channel_id: reaction.message.channelId,
-        guild_id: guildId,
-        user_id: user.id,
-        username: user.username,
-        emoji,
-        emoji_id: emojiId,
-        animated,
-        reaction_type: "add",
-        created_at: now,
-      })
-      .onConflictDoNothing();
+	try {
+		const db = getDatabase()
+		await (db as any)
+			.insert(reactionsTable)
+			.values({
+				id,
+				message_id: reaction.message.id,
+				channel_id: reaction.message.channelId,
+				guild_id: guildId,
+				user_id: user.id,
+				username: user.username,
+				emoji,
+				emoji_id: emojiId,
+				animated,
+				reaction_type: "add",
+				created_at: now,
+			})
+			.onConflictDoNothing()
 
-    logger.debug(
-      { messageId: reaction.message.id, emoji, userId: user.id },
-      "Reaction recorded",
-    );
-  } catch (error) {
-    logger.error(
-      { messageId: reaction.message.id, error: String(error) },
-      "Failed to record reaction",
-    );
-  }
+		logger.debug(
+			{ messageId: reaction.message.id, emoji, userId: user.id },
+			"Reaction recorded",
+		)
+	} catch (error) {
+		logger.error(
+			{ messageId: reaction.message.id, error: String(error) },
+			"Failed to record reaction",
+		)
+	}
 }
 
 async function handleReactionRemove(
-  reaction: MessageReaction | PartialMessageReaction,
-  user: User | PartialUser,
+	reaction: MessageReaction | PartialMessageReaction,
+	user: User | PartialUser,
 ): Promise<void> {
-  const guildId = reaction.message.guildId;
-  if (!isMonitoredGuild(config, guildId)) return;
-  if (user.bot) return;
+	const guildId = reaction.message.guildId
+	if (!isMonitoredGuild(config, guildId)) return
+	if (user.bot) return
 
-  const { emoji, emojiId, animated } = getEmojiIdentifier(reaction);
-  const now = Date.now();
-  const id = `${reaction.message.id}-${emojiId ?? emoji}-${user.id}`;
+	const { emoji, emojiId, animated } = getEmojiIdentifier(reaction)
+	const now = Date.now()
+	const id = `${reaction.message.id}-${emojiId ?? emoji}-${user.id}`
 
-  try {
-    const db = getDatabase();
-    await (db as any)
-      .insert(reactionsTable)
-      .values({
-        id,
-        message_id: reaction.message.id,
-        channel_id: reaction.message.channelId,
-        guild_id: guildId,
-        user_id: user.id,
-        username: user.username,
-        emoji,
-        emoji_id: emojiId,
-        animated,
-        reaction_type: "remove",
-        created_at: now,
-      })
-      .onConflictDoNothing();
+	try {
+		const db = getDatabase()
+		await (db as any)
+			.insert(reactionsTable)
+			.values({
+				id,
+				message_id: reaction.message.id,
+				channel_id: reaction.message.channelId,
+				guild_id: guildId,
+				user_id: user.id,
+				username: user.username,
+				emoji,
+				emoji_id: emojiId,
+				animated,
+				reaction_type: "remove",
+				created_at: now,
+			})
+			.onConflictDoNothing()
 
-    logger.debug(
-      { messageId: reaction.message.id, emoji, userId: user.id },
-      "Reaction removal recorded",
-    );
-  } catch (error) {
-    logger.error(
-      { messageId: reaction.message.id, error: String(error) },
-      "Failed to record reaction removal",
-    );
-  }
+		logger.debug(
+			{ messageId: reaction.message.id, emoji, userId: user.id },
+			"Reaction removal recorded",
+		)
+	} catch (error) {
+		logger.error(
+			{ messageId: reaction.message.id, error: String(error) },
+			"Failed to record reaction removal",
+		)
+	}
 }
 
 // ─── Registration ────────────────────────────────────────────────────────
 
 export function registerReactionCapture(
-  client: Client,
-  eventBroadcaster: EventBroadcaster,
+	client: Client,
+	eventBroadcaster: EventBroadcaster,
 ): void {
-  logger.info("Registering reaction capture");
+	logger.info("Registering reaction capture")
 
-  client.on(
-    "messageReactionAdd",
-    async (
-      reaction: MessageReaction | PartialMessageReaction,
-      user: User | PartialUser,
-    ) => {
-      await handleReactionAdd(reaction, user);
+	client.on(
+		"messageReactionAdd",
+		async (
+			reaction: MessageReaction | PartialMessageReaction,
+			user: User | PartialUser,
+		) => {
+			await handleReactionAdd(reaction, user)
 
-      const guildId = reaction.message.guildId;
-      if (!isMonitoredGuild(config, guildId)) return;
+			const guildId = reaction.message.guildId
+			if (!isMonitoredGuild(config, guildId)) return
 
-      const { emoji, emojiId, animated } = getEmojiIdentifier(reaction);
+			const { emoji, emojiId, animated } = getEmojiIdentifier(reaction)
 
-      eventBroadcaster
-        .reactionAdded({
-          message_id: reaction.message.id,
-          channel_id: reaction.message.channelId,
-          guild_id: guildId,
-          user_id: user.id,
-          username: user.username,
-          emoji,
-          emoji_id: emojiId,
-          animated,
-          created_at: Date.now(),
-        })
-        .catch(() => {});
-    },
-  );
+			eventBroadcaster
+				.reactionAdded({
+					message_id: reaction.message.id,
+					channel_id: reaction.message.channelId,
+					guild_id: guildId,
+					user_id: user.id,
+					username: user.username,
+					emoji,
+					emoji_id: emojiId,
+					animated,
+					created_at: Date.now(),
+				})
+				.catch(() => {})
+		},
+	)
 
-  client.on(
-    "messageReactionRemove",
-    async (
-      reaction: MessageReaction | PartialMessageReaction,
-      user: User | PartialUser,
-    ) => {
-      await handleReactionRemove(reaction, user);
+	client.on(
+		"messageReactionRemove",
+		async (
+			reaction: MessageReaction | PartialMessageReaction,
+			user: User | PartialUser,
+		) => {
+			await handleReactionRemove(reaction, user)
 
-      const guildId = reaction.message.guildId;
-      if (!isMonitoredGuild(config, guildId)) return;
+			const guildId = reaction.message.guildId
+			if (!isMonitoredGuild(config, guildId)) return
 
-      const { emoji, emojiId, animated } = getEmojiIdentifier(reaction);
+			const { emoji, emojiId, animated } = getEmojiIdentifier(reaction)
 
-      eventBroadcaster
-        .reactionRemoved({
-          message_id: reaction.message.id,
-          channel_id: reaction.message.channelId,
-          guild_id: guildId,
-          user_id: user.id,
-          username: user.username,
-          emoji,
-          emoji_id: emojiId,
-          animated,
-          created_at: Date.now(),
-        })
-        .catch(() => {});
-    },
-  );
+			eventBroadcaster
+				.reactionRemoved({
+					message_id: reaction.message.id,
+					channel_id: reaction.message.channelId,
+					guild_id: guildId,
+					user_id: user.id,
+					username: user.username,
+					emoji,
+					emoji_id: emojiId,
+					animated,
+					created_at: Date.now(),
+				})
+				.catch(() => {})
+		},
+	)
 }

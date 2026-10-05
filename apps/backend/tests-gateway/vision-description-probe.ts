@@ -8,9 +8,9 @@
  *
  * Run: DSN=<prod dsn> bun tests/vision-description-probe.ts
  */
-import pg from "pg";
-import { createDefaultGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js";
-import { config } from "../src/shared/config/index.js";
+import pg from "pg"
+import { createDefaultGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js"
+import { config } from "../src/shared/config/index.js"
 
 // Same constant the worker uses. Read from source so this test cannot drift
 // away from what production actually sends.
@@ -31,60 +31,59 @@ Kalau memang tidak ada yang bisa dibaca dari gambar, katakan bentuk dan
 warna yang terlihat, bukan bahwa gambarnya tidak terbaca.
 
 Output: JSON array berisi SATU string per gambar, urutan sama dengan input.
-Contoh: ["Seseorang mengambil selfie, rambut disisir ke belakang, memakai kemeja hitam."]`;
+Contoh: ["Seseorang mengambil selfie, rambut disisir ke belakang, memakai kemeja hitam."]`
 
-const dsn = process.env.DSN;
+const dsn = process.env.DSN
 if (!dsn) {
-  console.error("DSN is required");
-  process.exit(2);
+	console.error("DSN is required")
+	process.exit(2)
 }
 
 // Answers that carry no information. A description made only of these is the
 // failure this whole change exists to prevent.
 const USELESS = [
-  "tidak jelas",
-  "kualitas rendah",
-  "tidak terbaca",
-  "tidak ada teks",
-  "gambar kosong",
-];
+	"tidak jelas",
+	"kualitas rendah",
+	"tidak terbaca",
+	"tidak ada teks",
+	"gambar kosong",
+]
 
-const pool = new pg.Pool({ connectionString: dsn, max: 1 });
-const gateway = createDefaultGateway();
+const pool = new pg.Pool({ connectionString: dsn, max: 1 })
+const gateway = createDefaultGateway()
 
 try {
-  const rows = await pool.query(`
+	const rows = await pool.query(`
     SELECT a.discord_url, m.content
     FROM attachments a
     JOIN messages m ON m.id = a.message_id
     WHERE a.discord_url IS NOT NULL
     ORDER BY random()
-    LIMIT 6`);
+    LIMIT 6`)
 
-  console.log(`model: ${gateway.modelLabel ?? "unknown"}`);
-  console.log(`images: ${rows.rows.length}\n`);
+	console.log(`model: ${gateway.modelLabel ?? "unknown"}`)
+	console.log(`images: ${rows.rows.length}\n`)
 
-  let useless = 0;
-  for (const row of rows.rows) {
-    try {
-      const out = await gateway.complete({
-        system: VISION_SYSTEM_PROMPT,
-        user: `Deskripsikan 1 gambar berikut. URL: ${row.discord_url}`,
-        timeoutMs: config.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS,
-      });
-      const flat = out.replace(/\s+/g, " ").trim();
-      const isUseless =
-        USELESS.every((u) => flat.toLowerCase().includes(u)) ||
-        flat.length < 30;
-      if (isUseless) useless++;
-      console.log(`${isUseless ? "USELESS" : "REAL   "} ${flat.slice(0, 260)}`);
-    } catch (e) {
-      console.log(`ERROR  ${String(e).slice(0, 100)}`);
-    }
-  }
-  console.log(`\nuninformative: ${useless}/${rows.rows.length}`);
+	let useless = 0
+	for (const row of rows.rows) {
+		try {
+			const out = await gateway.complete({
+				system: VISION_SYSTEM_PROMPT,
+				user: `Deskripsikan 1 gambar berikut. URL: ${row.discord_url}`,
+				timeoutMs: config.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS,
+			})
+			const flat = out.replace(/\s+/g, " ").trim()
+			const isUseless =
+				USELESS.every((u) => flat.toLowerCase().includes(u)) || flat.length < 30
+			if (isUseless) useless++
+			console.log(`${isUseless ? "USELESS" : "REAL   "} ${flat.slice(0, 260)}`)
+		} catch (e) {
+			console.log(`ERROR  ${String(e).slice(0, 100)}`)
+		}
+	}
+	console.log(`\nuninformative: ${useless}/${rows.rows.length}`)
 } catch (e) {
-  console.log("ERR", e.message);
+	console.log("ERR", e.message)
 } finally {
-  await pool.end();
+	await pool.end()
 }

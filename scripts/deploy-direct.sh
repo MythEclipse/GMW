@@ -28,12 +28,12 @@ RELEASES_DIR="$INSTALL_ROOT/releases"
 CURRENT_LINK="$INSTALL_ROOT/current"
 BIN_DIR="$INSTALL_ROOT/bin"
 
-# bun is installed under the invoking user's home. SSH non-interactive
-# sessions do not source ~/.bashrc / ~/.zshrc, so bun is not on PATH there.
-# Add it explicitly; the location is stable (bun's own installer).
-export PATH="$HOME/.bun/bin:$PATH"
-if ! command -v bun >/dev/null 2>&1; then
-  echo "FATAL: bun not found on PATH (looked in $HOME/.bun/bin)" >&2
+# pnpm is installed under the invoking user's home. SSH non-interactive sessions
+# do not source ~/.bashrc / ~/.zshrc, so it is not on PATH there. Add it
+# explicitly; the location is stable (corepack's default).
+export PATH="$HOME/.local/share/pnpm:$HOME/.local/bin:$PATH"
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "FATAL: pnpm not found on PATH (looked in $HOME/.local/share/pnpm)" >&2
   exit 1
 fi
 
@@ -92,11 +92,11 @@ cd "$RELEASE_DIR"
 
 # A release directory is a BUILD ARTIFACT, not an archive. Once built it is no
 # longer a pristine checkout, and both later steps are destructive to a second
-# `bun install`:
+# `pnpm install`:
 #
 #   * step 3 prunes devDependencies out of node_modules
 #   * step 7 chowns the whole tree to gmw so the service can read it, after
-#     which `bun install` (running as the deploy user) cannot write into it
+#     which `pnpm install` (running as the deploy user) cannot write into it
 #
 # Observed on re-deploying an already-deployed sha:
 #   ENOENT: failed to symlink dependencies for package: discord-moderation-backend
@@ -106,73 +106,34 @@ cd "$RELEASE_DIR"
 # and `--frozen-lockfile` on top of that reports "no changes" over an install
 # that is missing typescript and biome, so the build would fail later at tsc.
 #
-# `bun install` here takes ~1s and `tsc` ~10s, so rebuilding from a clean
+# `pnpm install` here takes ~1s and `tsc` ~10s, so rebuilding from a clean
 # checkout is far cheaper than making a mutated tree idempotent. The reuse
 # branch above therefore only fires for a dir that was fetched but never built.
 
 # ---------------------------------------------------------------------------
 # 2. Build
 # ---------------------------------------------------------------------------
-log "Installing dependencies (bun install)"
+log "Installing dependencies (pnpm install)"
 export HOME="${HOME:-/var/lib/gmw}"
-mkdir -p "$HOME/.bun"
-bun install --frozen-lockfile
-
-log "Generating Prisma client"
-(cd packages/db && bunx prisma generate)
-
-# Node's native ESM loader resolves `import ... from "./enums"` inside the
-# generated .ts files by looking for a literal `.js` sibling (it does not
-# rewrite the specifier to .ts). The Prisma generator emits extension-less
-# relative imports, so we must (a) rewrite the specifiers to `./enums.js` and
-# (b) compile the .ts to .js in place; the runtime then finds the .js files
-# it asks for.
-log "Fixing Prisma generated import specifiers"
-(cd packages/db && node -e "
-const fs = require('fs');
-const path = require('path');
-function walk(dir) {
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, e.name);
-    if (e.isDirectory()) walk(p);
-    else if (e.name.endsWith('.ts')) {
-      const c = fs.readFileSync(p, 'utf8');
-      const n = c.replace(/from\s+['\"]([^'\"]+)['\"]/g, (m, spec) =>
-        ((spec.startsWith('./') || spec.startsWith('../')) &&
-         !/\.(js|ts|json|node|mjs|cjs)$/.test(spec))
-          ? 'from \"' + spec + '.js\"' : m);
-      if (n !== c) fs.writeFileSync(p, n);
-    }
-  }
-}
-walk('prisma/generated');
-console.log('  source specifiers rewritten');
-")
-
-log "Compiling Prisma generated client to JS"
-TSC_BIN=$(find "$RELEASE_DIR/node_modules/.bun" -path '*/typescript/bin/tsc' -type f | head -1)
-if [ -z "$TSC_BIN" ]; then
-  echo "FATAL: typescript compiler not found in release node_modules" >&2
-  exit 1
-fi
-(cd packages/db && "$TSC_BIN" --ignoreConfig \
-  --module esnext --target es2022 --moduleResolution bundler \
-  --outDir prisma/generated \
-  --declaration false --sourceMap false --skipLibCheck --esModuleInterop \
-  --noEmit false \
-  prisma/generated/*.ts prisma/generated/internal/*.ts)
+mkdir -p "$HOME/.local/share/pnpm"
+pnpm install --frozen-lockfile
 
 log "Building backend (HTTP + capture + moderation worker)"
-(cd apps/backend && bun run build)
+(cd apps/backend && pnpm run build)
 
 log "Building frontend"
-(cd apps/frontend && bun run build)
+(cd apps/frontend && pnpm run build)
 
 # ---------------------------------------------------------------------------
 # 3. Prune devDependencies (keep runtime node_modules lean)
 # ---------------------------------------------------------------------------
 log "Pruning devDependencies"
-for app_dir in apps/backend packages/db; do
+# Under pnpm, node_modules is a SYMLINK FARM: top-level entries point into
+# node_modules/.pnpm, which holds the real content. Removing a top-level
+# devDependency therefore removes a symlink, not the shared store — runtime
+# dependencies are symlinks of the same shape and are left alone. The broken-
+# symlink sweep afterwards cleans up anything the prune left dangling.
+for app_dir in apps/backend; do
   if [ -d "$app_dir/node_modules" ]; then
     find "$app_dir/node_modules" -maxdepth 2 -type d \
       \( -name 'typescript' -o -name '@biomejs' -o -name 'vitest' \
@@ -189,18 +150,7 @@ done
 find node_modules -type l ! -exec test -e {} \; -delete 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 4. Fix workspace symlinks
-# ---------------------------------------------------------------------------
-# apps/backend imports @gmw/db; bun leaves a symlink in node_modules that
-# points to the release checkout. Ensure it resolves after the switch.
-if [ -L "apps/backend/node_modules/@gmw/db" ]; then
-  rm -f "apps/backend/node_modules/@gmw/db"
-  mkdir -p "apps/backend/node_modules/@gmw"
-  ln -sfn "$RELEASE_DIR/packages/db" "apps/backend/node_modules/@gmw/db"
-fi
-
-# ---------------------------------------------------------------------------
-# 5. Install wrappers
+# 4. Install wrappers
 # ---------------------------------------------------------------------------
 log "Installing wrappers to $BIN_DIR"
 sudo mkdir -p "$BIN_DIR"

@@ -1,1 +1,1 @@
-export { registerThreadCapture } from "./threadCapture.js";
+export { registerThreadCapture } from "./threadCapture.js"

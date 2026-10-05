@@ -1,7 +1,7 @@
-"use client";
+"use client"
 
-import { Loader2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
 /**
  * Auto-loads the next page when this sentinel scrolls into view.
@@ -36,75 +36,75 @@ import { useEffect, useRef, useState } from "react";
  * React re-rendering with the new `isFetching` value.
  */
 export function InfiniteScrollSentinel({
-  onLoadMore,
-  hasMore,
-  isFetching,
-  /** Distinguishes concurrent lists so each observer targets its own node. */
-  label,
+	onLoadMore,
+	hasMore,
+	isFetching,
+	/** Distinguishes concurrent lists so each observer targets its own node. */
+	label,
 }: {
-  onLoadMore: () => void;
-  hasMore: boolean;
-  isFetching: boolean;
-  label: string;
+	onLoadMore: () => void
+	hasMore: boolean
+	isFetching: boolean
+	label: string
 }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const cancelled = useRef(false);
+	const ref = useRef<HTMLDivElement | null>(null)
+	const cancelled = useRef(false)
 
-  // Reset the latch whenever a fetch settles, so the next approach to the
-  // bottom is allowed to request again. Tied to `isFetching` because the
-  // callback cannot know when the request it started has actually finished.
-  useEffect(() => {
-    if (!isFetching) cancelled.current = false;
-  }, [isFetching]);
+	// Reset the latch whenever a fetch settles, so the next approach to the
+	// bottom is allowed to request again. Tied to `isFetching` because the
+	// callback cannot know when the request it started has actually finished.
+	useEffect(() => {
+		if (!isFetching) cancelled.current = false
+	}, [isFetching])
 
-  useEffect(() => {
-    const node = ref.current;
-    // No observer when there is no more data: leaving one attached would keep
-    // calling `onLoadMore`, and Query would treat it as an attempt to fetch a
-    // page that does not exist.
-    if (!node || !hasMore) return;
+	useEffect(() => {
+		const node = ref.current
+		// No observer when there is no more data: leaving one attached would keep
+		// calling `onLoadMore`, and Query would treat it as an attempt to fetch a
+		// page that does not exist.
+		if (!node || !hasMore) return
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (!entry?.isIntersecting) return;
-        if (cancelled.current || isFetching) return;
-        cancelled.current = true;
-        onLoadMore();
-      },
-      {
-        // One viewport-height of head start. See the note above.
-        rootMargin: "100% 0px 0px 0px",
-        threshold: 0,
-      },
-    );
+		const observer = new IntersectionObserver(
+			(entries) => {
+				const entry = entries[0]
+				if (!entry?.isIntersecting) return
+				if (cancelled.current || isFetching) return
+				cancelled.current = true
+				onLoadMore()
+			},
+			{
+				// One viewport-height of head start. See the note above.
+				rootMargin: "100% 0px 0px 0px",
+				threshold: 0,
+			},
+		)
 
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [hasMore, isFetching, onLoadMore]);
+		observer.observe(node)
+		return () => observer.disconnect()
+	}, [hasMore, isFetching, onLoadMore])
 
-  if (!hasMore) return null;
+	if (!hasMore) return null
 
-  return (
-    <div
-      ref={ref}
-      className="flex items-center justify-center py-4"
-      role="status"
-      aria-live="polite"
-      data-testid={`infinite-sentinel-${label}`}
-    >
-      {isFetching ? (
-        <span className="inline-flex items-center gap-2 text-xs text-ink-muted">
-          <Loader2 className="size-3.5 animate-spin" aria-hidden />
-          Loading more…
-        </span>
-      ) : (
-        // Announced to screen readers so the list is not a dead end for anyone
-        // not scrolling visually; the visual affordance is the cards themselves.
-        <span className="sr-only">Scroll to load more</span>
-      )}
-    </div>
-  );
+	return (
+		<div
+			ref={ref}
+			className="flex items-center justify-center py-4"
+			role="status"
+			aria-live="polite"
+			data-testid={`infinite-sentinel-${label}`}
+		>
+			{isFetching ? (
+				<span className="inline-flex items-center gap-2 text-xs text-ink-muted">
+					<Loader2 className="size-3.5 animate-spin" aria-hidden />
+					Loading more…
+				</span>
+			) : (
+				// Announced to screen readers so the list is not a dead end for anyone
+				// not scrolling visually; the visual affordance is the cards themselves.
+				<span className="sr-only">Scroll to load more</span>
+			)}
+		</div>
+	)
 }
 
 /**
@@ -116,28 +116,28 @@ export function InfiniteScrollSentinel({
  * focusable, and it is what keeps the pagination operable without a mouse.
  */
 export function LoadMoreFallback({
-  onLoadMore,
-  hasMore,
-  isFetching,
-  label,
+	onLoadMore,
+	hasMore,
+	isFetching,
+	label,
 }: {
-  onLoadMore: () => void;
-  hasMore: boolean;
-  isFetching: boolean;
-  label: string;
+	onLoadMore: () => void
+	hasMore: boolean
+	isFetching: boolean
+	label: string
 }) {
-  if (!hasMore) return null;
-  return (
-    <button
-      type="button"
-      onClick={onLoadMore}
-      disabled={isFetching}
-      className="mx-auto mt-2 block rounded-md border border-border px-3 py-1.5 text-xs text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
-    >
-      {isFetching ? "Loading…" : "Load more"}
-      <span className="sr-only"> {label}</span>
-    </button>
-  );
+	if (!hasMore) return null
+	return (
+		<button
+			type="button"
+			onClick={onLoadMore}
+			disabled={isFetching}
+			className="mx-auto mt-2 block rounded-md border border-border px-3 py-1.5 text-xs text-ink-muted transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
+		>
+			{isFetching ? "Loading…" : "Load more"}
+			<span className="sr-only"> {label}</span>
+		</button>
+	)
 }
 
 /**
@@ -149,31 +149,31 @@ export function LoadMoreFallback({
  * the view having to thread a ref through to the document.
  */
 export function useScrollReset(token: string) {
-  const first = useRef(true);
-  // `first` is a ref, so it is stable for the component's lifetime and adding
-  // it to the deps would be a lie to the linter rather than a correctness win —
-  // it cannot change between renders, and the effect must NOT re-run when it
-  // flips. `token` is the real trigger.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: explained above
-  useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    window.scrollTo({ top: 0, behavior: "auto" });
-  }, [token]);
+	const first = useRef(true)
+	// `first` is a ref, so it is stable for the component's lifetime and adding
+	// it to the deps would be a lie to the linter rather than a correctness win —
+	// it cannot change between renders, and the effect must NOT re-run when it
+	// flips. `token` is the real trigger.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: explained above
+	useEffect(() => {
+		if (first.current) {
+			first.current = false
+			return
+		}
+		window.scrollTo({ top: 0, behavior: "auto" })
+	}, [token])
 }
 
 /** Progress readout: how many rows are loaded, and whether more exist. */
 export function usePagedCount(rows: unknown[], hasMore: boolean) {
-  const [announced, setAnnounced] = useState(0);
-  useEffect(() => {
-    setAnnounced(rows.length);
-  }, [rows.length]);
-  return {
-    loaded: announced,
-    label: hasMore
-      ? `${announced} loaded, more available`
-      : `${announced} total`,
-  };
+	const [announced, setAnnounced] = useState(0)
+	useEffect(() => {
+		setAnnounced(rows.length)
+	}, [rows.length])
+	return {
+		loaded: announced,
+		label: hasMore
+			? `${announced} loaded, more available`
+			: `${announced} total`,
+	}
 }

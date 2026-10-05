@@ -1,4 +1,4 @@
-import type { AppConfig } from "./index.js";
+import type { AppConfig } from "./index.js"
 
 /**
  * Decides whether a guild is in scope for capture.
@@ -15,11 +15,11 @@ import type { AppConfig } from "./index.js";
  * than capturing a guild the operator did not ask for.
  */
 export function isMonitoredGuild(
-  config: AppConfig,
-  guildId: string | null | undefined,
+	config: AppConfig,
+	guildId: string | null | undefined,
 ): boolean {
-  if (!guildId) return false;
-  const guildIds = config.EFFECTIVE_MONITOR_GUILD_IDS;
-  if (guildIds.length === 0) return config.MONITOR_GUILD_ID === guildId;
-  return guildIds.includes(guildId);
+	if (!guildId) return false
+	const guildIds = config.EFFECTIVE_MONITOR_GUILD_IDS
+	if (guildIds.length === 0) return config.MONITOR_GUILD_ID === guildId
+	return guildIds.includes(guildId)
 }

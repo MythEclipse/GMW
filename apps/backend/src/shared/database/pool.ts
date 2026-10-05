@@ -1,17 +1,17 @@
-import { type PoolConfig as PgPoolConfig, Pool } from "pg";
-import { createChildLogger } from "../logger/index.js";
+import { type PoolConfig as PgPoolConfig, Pool } from "pg"
+import { createChildLogger } from "../logger/index.js"
 
-const log = createChildLogger("database.pool");
+const log = createChildLogger("database.pool")
 
 export interface PoolConfig {
-  url?: string;
-  host?: string;
-  port?: number;
-  user?: string;
-  password?: string;
-  database?: string;
-  min?: number;
-  max?: number;
+	url?: string
+	host?: string
+	port?: number
+	user?: string
+	password?: string
+	database?: string
+	min?: number
+	max?: number
 }
 
 /**
@@ -35,49 +35,49 @@ export interface PoolConfig {
  * the first place.
  */
 export function attachPoolHandlers(pool: Pool, label = "pg"): Pool {
-  pool.on("error", (err) => {
-    // Log and continue. The pool discards the broken client on its own; the
-    // next checkout opens a fresh connection. Exiting here is what turned a
-    // routine disconnect into total message loss.
-    log.error(
-      { err, pool: label },
-      "idle postgres client errored; discarding it",
-    );
-  });
+	pool.on("error", (err) => {
+		// Log and continue. The pool discards the broken client on its own; the
+		// next checkout opens a fresh connection. Exiting here is what turned a
+		// routine disconnect into total message loss.
+		log.error(
+			{ err, pool: label },
+			"idle postgres client errored; discarding it",
+		)
+	})
 
-  pool.on("connect", () => {
-    log.debug({ pool: label }, "postgres client connected");
-  });
+	pool.on("connect", () => {
+		log.debug({ pool: label }, "postgres client connected")
+	})
 
-  return pool;
+	return pool
 }
 
 export function createPoolFromConfig(cfg: PoolConfig): Pool {
-  const opts: PgPoolConfig = {
-    min: cfg.min ?? 2,
-    max: cfg.max ?? 10,
-    // Reap idle clients well before the server's idle timeout would, so a
-    // dropped connection is never discovered by an application query.
-    idleTimeoutMillis: 30_000,
-    // Bound how long a caller waits for a connection instead of queueing
-    // forever behind a saturated pool.
-    connectionTimeoutMillis: 10_000,
-  };
+	const opts: PgPoolConfig = {
+		min: cfg.min ?? 2,
+		max: cfg.max ?? 10,
+		// Reap idle clients well before the server's idle timeout would, so a
+		// dropped connection is never discovered by an application query.
+		idleTimeoutMillis: 30_000,
+		// Bound how long a caller waits for a connection instead of queueing
+		// forever behind a saturated pool.
+		connectionTimeoutMillis: 10_000,
+	}
 
-  if (cfg.url) {
-    opts.connectionString = cfg.url;
-  } else {
-    opts.host = cfg.host;
-    opts.port = cfg.port;
-    opts.user = cfg.user;
-    opts.password = cfg.password;
-    opts.database = cfg.database;
-  }
+	if (cfg.url) {
+		opts.connectionString = cfg.url
+	} else {
+		opts.host = cfg.host
+		opts.port = cfg.port
+		opts.user = cfg.user
+		opts.password = cfg.password
+		opts.database = cfg.database
+	}
 
-  return attachPoolHandlers(new Pool(opts), cfg.database ?? cfg.host ?? "pg");
+	return attachPoolHandlers(new Pool(opts), cfg.database ?? cfg.host ?? "pg")
 }
 
 export function closePool(pool: Pool | null): Promise<void> {
-  if (!pool) return Promise.resolve();
-  return pool.end();
+	if (!pool) return Promise.resolve()
+	return pool.end()
 }

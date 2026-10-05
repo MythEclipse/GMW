@@ -21,107 +21,107 @@
 
 /** Fragments that carry no meaning worth a definition. */
 const STOPLIST = new Set([
-  // Connectives and particles.
-  "ada",
-  "adalah",
-  "agar",
-  "akan",
-  "aku",
-  "anda",
-  "antara",
-  "apa",
-  "apabila",
-  "atau",
-  "bagai",
-  "bahwa",
-  "bagi",
-  "bahkan",
-  "biar",
-  "bisa",
-  "buat",
-  "dan",
-  "dari",
-  "dalam",
-  "dapat",
-  "dengan",
-  "di",
-  "dia",
-  "dua",
-  "hanya",
-  "harus",
-  "hingga",
-  "ia",
-  "ingin",
-  "ini",
-  "itu",
-  "jadi",
-  "jika",
-  "juga",
-  "kalau",
-  "kami",
-  "kamu",
-  "karena",
-  "kata",
-  "ke",
-  "kepadanya",
-  "kita",
-  "lagi",
-  "lain",
-  "lalu",
-  "lebih",
-  "maka",
-  "mampu",
-  "masih",
-  "mau",
-  "melalui",
-  "memang",
-  "mengapa",
-  "mereka",
-  "meski",
-  "namun",
-  "oleh",
-  "pada",
-  "para",
-  "pun",
-  "saat",
-  "saja",
-  "sampai",
-  "sangat",
-  "satu",
-  "sebagai",
-  "sebelum",
-  "sebuah",
-  "sedang",
-  "sehingga",
-  "sejak",
-  "selain",
-  "selama",
-  "semua",
-  "seperti",
-  "sering",
-  "serta",
-  "sesuatu",
-  "setelah",
-  "sudah",
-  "supaya",
-  "tanpa",
-  "tapi",
-  "telah",
-  "tentang",
-  "terhadap",
-  "tersebut",
-  "tetapi",
-  "tidak",
-  "untuk",
-  "walau",
-  "waktu",
-  "yaitu",
-  "yakni",
-  "yang",
-]);
+	// Connectives and particles.
+	"ada",
+	"adalah",
+	"agar",
+	"akan",
+	"aku",
+	"anda",
+	"antara",
+	"apa",
+	"apabila",
+	"atau",
+	"bagai",
+	"bahwa",
+	"bagi",
+	"bahkan",
+	"biar",
+	"bisa",
+	"buat",
+	"dan",
+	"dari",
+	"dalam",
+	"dapat",
+	"dengan",
+	"di",
+	"dia",
+	"dua",
+	"hanya",
+	"harus",
+	"hingga",
+	"ia",
+	"ingin",
+	"ini",
+	"itu",
+	"jadi",
+	"jika",
+	"juga",
+	"kalau",
+	"kami",
+	"kamu",
+	"karena",
+	"kata",
+	"ke",
+	"kepadanya",
+	"kita",
+	"lagi",
+	"lain",
+	"lalu",
+	"lebih",
+	"maka",
+	"mampu",
+	"masih",
+	"mau",
+	"melalui",
+	"memang",
+	"mengapa",
+	"mereka",
+	"meski",
+	"namun",
+	"oleh",
+	"pada",
+	"para",
+	"pun",
+	"saat",
+	"saja",
+	"sampai",
+	"sangat",
+	"satu",
+	"sebagai",
+	"sebelum",
+	"sebuah",
+	"sedang",
+	"sehingga",
+	"sejak",
+	"selain",
+	"selama",
+	"semua",
+	"seperti",
+	"sering",
+	"serta",
+	"sesuatu",
+	"setelah",
+	"sudah",
+	"supaya",
+	"tanpa",
+	"tapi",
+	"telah",
+	"tentang",
+	"terhadap",
+	"tersebut",
+	"tetapi",
+	"tidak",
+	"untuk",
+	"walau",
+	"waktu",
+	"yaitu",
+	"yakni",
+	"yang",
+])
 
 /** Below this length a fragment is a particle, not a word. */
-const MIN_WORD_LENGTH = 3;
+const MIN_WORD_LENGTH = 3
 
 /**
  * Fragments that are only ever part of a URL or a brand name.
@@ -132,29 +132,29 @@ const MIN_WORD_LENGTH = 3;
  * leaves behind once tokenised.
  */
 const NON_WORDS = new Set([
-  "http",
-  "https",
-  "www",
-  "com",
-  "net",
-  "org",
-  "shopee",
-  "tokopedia",
-  "instagram",
-  "facebook",
-  "tiktok",
-  "twitter",
-  "youtube",
-  "whatsapp",
-  "telegram",
-  "discord",
-  "spotify",
-  "netflix",
-]);
+	"http",
+	"https",
+	"www",
+	"com",
+	"net",
+	"org",
+	"shopee",
+	"tokopedia",
+	"instagram",
+	"facebook",
+	"tiktok",
+	"twitter",
+	"youtube",
+	"whatsapp",
+	"telegram",
+	"discord",
+	"spotify",
+	"netflix",
+])
 
 /** Strip a Discord mention to nothing — `@name` and `<@id>` are not words. */
 function stripMentions(text: string): string {
-  return text.replace(/<@!?\d+>/g, " ").replace(/@[\w.-]+/g, " ");
+	return text.replace(/<@!?\d+>/g, " ").replace(/@[\w.-]+/g, " ")
 }
 
 /**
@@ -165,28 +165,28 @@ function stripMentions(text: string): string {
  * each consume a slot in the per-message budget.
  */
 function stripUrls(text: string): string {
-  return text.replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ");
+	return text.replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ")
 }
 
 /** Split into lowercase candidate words, in source order. */
 function tokenize(text: string): string[] {
-  return (
-    stripUrls(stripMentions(text))
-      .toLowerCase()
-      // Unicode-aware so a letter outside Latin-1 is not split into punctuation.
-      .split(/[^\p{L}\p{N}]+/u)
-      .filter((token) => token.length > 0)
-  );
+	return (
+		stripUrls(stripMentions(text))
+			.toLowerCase()
+			// Unicode-aware so a letter outside Latin-1 is not split into punctuation.
+			.split(/[^\p{L}\p{N}]+/u)
+			.filter((token) => token.length > 0)
+	)
 }
 
 /** Is this fragment something a dictionary can answer for? */
 function isLookable(word: string): boolean {
-  if (word.length < MIN_WORD_LENGTH) return false;
-  if (STOPLIST.has(word)) return false;
-  if (NON_WORDS.has(word)) return false;
-  // A bare number is not a word, and "2024" costs a slot for nothing.
-  if (/^\d+$/.test(word)) return false;
-  return true;
+	if (word.length < MIN_WORD_LENGTH) return false
+	if (STOPLIST.has(word)) return false
+	if (NON_WORDS.has(word)) return false
+	// A bare number is not a word, and "2024" costs a slot for nothing.
+	if (/^\d+$/.test(word)) return false
+	return true
 }
 
 /**
@@ -210,37 +210,37 @@ function isLookable(word: string): boolean {
  * is exact set membership, no fuzzy matching.
  */
 export function extractSpans(
-  text: string | null | undefined,
-  phrases: ReadonlySet<string>,
-  limit: number,
+	text: string | null | undefined,
+	phrases: ReadonlySet<string>,
+	limit: number,
 ): string[] {
-  if (!text || limit <= 0) return [];
-  const tokens = tokenize(text);
-  const spans: string[] = [];
-  const seen = new Set<string>();
-  let i = 0;
-  while (i < tokens.length && spans.length < limit) {
-    let matched = false;
-    for (let width = Math.min(4, tokens.length - i); width >= 2; width--) {
-      const candidate = tokens.slice(i, i + width).join(" ");
-      if (!phrases.has(candidate)) continue;
-      if (!seen.has(candidate)) {
-        seen.add(candidate);
-        spans.push(candidate);
-      }
-      i += width;
-      matched = true;
-      break;
-    }
-    if (matched) continue;
-    const token = tokens[i] as string;
-    if (isLookable(token) && !seen.has(token)) {
-      seen.add(token);
-      spans.push(token);
-    }
-    i += 1;
-  }
-  return spans;
+	if (!text || limit <= 0) return []
+	const tokens = tokenize(text)
+	const spans: string[] = []
+	const seen = new Set<string>()
+	let i = 0
+	while (i < tokens.length && spans.length < limit) {
+		let matched = false
+		for (let width = Math.min(4, tokens.length - i); width >= 2; width--) {
+			const candidate = tokens.slice(i, i + width).join(" ")
+			if (!phrases.has(candidate)) continue
+			if (!seen.has(candidate)) {
+				seen.add(candidate)
+				spans.push(candidate)
+			}
+			i += width
+			matched = true
+			break
+		}
+		if (matched) continue
+		const token = tokens[i] as string
+		if (isLookable(token) && !seen.has(token)) {
+			seen.add(token)
+			spans.push(token)
+		}
+		i += 1
+	}
+	return spans
 }
 
 /**
@@ -254,27 +254,27 @@ export function extractSpans(
  * an empty array means the message had nothing worth a request.
  */
 export function selectDictionaryWords(
-  text: string | null | undefined,
-  limit: number,
-  phrases?: ReadonlySet<string>,
+	text: string | null | undefined,
+	limit: number,
+	phrases?: ReadonlySet<string>,
 ): string[] {
-  if (!text || limit <= 0) return [];
-  // With a phrase index, phrase-first selection replaces the flat word list.
-  // Every existing caller that does not pass `phrases` keeps the old
-  // behaviour, so the stoplist/limit tests below pin the fallback, not a new
-  // semantic.
-  if (phrases) return extractSpans(text, phrases, limit);
+	if (!text || limit <= 0) return []
+	// With a phrase index, phrase-first selection replaces the flat word list.
+	// Every existing caller that does not pass `phrases` keeps the old
+	// behaviour, so the stoplist/limit tests below pin the fallback, not a new
+	// semantic.
+	if (phrases) return extractSpans(text, phrases, limit)
 
-  const seen = new Set<string>();
-  const words: string[] = [];
-  for (const token of tokenize(text)) {
-    if (seen.has(token)) continue;
-    if (!isLookable(token)) continue;
-    seen.add(token);
-    words.push(token);
-    if (words.length >= limit) break;
-  }
-  return words;
+	const seen = new Set<string>()
+	const words: string[] = []
+	for (const token of tokenize(text)) {
+		if (seen.has(token)) continue
+		if (!isLookable(token)) continue
+		seen.add(token)
+		words.push(token)
+		if (words.length >= limit) break
+	}
+	return words
 }
 
 /**
@@ -286,17 +286,17 @@ export function selectDictionaryWords(
  * starve every other message of grounding.
  */
 export function selectBatchDictionaryWords(
-  texts: readonly (string | null | undefined)[],
-  perMessageLimit: number,
-  batchLimit: number,
-  phrases?: ReadonlySet<string>,
+	texts: readonly (string | null | undefined)[],
+	perMessageLimit: number,
+	batchLimit: number,
+	phrases?: ReadonlySet<string>,
 ): string[] {
-  return selectBatchDictionaryWordPlan(
-    texts,
-    perMessageLimit,
-    batchLimit,
-    phrases,
-  ).batch;
+	return selectBatchDictionaryWordPlan(
+		texts,
+		perMessageLimit,
+		batchLimit,
+		phrases,
+	).batch
 }
 
 /**
@@ -310,29 +310,29 @@ export function selectBatchDictionaryWords(
  * absence the model is then forbidden to explain.
  */
 export function selectBatchDictionaryWordPlan(
-  texts: readonly (string | null | undefined)[],
-  perMessageLimit: number,
-  batchLimit: number,
-  phrases?: ReadonlySet<string>,
+	texts: readonly (string | null | undefined)[],
+	perMessageLimit: number,
+	batchLimit: number,
+	phrases?: ReadonlySet<string>,
 ): { perMessage: Map<string, string[]>; batch: string[] } {
-  const perMessage = new Map<string, string[]>();
-  const seen = new Set<string>();
-  const batch: string[] = [];
-  if (batchLimit <= 0) return { perMessage, batch };
+	const perMessage = new Map<string, string[]>()
+	const seen = new Set<string>()
+	const batch: string[] = []
+	if (batchLimit <= 0) return { perMessage, batch }
 
-  texts.forEach((text, index) => {
-    const chosen: string[] = [];
-    for (const word of selectDictionaryWords(text, perMessageLimit, phrases)) {
-      // Break, not filter: the budget must be consumed as the list is built,
-      // or every candidate of the message that fills it is admitted at once.
-      if (chosen.length >= batchLimit - batch.length) break;
-      if (seen.has(word)) continue;
-      seen.add(word);
-      batch.push(word);
-      chosen.push(word);
-    }
-    if (chosen.length > 0) perMessage.set(String(index), chosen);
-  });
+	texts.forEach((text, index) => {
+		const chosen: string[] = []
+		for (const word of selectDictionaryWords(text, perMessageLimit, phrases)) {
+			// Break, not filter: the budget must be consumed as the list is built,
+			// or every candidate of the message that fills it is admitted at once.
+			if (chosen.length >= batchLimit - batch.length) break
+			if (seen.has(word)) continue
+			seen.add(word)
+			batch.push(word)
+			chosen.push(word)
+		}
+		if (chosen.length > 0) perMessage.set(String(index), chosen)
+	})
 
-  return { perMessage, batch };
+	return { perMessage, batch }
 }

@@ -1,12 +1,12 @@
-import type { IncomingMessage, Server } from "node:http";
-import type { Duplex } from "node:stream";
-import { onError } from "@orpc/server";
-import { RPCHandler } from "@orpc/server/ws";
-import { WebSocketServer } from "ws";
-import { createChildLogger } from "@/shared/logger/index";
-import { appRouter } from "./router";
+import type { IncomingMessage, Server } from "node:http"
+import type { Duplex } from "node:stream"
+import { onError } from "@orpc/server"
+import { RPCHandler } from "@orpc/server/ws"
+import { WebSocketServer } from "ws"
+import { createChildLogger } from "@/shared/logger/index"
+import { appRouter } from "./router"
 
-const logger = createChildLogger("orpc.ws");
+const logger = createChildLogger("orpc.ws")
 
 /**
  * Attach the oRPC WebSocket handler to the shared HTTP server, on a path
@@ -23,21 +23,21 @@ const logger = createChildLogger("orpc.ws");
  * and `/ws` fully isolated.
  */
 export function createORPCWebSocketServer(server: Server): WebSocketServer {
-  const handler = new RPCHandler(appRouter, {
-    interceptors: [
-      onError((error) => logger.error({ error }, "oRPC WS error")),
-    ],
-  });
+	const handler = new RPCHandler(appRouter, {
+		interceptors: [
+			onError((error) => logger.error({ error }, "oRPC WS error")),
+		],
+	})
 
-  const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+	const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false })
 
-  server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    if (!req.url?.startsWith("/trpc")) return; // let the /ws server handle it
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      handler.upgrade(ws, { context: {} });
-    });
-  });
+	server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+		if (!req.url?.startsWith("/trpc")) return // let the /ws server handle it
+		wss.handleUpgrade(req, socket, head, (ws) => {
+			handler.upgrade(ws, { context: {} })
+		})
+	})
 
-  logger.info({ path: "/trpc" }, "oRPC WebSocket server attached");
-  return wss;
+	logger.info({ path: "/trpc" }, "oRPC WebSocket server attached")
+	return wss
 }

@@ -1,6 +1,6 @@
-"use client";
+"use client"
 
-import { useEffect, useState } from "react";
+import { useEffect, useState } from "react"
 
 /**
  * Debounce a value by `delay` ms.
@@ -10,13 +10,13 @@ import { useEffect, useState } from "react";
  * a value passed in during SSR is never swallowed.
  */
 export function useDebounced<T>(value: T, delay = 300): T {
-  const [debounced, setDebounced] = useState(value);
+	const [debounced, setDebounced] = useState(value)
 
-  useEffect(() => {
-    if (value === debounced) return;
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay, debounced]);
+	useEffect(() => {
+		if (value === debounced) return
+		const timer = setTimeout(() => setDebounced(value), delay)
+		return () => clearTimeout(timer)
+	}, [value, delay, debounced])
 
-  return debounced;
+	return debounced
 }

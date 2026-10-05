@@ -31,47 +31,24 @@ jobs:
         with:
           node-version: 22
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
 
-      - name: Generate Prisma client
-        working-directory: packages/db
+      - name: Install deps + test
         run: |
-          bun install --frozen-lockfile
-          bun run generate
+          pnpm install --frozen-lockfile
+          # Vitest (migrated from `bun test` in P0). The include globs and the
+          # setup-env preload both live in vitest.config.ts — the stale
+          # src/e2e.test.ts that needed a live API_BASE has been deleted.
+          pnpm --filter discord-moderation-backend run test
 
-      - name: Install deps + test (backend)
-        working-directory: apps/backend
-        run: |
-          bun install --frozen-lockfile
-          ./node_modules/.bin/tsc --noEmit
-          # src/e2e.test.ts requires a live backend (API_BASE) — unit tests
-          # live in the two test dirs and are excluded from the bun test path.
-          # tests-gateway/ came from the old discord-gateway app; it has its own
-          # setup-env values, which bunfig's single preload path cannot carry for
-          # two dirs, so tests/setup-env.ts is the env block for BOTH suites.
-          bun test tests/ tests-gateway/
 
-      - name: Biome check (all apps)
-        run: |
-          cd apps/backend && ./node_modules/.bin/biome check src/ tests/ tests-gateway/
-
-      - name: Install deps + typecheck + build (frontend)
-        working-directory: apps/frontend
-        run: |
-          bun install --frozen-lockfile
-          ./node_modules/.bin/tsc --noEmit
-          ./node_modules/.bin/vite build
+      - name: Typecheck + build frontend
+        run: pnpm --filter frontend run build
 
       - name: Biome + design lint (frontend)
-        working-directory: apps/frontend
         run: |
-          ./node_modules/.bin/biome check .
-          # @shadcn/lint via oxlint: keeps the Tailwind classes on the
-          # shadcn theme instead of raw colors and arbitrary values.
-          ./node_modules/.bin/oxlint
+          pnpm --filter frontend run lint
 
   deploy:
     needs: test
@@ -96,8 +73,8 @@ jobs:
 
       - name: Deploy via scripts/deploy-direct.sh
         # The heavy lifting lives in scripts/deploy-direct.sh, which runs ON
-        # the VPS: it clones the commit, runs bun install, prisma generate +
-        # compile, tsc build per app, prunes devDeps, installs wrappers +
+        # the VPS: it clones the commit, runs pnpm install,
+        # tsc build per app, prunes devDeps, installs wrappers +
         # systemd units + nginx config, switches /opt/gmw/current, restarts,
         # and runs a stability-aware health check (systemctl + HTTP probes).
         #

@@ -1,1 +1,1 @@
-export { registerChannelTopicCapture } from "./channelTopicCapture.js";
+export { registerChannelTopicCapture } from "./channelTopicCapture.js"

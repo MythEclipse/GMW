@@ -1,10 +1,10 @@
-import type { Logger } from "@/shared/logger/index.js";
+import type { Logger } from "@/shared/logger/index.js"
 import {
-  registerCollector,
-  setGauge,
-} from "../modules-gateway/gateway-metrics/index.js";
-import { config } from "../shared/config/index.js";
-import { getDrizzlePool } from "../shared/database/drizzle.js";
+	registerCollector,
+	setGauge,
+} from "../modules-gateway/gateway-metrics/index.js"
+import { config } from "../shared/config/index.js"
+import { getDrizzlePool } from "../shared/database/drizzle.js"
 
 /**
  * Queue metrics, read from Postgres instead of process memory.
@@ -24,53 +24,53 @@ import { getDrizzlePool } from "../shared/database/drizzle.js";
  * worse than no metric.
  */
 export function registerPipelineMetrics(logger: Logger): void {
-  registerCollector(() => {
-    void emitQueueGauges(logger);
-  });
+	registerCollector(() => {
+		void emitQueueGauges(logger)
+	})
 }
 
 async function emitQueueGauges(logger: Logger): Promise<void> {
-  try {
-    const pool = getDrizzlePool();
-    const { rows } = await pool.query<{ ai_status: string; n: number }>(
-      `SELECT ai_status, count(*)::int AS n
+	try {
+		const pool = getDrizzlePool()
+		const { rows } = await pool.query<{ ai_status: string; n: number }>(
+			`SELECT ai_status, count(*)::int AS n
          FROM messages
         WHERE deleted_at IS NULL
         GROUP BY 1`,
-    );
+		)
 
-    const byState = Object.fromEntries(rows.map((r) => [r.ai_status, r.n]));
+		const byState = Object.fromEntries(rows.map((r) => [r.ai_status, r.n]))
 
-    // Backlog is work that exists and is not yet finished. `claimed` counts:
-    // those rows are being actively worked, not lost.
-    setGauge(
-      "moderation_queue_backlog",
-      (byState.pending ?? 0) + (byState.claimed ?? 0),
-    );
-    setGauge("moderation_queue_pending", byState.pending ?? 0);
-    setGauge("moderation_queue_claimed", byState.claimed ?? 0);
-    setGauge("moderation_queue_retry_wait", byState.retry_wait ?? 0);
-    setGauge("moderation_queue_analyzed", byState.analyzed ?? 0);
-    // Terminal, like `analyzed`: deliberately never analysed (a channel on the
-    // skip list). Not backlog — a gauge that showed it as work owed would
-    // never drain for a channel that is exempt by design.
-    setGauge("moderation_queue_skipped", byState.skipped ?? 0);
-    // `dead` is the actionable number: messages only a human can resolve.
-    setGauge("moderation_queue_dead", byState.dead ?? 0);
+		// Backlog is work that exists and is not yet finished. `claimed` counts:
+		// those rows are being actively worked, not lost.
+		setGauge(
+			"moderation_queue_backlog",
+			(byState.pending ?? 0) + (byState.claimed ?? 0),
+		)
+		setGauge("moderation_queue_pending", byState.pending ?? 0)
+		setGauge("moderation_queue_claimed", byState.claimed ?? 0)
+		setGauge("moderation_queue_retry_wait", byState.retry_wait ?? 0)
+		setGauge("moderation_queue_analyzed", byState.analyzed ?? 0)
+		// Terminal, like `analyzed`: deliberately never analysed (a channel on the
+		// skip list). Not backlog — a gauge that showed it as work owed would
+		// never drain for a channel that is exempt by design.
+		setGauge("moderation_queue_skipped", byState.skipped ?? 0)
+		// `dead` is the actionable number: messages only a human can resolve.
+		setGauge("moderation_queue_dead", byState.dead ?? 0)
 
-    // Overdue retries. A sustained non-zero value means the LLM endpoint is
-    // failing and the queue is filling up behind it.
-    const { rows: overdue } = await pool.query<{ n: number }>(
-      `SELECT count(*)::int AS n
+		// Overdue retries. A sustained non-zero value means the LLM endpoint is
+		// failing and the queue is filling up behind it.
+		const { rows: overdue } = await pool.query<{ n: number }>(
+			`SELECT count(*)::int AS n
          FROM messages
         WHERE ai_status = 'retry_wait'
           AND ready_for_work_at <= (extract(epoch FROM now()) * 1000)::bigint
           AND deleted_at IS NULL`,
-    );
-    setGauge("moderation_queue_retry_overdue", overdue[0]?.n ?? 0);
-  } catch (err) {
-    // A metrics scrape must never take the process down — and must not log on
-    // every scrape either, since this runs on the Prometheus interval.
-    logger.debug({ err }, "moderation queue metrics unavailable");
-  }
+		)
+		setGauge("moderation_queue_retry_overdue", overdue[0]?.n ?? 0)
+	} catch (err) {
+		// A metrics scrape must never take the process down — and must not log on
+		// every scrape either, since this runs on the Prometheus interval.
+		logger.debug({ err }, "moderation queue metrics unavailable")
+	}
 }

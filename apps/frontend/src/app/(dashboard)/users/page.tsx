@@ -1,12 +1,12 @@
-"use client";
+"use client"
 
-import { useCallback } from "react";
-import { ErrorState, LoadingState } from "@/components/shared/states";
-import { qk } from "@/hooks/use-data";
-import { useRouteSeed } from "@/hooks/use-route-seed";
-import { browserApi } from "@/lib/api/browser";
-import type { UserPage } from "@/lib/types";
-import { UsersView } from "./view";
+import { useCallback } from "react"
+import { ErrorState, LoadingState } from "@/components/shared/states"
+import { qk } from "@/hooks/use-data"
+import { useRouteSeed } from "@/hooks/use-route-seed"
+import { browserApi } from "@/lib/api/browser"
+import type { UserPage } from "@/lib/types"
+import { UsersView } from "./view"
 
 /**
  * Client route for /users — was a server component fetching via
@@ -14,27 +14,27 @@ import { UsersView } from "./view";
  * `initialUsers` prop.
  */
 export function UsersPage() {
-  const fetcher = useCallback(async () => {
-    const users = (await browserApi.dashboard.users({
-      limit: 30,
-    })) as unknown as UserPage;
-    return { users };
-  }, []);
+	const fetcher = useCallback(async () => {
+		const users = (await browserApi.dashboard.users({
+			limit: 30,
+		})) as unknown as UserPage
+		return { users }
+	}, [])
 
-  const prime = useCallback(
-    (r: { users: UserPage }) => [{ key: qk.users(""), data: r.users }],
-    [],
-  );
+	const prime = useCallback(
+		(r: { users: UserPage }) => [{ key: qk.users(""), data: r.users }],
+		[],
+	)
 
-  const seed = useRouteSeed(fetcher, prime);
+	const seed = useRouteSeed(fetcher, prime)
 
-  if (seed.error) {
-    return <ErrorState error={seed.error} onRetry={seed.retry} />;
-  }
+	if (seed.error) {
+		return <ErrorState error={seed.error} onRetry={seed.retry} />
+	}
 
-  if (seed.isPending || !seed.data) {
-    return <LoadingState label="Loading members" />;
-  }
+	if (seed.isPending || !seed.data) {
+		return <LoadingState label="Loading members" />
+	}
 
-  return <UsersView />;
+	return <UsersView />
 }

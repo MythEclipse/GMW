@@ -1,1 +1,1 @@
-export { registerReactionCapture } from "./reactionCapture.js";
+export { registerReactionCapture } from "./reactionCapture.js"

@@ -1,7 +1,7 @@
-"use client";
+"use client"
 
-import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 /**
  * Client-side replacement for the SSR data seed.
@@ -49,17 +49,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * review queue showing stale verdicts.
  */
 export interface RouteSeed<T> {
-  data: T | null;
-  error: Error | null;
-  isPending: boolean;
-  /** Re-run the fetcher. Used by the ErrorState retry affordance. */
-  retry: () => void;
+	data: T | null
+	error: Error | null
+	isPending: boolean
+	/** Re-run the fetcher. Used by the ErrorState retry affordance. */
+	retry: () => void
 }
 
 /** One cache entry to prime: the key the view will read, and the data for it. */
 export interface SeedEntry<T> {
-  key: readonly unknown[];
-  data: T;
+	key: readonly unknown[]
+	data: T
 }
 
 /**
@@ -73,71 +73,71 @@ export interface SeedEntry<T> {
  * without re-firing the seed on every render of the route.
  */
 export function useRouteSeed<T>(
-  fetcher: () => Promise<T>,
-  seed?: (result: T) => SeedEntry<unknown>[],
+	fetcher: () => Promise<T>,
+	seed?: (result: T) => SeedEntry<unknown>[],
 ): RouteSeed<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<Error | null>(null);
-  const [isPending, setIsPending] = useState(true);
+	const [data, setData] = useState<T | null>(null)
+	const [error, setError] = useState<Error | null>(null)
+	const [isPending, setIsPending] = useState(true)
 
-  const queryClient = useQueryClient();
+	const queryClient = useQueryClient()
 
-  // Bumped by retry() to force the effect to re-run. State, not a ref —
-  // bumping a ref would not re-render, so the effect would never re-fire
-  // and retry would silently do nothing.
-  const [attempt, setAttempt] = useState(0);
-  // Guards against a slow first fetch resolving after a retry already
-  // succeeded and overwriting the newer value with a stale one.
-  const latest = useRef(0);
+	// Bumped by retry() to force the effect to re-run. State, not a ref —
+	// bumping a ref would not re-render, so the effect would never re-fire
+	// and retry would silently do nothing.
+	const [attempt, setAttempt] = useState(0)
+	// Guards against a slow first fetch resolving after a retry already
+	// succeeded and overwriting the newer value with a stale one.
+	const latest = useRef(0)
 
-  const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
-  const seedRef = useRef(seed);
-  seedRef.current = seed;
+	const fetcherRef = useRef(fetcher)
+	fetcherRef.current = fetcher
+	const seedRef = useRef(seed)
+	seedRef.current = seed
 
-  // `attempt` is an intentional fire-on-bump trigger (read by React's dep
-  // comparison, not by the body). `fetcher` is intentionally NOT a dep — it
-  // is captured in a ref so an inline arrow in the route does not re-fire
-  // the seed per render.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: explained above
-  useEffect(() => {
-    const ticket = ++latest.current;
-    let cancelled = false;
+	// `attempt` is an intentional fire-on-bump trigger (read by React's dep
+	// comparison, not by the body). `fetcher` is intentionally NOT a dep — it
+	// is captured in a ref so an inline arrow in the route does not re-fire
+	// the seed per render.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: explained above
+	useEffect(() => {
+		const ticket = ++latest.current
+		let cancelled = false
 
-    setIsPending(true);
-    setError(null);
+		setIsPending(true)
+		setError(null)
 
-    fetcherRef
-      .current()
-      .then((result) => {
-        if (cancelled || ticket !== latest.current) return;
-        // Prime the cache BEFORE flipping isPending, so the view's first render
-        // already finds its data and does not flash an empty list.
-        const entries = seedRef.current?.(result);
-        if (entries) {
-          for (const entry of entries) {
-            queryClient.setQueryData(entry.key, entry.data);
-          }
-        }
-        setData(result);
-        setIsPending(false);
-      })
-      .catch((err: unknown) => {
-        if (cancelled || ticket !== latest.current) return;
-        setError(err instanceof Error ? err : new Error(String(err)));
-        setIsPending(false);
-      });
+		fetcherRef
+			.current()
+			.then((result) => {
+				if (cancelled || ticket !== latest.current) return
+				// Prime the cache BEFORE flipping isPending, so the view's first render
+				// already finds its data and does not flash an empty list.
+				const entries = seedRef.current?.(result)
+				if (entries) {
+					for (const entry of entries) {
+						queryClient.setQueryData(entry.key, entry.data)
+					}
+				}
+				setData(result)
+				setIsPending(false)
+			})
+			.catch((err: unknown) => {
+				if (cancelled || ticket !== latest.current) return
+				setError(err instanceof Error ? err : new Error(String(err)))
+				setIsPending(false)
+			})
 
-    return () => {
-      cancelled = true;
-    };
-    // `queryClient` is the provider's stable singleton, so it is not a dep.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: explained above
-  }, [attempt]);
+		return () => {
+			cancelled = true
+		}
+		// `queryClient` is the provider's stable singleton, so it is not a dep.
+		// biome-ignore lint/correctness/useExhaustiveDependencies: explained above
+	}, [attempt])
 
-  const retry = useCallback(() => {
-    setAttempt((n) => n + 1);
-  }, []);
+	const retry = useCallback(() => {
+		setAttempt((n) => n + 1)
+	}, [])
 
-  return { data, error, isPending, retry };
+	return { data, error, isPending, retry }
 }

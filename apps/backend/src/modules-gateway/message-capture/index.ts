@@ -10,30 +10,30 @@
 
 // ── Discord listener registration (called from app/lifecycle.ts) ───────────
 export {
-  registerMessageCapture,
-  setEventBroadcaster,
-} from "./messageCapture.js";
+	registerMessageCapture,
+	setEventBroadcaster,
+} from "./messageCapture.js"
 // ── Message persistence facade ────────────────────────────────────────────
-export { messageStore } from "./messageStore.js";
+export { messageStore } from "./messageStore.js"
 // ── Live moderation-action publishing ─────────────────────────────────────
-export { setModerationEventBroadcaster } from "./moderationActionsDb.js";
+export { setModerationEventBroadcaster } from "./moderationActionsDb.js"
 
 // ── Domain types ──────────────────────────────────────────────────────────
 export type {
-  AIStatus,
-  AnalysisQueueStatus,
-  AnalysisResult,
-  AttachmentRecord,
-  DashboardMessage,
-  MessageQuery,
-  MessageRecord,
-  MessageReview,
-  ModerationAction,
-  ModerationActionType,
-  ModerationWsEvent,
-  PageResult,
-  RetentionPolicy,
-  ReviewStatus,
-  RoleMetadata,
-  UserMetadata,
-} from "./types.js";
+	AIStatus,
+	AnalysisQueueStatus,
+	AnalysisResult,
+	AttachmentRecord,
+	DashboardMessage,
+	MessageQuery,
+	MessageRecord,
+	MessageReview,
+	ModerationAction,
+	ModerationActionType,
+	ModerationWsEvent,
+	PageResult,
+	RetentionPolicy,
+	ReviewStatus,
+	RoleMetadata,
+	UserMetadata,
+} from "./types.js"

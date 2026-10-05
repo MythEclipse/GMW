@@ -1,1 +1,1 @@
-export { registerGuildMemberEvents } from "./memberEvents.js";
+export { registerGuildMemberEvents } from "./memberEvents.js"

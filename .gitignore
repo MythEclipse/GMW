@@ -27,3 +27,8 @@ findings.md
 findings.md
 progress.md
 task_plan.md
+
+# TanStack Router generates this from src/routes on every build.
+# Committing it would make every route change produce a second diff hunk and
+# merge conflicts on a machine-written file.
+apps/frontend/src/routeTree.gen.ts

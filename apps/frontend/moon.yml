@@ -1,0 +1,45 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+tasks:
+  dev:
+    command: 'vite'
+    local: true
+    persistent: true
+
+  # `routeTree.gen.ts` is generated from src/routes and is gitignored, so every
+  # task that compiles or bundles MUST depend on this. Without the edge a clean
+  # CI checkout typechecks against a missing route tree and fails — which is the
+  # whole reason the file is generated rather than committed.
+  routegen:
+    inputs:
+      - 'src/routes/**'
+      - 'vite.config.ts'
+    outputs:
+      - 'src/routeTree.gen.ts'
+    command: 'vite build --mode routegen'
+    local: true
+
+  # Frontend `typecheck` depends on `backend:build`.
+  #
+  # P4 makes the frontend import `AppRouterClient` as a TYPE from the backend,
+  # so its typecheck consumes `apps/backend/dist/*.d.ts`. Expressing that as a
+  # task edge is the point of moving to a task graph: nobody has to remember to
+  # build the backend first, and CI cannot typecheck a missing declaration tree.
+  typecheck:
+    command: 'tsc --noEmit'
+    deps:
+      - 'backend:build'
+      - 'routegen'
+
+  build:
+    inputs:
+      - '@globs(ts)'
+      - 'vite.config.ts'
+      - 'tsconfig.json'
+      - 'tsconfig.base.json'
+    outputs:
+      - 'dist'
+    command: 'tsc --noEmit && vite build'
+    deps:
+      - 'backend:build'
+      - 'routegen'

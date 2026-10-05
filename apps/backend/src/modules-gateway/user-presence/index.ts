@@ -1,1 +1,1 @@
-export { registerPresenceCapture } from "./presenceCapture.js";
+export { registerPresenceCapture } from "./presenceCapture.js"

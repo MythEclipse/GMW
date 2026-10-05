@@ -41,153 +41,149 @@
  * worker so in-flight verdicts are released for a peer, then the pools.
  */
 
-import type { Server } from "node:http";
-import { createChildLogger } from "@/shared/logger/index";
-import { initializeDiscordGateway } from "./gateway/bootstrap.js";
-import { startHttpServer } from "./http/server.js";
-import { closeDrizzleDatabase } from "./shared/database/drizzle.js";
-import { closeDatabase } from "./shared/database/index.js";
-import { stopCommandBridge } from "./shared/redis/index.js";
-import { startModerationWorker } from "./worker/start.js";
-import { stopRedisBridge as stopEventBridge } from "./ws/redis-bridge.js";
-import { closeWebSocketServer } from "./ws/server.js";
+import type { Server } from "node:http"
+import { createChildLogger } from "@/shared/logger/index"
+import { initializeDiscordGateway } from "./gateway/bootstrap.js"
+import { startHttpServer } from "./http/server.js"
+import { closeDrizzleDatabase } from "./shared/database/drizzle.js"
 
-const logger = createChildLogger("gmw");
+import { stopCommandBridge } from "./shared/redis/index.js"
+import { startModerationWorker } from "./worker/start.js"
+import { stopRedisBridge as stopEventBridge } from "./ws/redis-bridge.js"
+import { closeWebSocketServer } from "./ws/server.js"
 
-let httpServer: Server | undefined;
-let shuttingDown = false;
+const logger = createChildLogger("gmw")
+
+let httpServer: Server | undefined
+let shuttingDown = false
 
 /** Set by the gateway bootstrap so shutdown can destroy the Discord client. */
-let destroyDiscordClient: (() => void) | undefined;
+let destroyDiscordClient: (() => void) | undefined
 /** Set by the worker bootstrap so shutdown can release its claims. */
-let stopWorker: (() => Promise<void>) | undefined;
+let stopWorker: (() => Promise<void>) | undefined
 
 async function main(): Promise<void> {
-  logger.info("Starting GMW — HTTP + Discord capture + moderation");
+	logger.info("Starting GMW — HTTP + Discord capture + moderation")
 
-  // 1. The dashboard surface first. If this fails there is nothing useful to
-  //    serve, so the process must not come up half-alive.
-  httpServer = await startHttpServer();
-  logger.info("HTTP surface ready");
+	// 1. The dashboard surface first. If this fails there is nothing useful to
+	//    serve, so the process must not come up half-alive.
+	httpServer = await startHttpServer()
+	logger.info("HTTP surface ready")
 
-  // 2. Discord capture. A bad token or unreachable Discord is a real outage,
-  //    but it must not take the HTTP surface with it — the dashboard is how an
-  //    operator finds out why. So this failure is logged, not fatal.
-  try {
-    destroyDiscordClient = await initializeDiscordGateway();
-  } catch (err) {
-    logger.error(
-      { err },
-      "Discord capture failed to start — the dashboard stays up, but no messages will be captured",
-    );
-  }
+	// 2. Discord capture. A bad token or unreachable Discord is a real outage,
+	//    but it must not take the HTTP surface with it — the dashboard is how an
+	//    operator finds out why. So this failure is logged, not fatal.
+	try {
+		destroyDiscordClient = await initializeDiscordGateway()
+	} catch (err) {
+		logger.error(
+			{ err },
+			"Discord capture failed to start — the dashboard stays up, but no messages will be captured",
+		)
+	}
 
-  // 3. The moderation worker. Same reasoning: no LLM key means no verdicts,
-  //    not no dashboard.
-  try {
-    stopWorker = await startModerationWorker();
-  } catch (err) {
-    logger.error(
-      { err },
-      "Moderation worker failed to start — capture continues, but no verdicts will be written",
-    );
-  }
+	// 3. The moderation worker. Same reasoning: no LLM key means no verdicts,
+	//    not no dashboard.
+	try {
+		stopWorker = await startModerationWorker()
+	} catch (err) {
+		logger.error(
+			{ err },
+			"Moderation worker failed to start — capture continues, but no verdicts will be written",
+		)
+	}
 
-  logger.info("GMW ready");
+	logger.info("GMW ready")
 }
 
 async function shutdown(signal: string): Promise<void> {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  logger.info({ signal }, "Shutting down gracefully");
+	if (shuttingDown) return
+	shuttingDown = true
+	logger.info({ signal }, "Shutting down gracefully")
 
-  // Failsafe: graceful shutdown must never hang the process forever.
-  // httpServer.close() waits for ALL open connections (including lingering
-  // WebSocket/keep-alive sockets), so on a stuck connection the process would
-  // otherwise sit zombie and systemd (Restart=always) can never revive it.
-  const forceExitTimer = setTimeout(() => {
-    logger.error({ signal }, "Graceful shutdown timed out; forcing exit");
-    process.exit(1);
-  }, 10_000);
-  forceExitTimer.unref?.();
+	// Failsafe: graceful shutdown must never hang the process forever.
+	// httpServer.close() waits for ALL open connections (including lingering
+	// WebSocket/keep-alive sockets), so on a stuck connection the process would
+	// otherwise sit zombie and systemd (Restart=always) can never revive it.
+	const forceExitTimer = setTimeout(() => {
+		logger.error({ signal }, "Graceful shutdown timed out; forcing exit")
+		process.exit(1)
+	}, 10_000)
+	forceExitTimer.unref?.()
 
-  // Each step is guarded independently: one failure must not strand the rest.
-  // The order is the reverse of startup.
-  await guard("stop accepting HTTP connections", async () => {
-    if (!httpServer) return;
-    await new Promise<void>((resolve) => {
-      httpServer?.close(() => {
-        logger.info("HTTP server closed");
-        resolve();
-      });
-    });
-    closeWebSocketServer();
-  });
+	// Each step is guarded independently: one failure must not strand the rest.
+	// The order is the reverse of startup.
+	await guard("stop accepting HTTP connections", async () => {
+		if (!httpServer) return
+		await new Promise<void>((resolve) => {
+			httpServer?.close(() => {
+				logger.info("HTTP server closed")
+				resolve()
+			})
+		})
+		closeWebSocketServer()
+	})
 
-  await guard("stop Discord capture", async () => {
-    destroyDiscordClient?.();
-  });
+	await guard("stop Discord capture", async () => {
+		destroyDiscordClient?.()
+	})
 
-  await guard("stop the moderation worker", async () => {
-    await stopWorker?.();
-  });
+	await guard("stop the moderation worker", async () => {
+		await stopWorker?.()
+	})
 
-  await guard("stop Redis bridges", async () => {
-    // Both bridges drop their connections synchronously before awaiting, so
-    // neither can hang the shutdown when Redis is unreachable. See the comments
-    // on `disconnectEventSubscriber` and `disconnectCommandClients` for why a
-    // plain `quit()` is not enough on its own.
-    await Promise.allSettled([
-      stopEventBridge().catch((err) =>
-        logger.warn({ err }, "Error stopping event bridge"),
-      ),
-      stopCommandBridge().catch((err) =>
-        logger.warn({ err }, "Error stopping command bridge"),
-      ),
-    ]);
-  });
+	await guard("stop Redis bridges", async () => {
+		// Both bridges drop their connections synchronously before awaiting, so
+		// neither can hang the shutdown when Redis is unreachable. See the comments
+		// on `disconnectEventSubscriber` and `disconnectCommandClients` for why a
+		// plain `quit()` is not enough on its own.
+		await Promise.allSettled([
+			stopEventBridge().catch((err) =>
+				logger.warn({ err }, "Error stopping event bridge"),
+			),
+			stopCommandBridge().catch((err) =>
+				logger.warn({ err }, "Error stopping command bridge"),
+			),
+		])
+	})
 
-  await guard("close database pools", async () => {
-    // Two handles on one database: the Prisma client the dashboard reads
-    // through, and the Drizzle pool the gateway and the worker write through.
-    await Promise.allSettled([
-      closeDatabase().catch((err) =>
-        logger.warn({ err }, "closing Prisma pool"),
-      ),
-      closeDrizzleDatabase().catch((err) =>
-        logger.warn({ err }, "closing Drizzle pool"),
-      ),
-    ]);
-  });
+	await guard("close database pool", async () => {
+		// One handle now. This closed two pools — the Prisma client the dashboard
+		// read through, and the Drizzle pool the gateway wrote through — both
+		// against the same database, so half of that was redundant.
+		await closeDrizzleDatabase().catch((err) =>
+			logger.warn({ err }, "closing Drizzle pool"),
+		)
+	})
 
-  clearTimeout(forceExitTimer);
-  logger.info("Graceful shutdown completed");
-  process.exit(0);
+	clearTimeout(forceExitTimer)
+	logger.info("Graceful shutdown completed")
+	process.exit(0)
 }
 
 /** Run one shutdown step, logging and continuing if it throws. */
 async function guard(label: string, fn: () => Promise<void>): Promise<void> {
-  try {
-    await fn();
-  } catch (err) {
-    logger.error({ err, step: label }, "Shutdown step failed — continuing");
-  }
+	try {
+		await fn()
+	} catch (err) {
+		logger.error({ err, step: label }, "Shutdown step failed — continuing")
+	}
 }
 
-process.on("SIGINT", () => void shutdown("SIGINT"));
-process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"))
+process.on("SIGTERM", () => void shutdown("SIGTERM"))
 
 process.on("uncaughtException", (err) => {
-  logger.error({ err }, "Uncaught exception");
-  void shutdown("uncaughtException");
-});
+	logger.error({ err }, "Uncaught exception")
+	void shutdown("uncaughtException")
+})
 
 process.on("unhandledRejection", (reason) => {
-  logger.error({ reason }, "Unhandled rejection");
-  void shutdown("unhandledRejection");
-});
+	logger.error({ reason }, "Unhandled rejection")
+	void shutdown("unhandledRejection")
+})
 
 void main().catch((err) => {
-  logger.error({ err }, "Failed to start GMW");
-  process.exit(1);
-});
+	logger.error({ err }, "Failed to start GMW")
+	process.exit(1)
+})
