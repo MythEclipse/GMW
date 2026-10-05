@@ -1688,14 +1688,16 @@
     "warn_count": 1
   },
   "chatbot.get_server_stats": {
-    "__threw": true,
-    "name": "SyntaxError",
-    "message": "Unexpected token 'T', \"Tool get_s\"... is not valid JSON"
+    "active_users": 3,
+    "clean": 2,
+    "flagged": 2,
+    "total_messages": 5
   },
   "chatbot.get_server_stats.scoped": {
-    "__threw": true,
-    "name": "SyntaxError",
-    "message": "Unexpected token 'T', \"Tool get_s\"... is not valid JSON"
+    "active_users": 1,
+    "clean": 2,
+    "flagged": 1,
+    "total_messages": 3
   },
   "chatbot.get_top_channels": [
     {
@@ -1707,51 +1709,157 @@
       "count": 2
     }
   ],
-  "chatbot.get_recent_activity": {
-    "__threw": true,
-    "name": "SyntaxError",
-    "message": "Unexpected token 'T', \"Tool get_r\"... is not valid JSON"
-  },
-  "chatbot.get_top_flagged": {
-    "__threw": true,
-    "name": "SyntaxError",
-    "message": "Unexpected token 'T', \"Tool get_t\"... is not valid JSON"
-  },
-  "chatbot.search_messages": {
-    "__threw": true,
-    "name": "SyntaxError",
-    "message": "Unexpected token 'T', \"Tool searc\"... is not valid JSON"
-  },
-  "chatbot.get_user_messages": {
-    "__threw": true,
-    "name": "SyntaxError",
-    "message": "Unexpected token 'T', \"Tool get_u\"... is not valid JSON"
-  },
+  "chatbot.get_recent_activity": [
+    {
+      "ai_status": "analyzed",
+      "channel_id": "char-chan-general",
+      "content": "halo dunia",
+      "created_at": 1718448000000,
+      "id": "char-msg-1",
+      "user_id": "char-user-1",
+      "username": "alpha"
+    },
+    {
+      "ai_status": "analyzed",
+      "channel_id": "char-chan-general",
+      "content": "kontak joker di 0812",
+      "created_at": 1718361600000,
+      "id": "char-msg-2",
+      "user_id": "char-user-1",
+      "username": "alpha"
+    },
+    {
+      "ai_status": "analyzed",
+      "channel_id": "char-chan-spam",
+      "content": "promourah install now",
+      "created_at": 1718275200000,
+      "id": "char-msg-3",
+      "user_id": "char-user-2",
+      "username": "beta"
+    },
+    {
+      "ai_status": "pending",
+      "channel_id": "char-chan-spam",
+      "content": "halo juga",
+      "created_at": 1718188800000,
+      "id": "char-msg-4",
+      "user_id": "char-user-3",
+      "username": "gamma"
+    },
+    {
+      "ai_status": "analyzed",
+      "channel_id": "char-chan-general",
+      "content": "edit ini",
+      "created_at": 1718102400000,
+      "id": "char-msg-5",
+      "user_id": "char-user-1",
+      "username": "alpha-renamed"
+    }
+  ],
+  "chatbot.get_top_flagged": [
+    {
+      "ai_status": "analyzed",
+      "channel_id": "char-chan-general",
+      "content": "kontak joker di 0812",
+      "created_at": 1718361600000,
+      "id": "char-msg-2",
+      "username": "alpha",
+      "verdict_analysis": "",
+      "verdict_flags": [
+        "scam",
+        "contact"
+      ],
+      "verdict_score": 0.95,
+      "verdict_status": "deleted"
+    },
+    {
+      "ai_status": "analyzed",
+      "channel_id": "char-chan-spam",
+      "content": "promourah install now",
+      "created_at": 1718275200000,
+      "id": "char-msg-3",
+      "username": "beta",
+      "verdict_analysis": "",
+      "verdict_flags": [
+        "spam"
+      ],
+      "verdict_score": 0.8,
+      "verdict_status": "deleted"
+    }
+  ],
+  "chatbot.search_messages": [
+    {
+      "ai_status": "analyzed",
+      "channel_id": "char-chan-general",
+      "content": "halo dunia",
+      "created_at": 1718448000000,
+      "id": "char-msg-1",
+      "username": "alpha"
+    },
+    {
+      "ai_status": "pending",
+      "channel_id": "char-chan-spam",
+      "content": "halo juga",
+      "created_at": 1718188800000,
+      "id": "char-msg-4",
+      "username": "gamma"
+    }
+  ],
+  "chatbot.get_user_messages": [
+    {
+      "ai_status": "analyzed",
+      "channel_id": "char-chan-general",
+      "content": "halo dunia",
+      "created_at": 1718448000000,
+      "id": "char-msg-1"
+    },
+    {
+      "ai_status": "analyzed",
+      "channel_id": "char-chan-general",
+      "content": "kontak joker di 0812",
+      "created_at": 1718361600000,
+      "id": "char-msg-2"
+    },
+    {
+      "ai_status": "analyzed",
+      "channel_id": "char-chan-general",
+      "content": "edit ini",
+      "created_at": 1718102400000,
+      "id": "char-msg-5"
+    }
+  ],
   "chatbot.get_user_profile": {
-    "__threw": true,
-    "name": "SyntaxError",
-    "message": "Unexpected token 'T', \"Tool get_u\"... is not valid JSON"
+    "guild_id": "char-guild",
+    "last_analyzed_at": 1718448000000,
+    "profile_summary": "chatter alpha",
+    "user_id": "char-user-1"
   },
   "chatbot.get_user_reputation": {
     "available": false,
     "message": "Skor trust/skala reputasi per-user telah dihapus dari sistem. Gunakan rasio pesan ter-flag vs total untuk menilai risiko (lihat dashboard Users)."
   },
   "chatbot.get_channel_culture": {
-    "__threw": true,
-    "name": "SyntaxError",
-    "message": "Unexpected token 'T', \"Tool get_c\"... is not valid JSON"
+    "channel_id": "char-chan-general",
+    "culture_summary": "basa-basi santai",
+    "last_analyzed_at": 1718448000000
   },
   "chatbot.get_message_detail": {
-    "__threw": true,
-    "name": "SyntaxError",
-    "message": "Unexpected token 'T', \"Tool get_m\"... is not valid JSON"
+    "ai_analysis": null,
+    "ai_categories": null,
+    "ai_confidence": null,
+    "ai_moderation_flags": null,
+    "ai_moderation_score": null,
+    "ai_status": "analyzed",
+    "channel_id": "char-chan-general",
+    "content": "halo dunia",
+    "created_at": 1718448000000,
+    "guild_id": "char-guild",
+    "id": "char-msg-1",
+    "user_id": "char-user-1",
+    "username": "alpha"
   },
   "chatbot.get_message_reviews": [],
-  "chatbot.get_voice_recordings": {
-    "__threw": true,
-    "name": "SyntaxError",
-    "message": "Unexpected token 'T', \"Tool get_v\"... is not valid JSON"
-  },
+  "chatbot.get_voice_recordings": [],
   "chatbot.get_moderation_timeline": [],
   "chatbot.get_corrections": []
 }

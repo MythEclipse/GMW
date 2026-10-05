@@ -173,7 +173,11 @@ async function collect(): Promise<Record<string, unknown>> {
     // which surfaced as four bogus "this method throws" snapshots.
     [
       "messages.getEditHistory",
-      () => messagesRepository.getEditHistory(undefined, 10),
+      // Takes a messageId — not (limit, cursor). Passing `undefined` returned
+      // zero rows on BOTH the old and new code, so `--check` reported a match
+      // while actually asserting nothing. That is the failure mode a snapshot
+      // cannot catch on its own.
+      () => messagesRepository.getEditHistory("char-msg-5"),
     ],
     [
       "messages.findByChannel",

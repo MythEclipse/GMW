@@ -1,6 +1,31 @@
-import type { Prisma } from "@gmw/db/prisma/generated/client";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  notInArray,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { config } from "../../shared/config/index.js";
-import { getDatabase } from "../../shared/database/index.js";
+import { getDatabase } from "../../shared/database/drizzle.js";
+import {
+  analysisAttemptsTable,
+  attachmentsTable,
+  messageEditsTable,
+  messageReviewsTable,
+  messagesTable,
+  verdictsTable,
+} from "../../shared/database/schema.js";
 import type { PageResult } from "../../shared/index.js";
 import { createChildLogger } from "../../shared/logger/index.js";
 import { readChannelName } from "../../shared/utils/channelName.js";
@@ -35,91 +60,129 @@ const logger = createChildLogger("messages.repository");
  * `mapMessageRow` expects. Doing that in one place keeps every caller of the
  * mapper free of relation-handling.
  */
-const messageWithVerdict = {
-  id: true,
-  guild_id: true,
-  channel_id: true,
-  thread_id: true,
-  user_id: true,
-  username: true,
-  avatar_url: true,
-  content: true,
-  edited_content: true,
-  created_at: true,
-  edited_at: true,
-  deleted_at: true,
-  type: true,
-  metadata: true,
-  ai_status: true,
-  attempts: true,
-  worker_id: true,
-  lease_until: true,
-  ready_for_work_at: true,
-  ai_moderation_flags: true,
-  ai_moderation_score: true,
-  ai_analysis: true,
-  ai_categories: true,
-  ai_confidence: true,
-  ai_analyzed_at: true,
-  ai_analysis_duration_ms: true,
-  ai_error: true,
-  is_reply: true,
-  is_forward: true,
-  is_crosspost: true,
-  reference_message_id: true,
-  reference_channel_id: true,
-  reference_guild_id: true,
-  verdicts: {
-    select: {
-      status: true,
-      score: true,
-      confidence: true,
-      flags: true,
-      categories: true,
-      reason: true,
-      analysis: true,
-      evidence: true,
-      model: true,
-      updated_at: true,
-      // Only the gateway's enforcer writes this, which is what lets the
-      // dashboard separate a bot deletion from a human one.
-      // `messages.deleted_at` cannot: Discord's messageDelete fires for both.
-      auto_delete_state: true,
-    },
-  },
-} satisfies Prisma.messagesSelect;
+const messageColumns = {
+  id: messagesTable.id,
+  guild_id: messagesTable.guild_id,
+  channel_id: messagesTable.channel_id,
+  thread_id: messagesTable.thread_id,
+  user_id: messagesTable.user_id,
+  username: messagesTable.username,
+  avatar_url: messagesTable.avatar_url,
+  content: messagesTable.content,
+  edited_content: messagesTable.edited_content,
+  created_at: messagesTable.created_at,
+  edited_at: messagesTable.edited_at,
+  deleted_at: messagesTable.deleted_at,
+  type: messagesTable.type,
+  metadata: messagesTable.metadata,
+  ai_status: messagesTable.ai_status,
+  attempts: messagesTable.attempts,
+  worker_id: messagesTable.worker_id,
+  lease_until: messagesTable.lease_until,
+  ready_for_work_at: messagesTable.ready_for_work_at,
+  ai_moderation_flags: messagesTable.ai_moderation_flags,
+  ai_moderation_score: messagesTable.ai_moderation_score,
+  ai_analysis: messagesTable.ai_analysis,
+  ai_categories: messagesTable.ai_categories,
+  ai_confidence: messagesTable.ai_confidence,
+  ai_analyzed_at: messagesTable.ai_analyzed_at,
+  ai_analysis_duration_ms: messagesTable.ai_analysis_duration_ms,
+  ai_error: messagesTable.ai_error,
+  is_reply: messagesTable.is_reply,
+  is_forward: messagesTable.is_forward,
+  is_crosspost: messagesTable.is_crosspost,
+  reference_message_id: messagesTable.reference_message_id,
+  reference_channel_id: messagesTable.reference_channel_id,
+  reference_guild_id: messagesTable.reference_guild_id,
+} as const;
 
 /**
- * Re-project a Prisma row carrying a nested `verdicts` object into the flat
- * `verdict_*` shape `mapMessageRow` reads. A missing verdict leaves every
- * `verdict_*` key null, which the mapper already treats as "not judged".
+ * The verdict columns, ALIASED to `verdict_*`.
  *
- * Generic over the select so both the wide `messageWithVerdict` and the narrow
- * `reviewSelect` can be flattened without the narrower one being widened to
- * satisfy the wider's type.
+ * Prisma returned a nested `verdicts` object and `flattenVerdict` re-projected
+ * it. Drizzle has no nested selection, so the join selects these under their
+ * flat names directly — which leaves `flattenVerdict` the identity on rows that
+ * come from `messageWithVerdict`, so all eight of its call sites keep working
+ * untouched.
+ *
+ * `auto_delete_state` is deliberately NOT aliased: `mapMessageRow` reads it
+ * under that exact name, and only the gateway's enforcer writes it, which is
+ * what lets the dashboard separate a bot deletion from a human one.
+ * `messages.deleted_at` cannot — Discord's messageDelete fires for both.
  */
-function flattenVerdict<
-  T extends { verdicts?: { status: unknown; score: unknown } | null },
->(row: T): Record<string, unknown> {
+const verdictColumns = {
+  verdict_status: verdictsTable.status,
+  verdict_score: verdictsTable.score,
+  verdict_confidence: verdictsTable.confidence,
+  verdict_flags: verdictsTable.flags,
+  verdict_categories: verdictsTable.categories,
+  verdict_reason: verdictsTable.reason,
+  verdict_analysis: verdictsTable.analysis,
+  verdict_evidence: verdictsTable.evidence,
+  verdict_model: verdictsTable.model,
+  verdict_updated_at: verdictsTable.updated_at,
+  auto_delete_state: verdictsTable.auto_delete_state,
+} as const;
+
+/**
+ * The full message projection: every message column plus the flattened verdict.
+ *
+ * LEFT JOIN, deliberately. An INNER join would silently hide every unanalysed
+ * message from the dashboard — including anything still queued, or analysed by
+ * the old pipeline before the rewrite.
+ */
+const messageWithVerdict = { ...messageColumns, ...verdictColumns };
+
+/**
+ * Re-project a row carrying verdict data into the flat `verdict_*` shape
+ * `mapMessageRow` reads. A missing verdict leaves every `verdict_*` key null,
+ * which the mapper already treats as "not judged".
+ *
+ * Handles BOTH shapes, and that is deliberate:
+ *  - rows from `messageWithVerdict` already arrive flat (the join aliases them),
+ *    so this is the identity plus a null-fill for a LEFT JOIN miss;
+ *  - `reviewSelect` narrows the verdict columns, so its keys may be absent and
+ *    the null-fill is what keeps the mapper's contract intact.
+ *
+ * The `verdicts` branch only runs if a nested object is present, which after the
+ * Drizzle port nothing produces — it is kept so the two shapes cannot diverge
+ * silently if a caller ever reintroduces a nested select.
+ */
+function flattenVerdict(row: Record<string, unknown>): Record<string, unknown> {
   const { verdicts: v, ...message } = row;
-  const verdict = v as
-    | (Record<string, unknown> & { status?: unknown; score?: unknown })
-    | null
-    | undefined;
-  return {
-    ...message,
-    verdict_status: verdict?.status ?? null,
-    verdict_score: verdict?.score ?? null,
-    verdict_confidence: verdict?.confidence ?? null,
-    verdict_flags: verdict?.flags ?? null,
-    verdict_categories: verdict?.categories ?? null,
-    verdict_reason: verdict?.reason ?? null,
-    verdict_analysis: verdict?.analysis ?? null,
-    verdict_evidence: verdict?.evidence ?? null,
-    verdict_model: verdict?.model ?? null,
-    verdict_updated_at: verdict?.updated_at ?? null,
-    auto_delete_state: verdict?.auto_delete_state ?? null,
-  };
+
+  const VERDICT_KEYS = [
+    "verdict_status",
+    "verdict_score",
+    "verdict_confidence",
+    "verdict_flags",
+    "verdict_categories",
+    "verdict_reason",
+    "verdict_analysis",
+    "verdict_evidence",
+    "verdict_model",
+    "verdict_updated_at",
+    "auto_delete_state",
+  ] as const;
+
+  if (v !== undefined) {
+    const verdict = (v ?? {}) as Record<string, unknown>;
+    const projected: Record<string, unknown> = { ...message };
+    for (const key of VERDICT_KEYS) {
+      const source =
+        key === "auto_delete_state"
+          ? "auto_delete_state"
+          : key.slice("verdict_".length);
+      projected[key] = verdict[source] ?? null;
+    }
+    return projected;
+  }
+
+  const filled: Record<string, unknown> = { ...message };
+  for (const key of VERDICT_KEYS) {
+    if (filled[key] === undefined) filled[key] = null;
+  }
+  return filled;
 }
 
 export interface AttachmentResult {
@@ -149,11 +212,12 @@ export type { MessageRow };
  * (NULL thread_id) are always kept; thread messages are kept only when their
  * thread is not in the configured exclusion list.
  */
-function excludeSpamThreads(): Prisma.messagesWhereInput | undefined {
+function excludeSpamThreads(): SQL | undefined {
   if (EXCLUDED_THREAD_IDS.length === 0) return undefined;
-  return {
-    OR: [{ thread_id: null }, { thread_id: { notIn: EXCLUDED_THREAD_IDS } }],
-  };
+  return or(
+    isNull(messagesTable.thread_id),
+    notInArray(messagesTable.thread_id, EXCLUDED_THREAD_IDS),
+  );
 }
 
 /** Normalize a raw attachment DB row to the API shape. */
@@ -405,47 +469,35 @@ function encodeEditCursor(cursor: EditCursor): string {
  * queue renders only these.
  */
 const reviewSelect = {
-  id: true,
-  guild_id: true,
-  channel_id: true,
-  user_id: true,
-  username: true,
-  avatar_url: true,
-  content: true,
-  type: true,
-  created_at: true,
+  id: messagesTable.id,
+  guild_id: messagesTable.guild_id,
+  channel_id: messagesTable.channel_id,
+  user_id: messagesTable.user_id,
+  username: messagesTable.username,
+  avatar_url: messagesTable.avatar_url,
+  content: messagesTable.content,
+  type: messagesTable.type,
+  created_at: messagesTable.created_at,
   // Legacy `messages.ai_*` — the new worker never writes these, so they are
   // null for anything judged after the rewrite. The live judgement is the
   // verdict_* columns, joined from `verdicts`.
-  ai_confidence: true,
-  ai_analysis: true,
-  is_reply: true,
-  is_forward: true,
-  is_crosspost: true,
-  reference_message_id: true,
-  reference_channel_id: true,
-  reference_guild_id: true,
+  ai_confidence: messagesTable.ai_confidence,
+  ai_analysis: messagesTable.ai_analysis,
+  is_reply: messagesTable.is_reply,
+  is_forward: messagesTable.is_forward,
+  is_crosspost: messagesTable.is_crosspost,
+  reference_message_id: messagesTable.reference_message_id,
+  reference_channel_id: messagesTable.reference_channel_id,
+  reference_guild_id: messagesTable.reference_guild_id,
   // Retry state, so the review queue can distinguish "flagged, fine" from
   // "never finished, needs a human".
-  ai_status: true,
-  attempts: true,
-  worker_id: true,
-  verdicts: {
-    select: {
-      status: true,
-      score: true,
-      confidence: true,
-      flags: true,
-      categories: true,
-      reason: true,
-      analysis: true,
-      evidence: true,
-      model: true,
-      updated_at: true,
-      auto_delete_state: true,
-    },
-  },
-} satisfies Prisma.messagesSelect;
+  ai_status: messagesTable.ai_status,
+  attempts: messagesTable.attempts,
+  worker_id: messagesTable.worker_id,
+  // Flattened verdict columns, exactly as `messageWithVerdict` — the JS sort
+  // below reads `r.verdicts?.status` today and reads `r.verdict_status` after.
+  ...verdictColumns,
+} as const;
 
 /**
  * How much of the review queue to over-fetch, now that ordering happens in JS.
@@ -467,47 +519,91 @@ const REVIEW_MIN_SCAN = 200;
  */
 const ATTACHMENT_ID_OVERSAMPLE = 4;
 
+/**
+ * A condition on the message's verdict status.
+ *
+ * Prisma spelled this `{verdicts: {is: {status}}}`, which it compiles to an
+ * EXISTS. An explicit EXISTS keeps that exact semantics — importantly it does
+ * NOT become a join, so a message is not duplicated by a one-to-many.
+ */
+function hasVerdictStatus(status: string): SQL {
+  return sql`EXISTS (SELECT 1 FROM ${verdictsTable} v WHERE v.message_id = ${messagesTable.id} AND v.status = ${status})`;
+}
+
+/**
+ * `or()` / `and()` without the `| undefined`.
+ *
+ * Drizzle types both as possibly-undefined because an EMPTY argument list has
+ * no predicate to emit. Every call in this file passes at least one known-good
+ * condition, so that branch is unreachable — and asserting it once here beats a
+ * non-null assertion at each of the dozen call sites, with a comment explaining
+ * why each one is safe.
+ */
+function anyOf(...conditions: SQL[]): SQL {
+  return or(...conditions) as SQL;
+}
+
+function allOf(...conditions: SQL[]): SQL {
+  return and(...conditions) as SQL;
+}
+
+/**
+ * The enum unions for `messages.ai_status` and `messages.type`.
+ *
+ * Derived from the schema rather than re-declared: the Drizzle column carries
+ * the pg-enum union, so a filter built from these types is checked against the
+ * database definition at compile time. A hand-written copy would drift the
+ * moment a status is added.
+ */
+type MessageAiStatus = NonNullable<
+  (typeof messagesTable.$inferSelect)["ai_status"]
+>;
+type MessageType = NonNullable<(typeof messagesTable.$inferSelect)["type"]>;
+
 export class MessagesRepository {
   async findMany(query: MessageQuery): Promise<PageResult<MessageRow>> {
     const db = getDatabase();
     const limit = query.limit ?? 50;
-    const conditions: Prisma.messagesWhereInput[] = [];
+    const conditions: SQL[] = [];
 
     if (query.guildId) {
-      conditions.push({ guild_id: query.guildId });
+      conditions.push(eq(messagesTable.guild_id, query.guildId));
     }
     if (query.channelId) {
-      conditions.push({ channel_id: query.channelId });
+      conditions.push(eq(messagesTable.channel_id, query.channelId));
     }
     if (query.userId) {
-      conditions.push({ user_id: query.userId });
+      conditions.push(eq(messagesTable.user_id, query.userId));
     }
     if (query.status) {
       // Pipeline position, e.g. `dead`.
-      conditions.push({ ai_status: query.status });
+      conditions.push(
+        eq(messagesTable.ai_status, query.status as MessageAiStatus),
+      );
     }
     if (query.verdict) {
       // Moderation outcome. Filtering on messages.ai_status here would return
       // nothing at all, because the worker only ever writes `analyzed` to it.
-      conditions.push({ verdicts: { is: { status: query.verdict } } });
+      conditions.push(hasVerdictStatus(query.verdict));
     }
     if (query.needsReview) {
-      conditions.push({ verdicts: { is: { status: "deleted" } } });
+      conditions.push(hasVerdictStatus("deleted"));
     }
     if (query.cursor) {
-      conditions.push({ created_at: { lt: BigInt(Number(query.cursor)) } });
+      conditions.push(lt(messagesTable.created_at, Number(query.cursor)));
     }
 
     // Exclude spam threads (NULL-safe: non-thread messages are kept)
     const excludeThreads = excludeSpamThreads();
     if (excludeThreads) conditions.push(excludeThreads);
 
-    const rows = await db.messages.findMany({
-      where: { AND: conditions },
-      orderBy: { created_at: "desc" },
-      take: cursorLimit(limit),
-      select: messageWithVerdict,
-    });
+    const rows = await db
+      .select(messageWithVerdict)
+      .from(messagesTable)
+      .leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
+      .where(and(...conditions))
+      .orderBy(desc(messagesTable.created_at))
+      .limit(cursorLimit(limit));
 
     const data = rows
       .slice(0, limit)
@@ -526,11 +622,12 @@ export class MessagesRepository {
    */
   async findById(id: string) {
     const db = getDatabase();
-    const row = await db.messages.findFirst({
-      where: { id },
-      take: 1,
-      select: messageWithVerdict,
-    });
+    const [row] = await db
+      .select(messageWithVerdict)
+      .from(messagesTable)
+      .leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
+      .where(eq(messagesTable.id, id))
+      .limit(1);
 
     if (!row) return null;
     return mapMessageRow(flattenVerdict(row));
@@ -558,21 +655,24 @@ export class MessagesRepository {
     }>
   > {
     const db = getDatabase();
-    const rows = await db.analysis_attempts.findMany({
-      where: { message_id: messageId },
-      orderBy: [{ created_at: "asc" }, { id: "asc" }],
-      select: {
-        attempt: true,
-        outcome: true,
-        error_code: true,
-        error_message: true,
-        duration_ms: true,
-        model: true,
-        worker_id: true,
-        prompt_tokens: true,
-        created_at: true,
-      },
-    });
+    const rows = await db
+      .select({
+        attempt: analysisAttemptsTable.attempt,
+        outcome: analysisAttemptsTable.outcome,
+        error_code: analysisAttemptsTable.error_code,
+        error_message: analysisAttemptsTable.error_message,
+        duration_ms: analysisAttemptsTable.duration_ms,
+        model: analysisAttemptsTable.model,
+        worker_id: analysisAttemptsTable.worker_id,
+        prompt_tokens: analysisAttemptsTable.prompt_tokens,
+        created_at: analysisAttemptsTable.created_at,
+      })
+      .from(analysisAttemptsTable)
+      .where(eq(analysisAttemptsTable.message_id, messageId))
+      .orderBy(
+        asc(analysisAttemptsTable.created_at),
+        asc(analysisAttemptsTable.id),
+      );
     return rows.map((r) => ({
       attempt: Number(r.attempt),
       outcome: String(r.outcome),
@@ -594,12 +694,15 @@ export class MessagesRepository {
     messageId: string,
   ): Promise<Array<{ old_content: string; edited_at: number }>> {
     const db = getDatabase();
-    const rows = await db.message_edits.findMany({
-      where: { message_id: messageId },
-      orderBy: { edited_at: "desc" },
-      take: 50,
-      select: { old_content: true, edited_at: true },
-    });
+    const rows = await db
+      .select({
+        old_content: messageEditsTable.old_content,
+        edited_at: messageEditsTable.edited_at,
+      })
+      .from(messageEditsTable)
+      .where(eq(messageEditsTable.message_id, messageId))
+      .orderBy(desc(messageEditsTable.edited_at))
+      .limit(50);
     return rows.map((r) => ({
       old_content: String(r.old_content ?? ""),
       edited_at: Number(r.edited_at ?? 0),
@@ -612,22 +715,23 @@ export class MessagesRepository {
   ): Promise<PageResult<MessageRow>> {
     const db = getDatabase();
     const limit = query.limit ?? 50;
-    const conditions: Prisma.messagesWhereInput[] = [{ channel_id: channelId }];
+    const conditions: SQL[] = [eq(messagesTable.channel_id, channelId)];
 
     if (query.cursor) {
-      conditions.push({ created_at: { lt: BigInt(Number(query.cursor)) } });
+      conditions.push(lt(messagesTable.created_at, Number(query.cursor)));
     }
 
     // Exclude spam threads (NULL-safe)
     const excludeThreads = excludeSpamThreads();
     if (excludeThreads) conditions.push(excludeThreads);
 
-    const rows = await db.messages.findMany({
-      where: { AND: conditions },
-      orderBy: { created_at: "desc" },
-      take: cursorLimit(limit),
-      select: messageWithVerdict,
-    });
+    const rows = await db
+      .select(messageWithVerdict)
+      .from(messagesTable)
+      .leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
+      .where(and(...conditions))
+      .orderBy(desc(messagesTable.created_at))
+      .limit(cursorLimit(limit));
 
     const data = rows
       .slice(0, limit)
@@ -647,19 +751,21 @@ export class MessagesRepository {
     query: MessageQuery,
     pageSize = 50,
   ): AsyncGenerator<MessageRow, void, unknown> {
-    const conditions: Prisma.messagesWhereInput[] = [];
+    const conditions: SQL[] = [];
 
     if (query.guildId) {
-      conditions.push({ guild_id: query.guildId });
+      conditions.push(eq(messagesTable.guild_id, query.guildId));
     }
     if (query.channelId) {
-      conditions.push({ channel_id: query.channelId });
+      conditions.push(eq(messagesTable.channel_id, query.channelId));
     }
     if (query.userId) {
-      conditions.push({ user_id: query.userId });
+      conditions.push(eq(messagesTable.user_id, query.userId));
     }
     if (query.status) {
-      conditions.push({ ai_status: query.status });
+      conditions.push(
+        eq(messagesTable.ai_status, query.status as MessageAiStatus),
+      );
     }
     const excludeThreads = excludeSpamThreads();
     if (excludeThreads) conditions.push(excludeThreads);
@@ -669,18 +775,17 @@ export class MessagesRepository {
     while (true) {
       const pageConditions = [...conditions];
       if (cursor) {
-        pageConditions.push({
-          created_at: { lt: BigInt(Number(cursor)) },
-        });
+        pageConditions.push(lt(messagesTable.created_at, Number(cursor)));
       }
 
       const db = getDatabase();
-      const rows = await db.messages.findMany({
-        where: { AND: pageConditions },
-        orderBy: { created_at: "desc" },
-        take: cursorLimit(pageSize),
-        select: messageWithVerdict,
-      });
+      const rows = await db
+        .select(messageWithVerdict)
+        .from(messagesTable)
+        .leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
+        .where(and(...pageConditions))
+        .orderBy(desc(messagesTable.created_at))
+        .limit(cursorLimit(pageSize));
 
       if (rows.length === 0) return;
 
@@ -700,8 +805,9 @@ export class MessagesRepository {
     const db = getDatabase();
     const id = crypto.randomUUID();
 
-    const row = await db.messages.create({
-      data: {
+    const [row] = await db
+      .insert(messagesTable)
+      .values({
         id,
         guild_id: data.guildId,
         channel_id: data.channelId,
@@ -711,10 +817,10 @@ export class MessagesRepository {
         avatar_url: data.avatarUrl ?? null,
         content: data.content,
         edited_content: null,
-        created_at: BigInt(Date.now()),
+        created_at: Date.now(),
         edited_at: null,
         deleted_at: null,
-        type: data.type ?? "text",
+        type: (data.type ?? "text") as MessageType,
         metadata: null,
         ai_status: "pending",
         is_reply: data.isReply ?? false,
@@ -723,9 +829,11 @@ export class MessagesRepository {
         reference_message_id: data.referenceMessageId ?? null,
         reference_channel_id: data.referenceChannelId ?? null,
         reference_guild_id: data.referenceGuildId ?? null,
-      },
-      select: messageWithVerdict,
-    });
+      })
+      // A freshly created message has no verdict yet, but the returning select
+      // is the full projection so `create` returns the same shape as
+      // `findById` without a second round trip.
+      .returning(messageColumns);
 
     return mapMessageRow(flattenVerdict(row));
   }
@@ -733,13 +841,13 @@ export class MessagesRepository {
   async update(id: string, data: MessageUpdate) {
     const db = getDatabase();
 
-    const setData: Prisma.messagesUpdateInput = {};
+    const setData: Partial<typeof messagesTable.$inferInsert> = {};
 
     if (data.editedContent !== undefined) {
       setData.edited_content = data.editedContent;
     }
     if (data.aiStatus !== undefined) {
-      setData.ai_status = data.aiStatus;
+      setData.ai_status = data.aiStatus as MessageAiStatus;
     }
     if (data.aiAnalysis !== undefined) {
       setData.ai_analysis = data.aiAnalysis;
@@ -753,11 +861,11 @@ export class MessagesRepository {
 
     if (Object.keys(setData).length === 0) return this.findById(id);
 
-    const row = await db.messages.update({
-      where: { id },
-      data: setData,
-      select: messageWithVerdict,
-    });
+    const [row] = await db
+      .update(messagesTable)
+      .set(setData)
+      .where(eq(messagesTable.id, id))
+      .returning(messageColumns);
 
     if (!row) return null;
     return mapMessageRow(flattenVerdict(row));
@@ -797,17 +905,17 @@ export class MessagesRepository {
     cursor?: string,
   ): Promise<ReviewPageResult> {
     const db = getDatabase();
-    const conditions: Prisma.messagesWhereInput[] = [
-      {
-        OR: [
-          { verdicts: { is: { status: "deleted" } } },
-          { ai_status: "dead" },
-        ],
-      },
+    const conditions: SQL[] = [
+      // `or()`/`and()` are typed `SQL | undefined` because they return
+      // undefined for an empty argument list. Both calls here pass two
+      // non-optional arguments, so the undefined branch is unreachable —
+      // `allOf`/`anyOf` state that without a non-null assertion at every
+      // call site.
+      anyOf(hasVerdictStatus("deleted"), eq(messagesTable.ai_status, "dead")),
     ];
 
     if (channelId) {
-      conditions.push({ channel_id: channelId });
+      conditions.push(eq(messagesTable.channel_id, channelId));
     }
 
     const excludeThreads = excludeSpamThreads();
@@ -827,19 +935,22 @@ export class MessagesRepository {
     //     proportional to the page.
     const at = decodeReviewCursor(cursor);
 
-    const rows = await db.messages.findMany({
-      where: { AND: conditions },
-      take: Math.max(cursorLimit(limit) * REVIEW_SCAN_FACTOR, REVIEW_MIN_SCAN),
-      select: reviewSelect,
-    });
+    const rows = await db
+      .select(reviewSelect)
+      .from(messagesTable)
+      .leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
+      .where(and(...conditions))
+      .limit(
+        Math.max(cursorLimit(limit) * REVIEW_SCAN_FACTOR, REVIEW_MIN_SCAN),
+      );
 
     const keyed = rows.map((r) => ({
       row: r,
       key: {
         id: r.id,
         created_at: r.created_at,
-        action: actionRankOf(r.verdicts?.status ?? null),
-        score: scoreRankOf(r.verdicts?.score ?? null),
+        action: actionRankOf(r.verdict_status ?? null),
+        score: scoreRankOf(r.verdict_score ?? null),
       } satisfies ReviewSortKey,
     }));
 
@@ -888,9 +999,13 @@ export class MessagesRepository {
 
   async delete(id: string): Promise<boolean> {
     const db = getDatabase();
-    const result = await db.messages.deleteMany({ where: { id } });
+    // `deleteMany`'s `{count}` becomes the length of the returning clause.
+    const deleted = await db
+      .delete(messagesTable)
+      .where(eq(messagesTable.id, id))
+      .returning({ id: messagesTable.id });
 
-    return result.count > 0;
+    return deleted.length > 0;
   }
 
   async getImageMessages(
@@ -900,19 +1015,19 @@ export class MessagesRepository {
     const db = getDatabase();
 
     // Subquery: find distinct message_ids from attachments with image MIME type
-    const attachmentConditions: Prisma.attachmentsWhereInput[] = [
-      { guild_id: guildId },
-      { type: { startsWith: "image/" } },
+    const attachmentConditions: SQL[] = [
+      eq(attachmentsTable.guild_id, guildId),
+      // `{startsWith: "image/"}` — a LIKE prefix match, which is what the
+      // parameterised equivalent is. `sql` keeps the pattern a bound value.
+      sql`${attachmentsTable.type} LIKE ${"image/%"}`,
     ];
     // Exclude spam threads (NULL-safe for non-thread messages)
     const excludeAttachments =
       EXCLUDED_THREAD_IDS.length > 0
-        ? {
-            OR: [
-              { thread_id: null },
-              { thread_id: { notIn: EXCLUDED_THREAD_IDS } },
-            ],
-          }
+        ? or(
+            isNull(attachmentsTable.thread_id),
+            notInArray(attachmentsTable.thread_id, EXCLUDED_THREAD_IDS),
+          )
         : undefined;
     if (excludeAttachments) attachmentConditions.push(excludeAttachments);
 
@@ -921,22 +1036,26 @@ export class MessagesRepository {
     // candidate *attachments*, so duplicates within that window collapsed and
     // the page came back short. Deduplicating first is what the subquery did
     // not do, and `cursorLimit` here is measured in distinct messages.
-    const imageAttachments = await db.attachments.findMany({
-      where: { AND: attachmentConditions },
-      orderBy: { created_at: "desc" },
-      take: cursorLimit(limit) * ATTACHMENT_ID_OVERSAMPLE,
-      select: { message_id: true },
-    });
+    const imageAttachments = await db
+      .select({ message_id: attachmentsTable.message_id })
+      .from(attachmentsTable)
+      .where(and(...attachmentConditions))
+      .orderBy(desc(attachmentsTable.created_at))
+      .limit(cursorLimit(limit) * ATTACHMENT_ID_OVERSAMPLE);
     const imageMsgIds = [...new Set(imageAttachments.map((a) => a.message_id))];
 
     // Fetch full message rows for those IDs
     const rows = imageMsgIds.length
-      ? await db.messages.findMany({
-          where: { id: { in: imageMsgIds } },
-          orderBy: { created_at: "desc" },
-          take: cursorLimit(limit),
-          select: messageWithVerdict,
-        })
+      ? await db
+          .select(messageWithVerdict)
+          .from(messagesTable)
+          .leftJoin(
+            verdictsTable,
+            eq(verdictsTable.message_id, messagesTable.id),
+          )
+          .where(inArray(messagesTable.id, imageMsgIds))
+          .orderBy(desc(messagesTable.created_at))
+          .limit(cursorLimit(limit))
       : [];
 
     const data = rows
@@ -954,27 +1073,24 @@ export class MessagesRepository {
   ): Promise<PageResult<AttachmentResult>> {
     const db = getDatabase();
     const limit = query.limit ?? 50;
-    const conditions: Prisma.attachmentsWhereInput[] = [
-      { channel_id: channelId },
-    ];
+    const conditions: SQL[] = [eq(attachmentsTable.channel_id, channelId)];
 
     // Detail view: narrow to the selected message so we don't show
     // everyone else's images from the same channel.
     if (query.messageId) {
-      conditions.push({ message_id: query.messageId });
+      conditions.push(eq(attachmentsTable.message_id, query.messageId));
     }
 
     if (query.cursor) {
-      conditions.push({
-        created_at: { lt: BigInt(Number(query.cursor)) },
-      });
+      conditions.push(lt(attachmentsTable.created_at, Number(query.cursor)));
     }
 
-    const rows = await db.attachments.findMany({
-      where: { AND: conditions },
-      orderBy: { created_at: "desc" },
-      take: cursorLimit(limit),
-    });
+    const rows = await db
+      .select()
+      .from(attachmentsTable)
+      .where(and(...conditions))
+      .orderBy(desc(attachmentsTable.created_at))
+      .limit(cursorLimit(limit));
 
     const data = rows.map(mapAttachmentRow);
 
@@ -996,14 +1112,18 @@ export class MessagesRepository {
    */
   async getActivity(days = 30) {
     const db = getDatabase();
-    const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
 
     // `EXTRACT(HOUR FROM to_timestamp(created_at / 1000))` resolved in the
     // database's timezone — see `localHour` for why UTC would be wrong here.
-    const rows = await db.messages.findMany({
-      where: { created_at: { gte: since } },
-      select: { channel_id: true, metadata: true, created_at: true },
-    });
+    const rows = await db
+      .select({
+        channel_id: messagesTable.channel_id,
+        metadata: messagesTable.metadata,
+        created_at: messagesTable.created_at,
+      })
+      .from(messagesTable)
+      .where(gte(messagesTable.created_at, since));
 
     const buckets = new Map<string, { channelName: string; hours: number[] }>();
     for (const r of rows) {
@@ -1062,46 +1182,45 @@ export class MessagesRepository {
     // skipped when no channel was requested, which is the common case.
     let channelMessageIds: string[] | null = null;
     if (channelId) {
-      const inChannel = await db.messages.findMany({
-        where: { channel_id: channelId },
-        select: { id: true },
-      });
+      const inChannel = await db
+        .select({ id: messagesTable.id })
+        .from(messagesTable)
+        .where(eq(messagesTable.channel_id, channelId));
       channelMessageIds = inChannel.map((m) => m.id);
       if (channelMessageIds.length === 0) {
         return { results: [], nextCursor: null };
       }
     }
 
-    const rows = await db.message_edits.findMany({
-      where: {
-        AND: [
-          at
-            ? {
-                OR: [
-                  { edited_at: { lt: BigInt(at.edited_at) } },
-                  {
-                    AND: [
-                      { edited_at: BigInt(at.edited_at) },
-                      { id: { lt: at.id } },
-                    ],
-                  },
-                ],
-              }
-            : {},
-          ...(channelMessageIds
-            ? [{ message_id: { in: channelMessageIds } }]
-            : []),
-        ].filter((c) => Object.keys(c).length > 0),
-      },
-      orderBy: [{ edited_at: "desc" }, { id: "desc" }],
-      take: cursorLimit(limit),
-      select: {
-        id: true,
-        message_id: true,
-        old_content: true,
-        edited_at: true,
-      },
-    });
+    // The cursor replays the (edited_at, id) lexicographic comparison: strictly
+    // older, OR same millisecond with a lower id.
+    const conditions: SQL[] = [];
+    if (at) {
+      conditions.push(
+        anyOf(
+          lt(messageEditsTable.edited_at, at.edited_at),
+          allOf(
+            eq(messageEditsTable.edited_at, at.edited_at),
+            lt(messageEditsTable.id, at.id),
+          ),
+        ),
+      );
+    }
+    if (channelMessageIds) {
+      conditions.push(inArray(messageEditsTable.message_id, channelMessageIds));
+    }
+
+    const rows = await db
+      .select({
+        id: messageEditsTable.id,
+        message_id: messageEditsTable.message_id,
+        old_content: messageEditsTable.old_content,
+        edited_at: messageEditsTable.edited_at,
+      })
+      .from(messageEditsTable)
+      .where(and(...conditions))
+      .orderBy(desc(messageEditsTable.edited_at), desc(messageEditsTable.id))
+      .limit(cursorLimit(limit));
 
     const messageIds = [...new Set(rows.map((r) => r.message_id))];
     const contextById = new Map<
@@ -1114,17 +1233,17 @@ export class MessagesRepository {
       }
     >();
     if (messageIds.length > 0) {
-      const msgs = await db.messages.findMany({
-        where: { id: { in: messageIds } },
-        select: {
-          id: true,
-          channel_id: true,
-          metadata: true,
-          username: true,
-          content: true,
-          edited_content: true,
-        },
-      });
+      const msgs = await db
+        .select({
+          id: messagesTable.id,
+          channel_id: messagesTable.channel_id,
+          metadata: messagesTable.metadata,
+          username: messagesTable.username,
+          content: messagesTable.content,
+          edited_content: messagesTable.edited_content,
+        })
+        .from(messagesTable)
+        .where(inArray(messagesTable.id, messageIds));
       for (const m of msgs) {
         // An INNER JOIN dropped edits whose message is gone; `contextById`
         // reproduces that by filtering below rather than emitting a null row.
@@ -1177,11 +1296,13 @@ export class MessagesRepository {
     Array<{ id: string; name: string; icon: string | null }>
   > {
     const db = getDatabase();
-    const rows = await db.messages.findMany({
-      distinct: ["guild_id"],
-      orderBy: { guild_id: "asc" },
-      select: { guild_id: true },
-    });
+    // `distinct: ["guild_id"]` becomes DISTINCT ON in SQL. The subquery keeps
+    // `orderBy` honest: DISTINCT ON requires the ORDER BY to lead with the
+    // distinct column, or Postgres rejects the query.
+    const rows = await db
+      .selectDistinct({ guild_id: messagesTable.guild_id })
+      .from(messagesTable)
+      .orderBy(asc(messagesTable.guild_id));
     return rows.map((row) => ({
       id: String(row.guild_id ?? ""),
       name: `Guild ${String(row.guild_id).slice(0, 8)}`,
@@ -1197,12 +1318,11 @@ export class MessagesRepository {
     guildId: string,
   ): Promise<Array<{ id: string; name: string; type: "text" }>> {
     const db = getDatabase();
-    const rows = await db.messages.findMany({
-      where: { guild_id: guildId },
-      distinct: ["channel_id"],
-      orderBy: { channel_id: "asc" },
-      select: { channel_id: true },
-    });
+    const rows = await db
+      .selectDistinct({ channel_id: messagesTable.channel_id })
+      .from(messagesTable)
+      .where(eq(messagesTable.guild_id, guildId))
+      .orderBy(asc(messagesTable.channel_id));
     return rows.map((row) => ({
       id: String(row.channel_id ?? ""),
       name: `Channel ${String(row.channel_id).slice(0, 8)}`,
