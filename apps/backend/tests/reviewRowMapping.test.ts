@@ -125,25 +125,36 @@ describe("mapMessageRow converts every BigInt column, none by cast", () => {
    * the endpoint looked clean. A test derived from the schema cannot have that
    * blind spot.
    */
-  // Three levels up from apps/backend/tests/ to the repo root. Verified by the
-  // "found the BigInt columns" assertion below rather than trusted blindly.
+  // The schema of record is now Drizzle's, so this guard reads
+  // `src/shared/database/schema.ts` instead of the deleted Prisma schema. The
+  // guard is unchanged in spirit: it must be DERIVED from the live schema,
+  // because a hand-maintained list only knows about the columns someone already
+  // got bitten by.
   const schema = readFileSync(
     fileURLToPath(
-      new URL("../../../packages/db/prisma/schema.prisma", import.meta.url),
+      new URL("../src/shared/database/schema.ts", import.meta.url),
     ),
     "utf8",
   );
 
-  /** BigInt column names declared inside one Prisma model block. */
-  function bigintColumnsIn(model: string): string[] {
+  /**
+   * BigInt column names declared for one table.
+   *
+   * Drizzle states the type as `pgBigint("name", …)` — note the lowercase `i`,
+   * matching the `bigint as pgBigint` import alias.
+   */
+  function bigintColumnsIn(table: string): string[] {
+    // Matches both call shapes present in the file: the name on its own line
+    // (`pgTable(\n  "messages",\n  {`) and inline (`pgTable("voice_x", {`).
     const body = schema.match(
-      new RegExp(`model ${model} \\{([\\s\\S]*?)\\n\\}`),
+      new RegExp(`pgTable\\(\\s*"${table}",([\\s\\S]*?)\\n\\s*\\)`),
     )?.[1];
-    expect(body, `model ${model} not found in schema.prisma`).toBeDefined();
+    expect(body, `table ${table} not found in schema.ts`).toBeDefined();
     return (body ?? "")
       .split("\n")
-      .filter((line) => /\bBigInt\b/.test(line))
-      .map((line) => line.trim().split(/\s+/)[0]);
+      .filter((line) => /\bpgBigint\(/.test(line))
+      .map((line) => line.match(/pgBigint\(\s*"([^"]+)"/)?.[1] ?? "")
+      .filter((name) => name.length > 0);
   }
 
   // Schema column -> the row key the mapper reads it as. `verdicts.updated_at`
