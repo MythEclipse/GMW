@@ -1,8 +1,8 @@
 import path from "node:path"
 import tailwindcss from "@tailwindcss/vite"
-import react from "@vitejs/plugin-react"
 import { tanstackRouter } from "@tanstack/router-plugin/vite"
-import { type PluginOption, defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import { defineConfig, type PluginOption } from "vite"
 
 /**
  * Vite build config for the GMW dashboard SPA.
