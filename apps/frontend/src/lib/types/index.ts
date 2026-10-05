@@ -438,8 +438,18 @@ export interface ChatbotTurn {
   user_id: string;
   user_message: string;
   bot_response: string;
-  context: string | null;
+  /**
+   * Epoch milliseconds, NOT an ISO string.
+   *
+   * `chatbot_messages.created_at` is a bigint column and the repository
+   * returns `Number(r.created_at)`. The hand-written `lib/types/rpc.ts` mirror
+   * declared this as a string and was reached through `as unknown as`, so the
+   * mismatch was invisible until P4 replaced the mirror with oRPC's real
+   * `RouterClient` type — which is the entire point of doing that.
+   */
   created_at: number;
+  /** JSONB `context` column, or null. */
+  context: Record<string, unknown> | null;
 }
 
 export interface ChatbotHistoryResult {

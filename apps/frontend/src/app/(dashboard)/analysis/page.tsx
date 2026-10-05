@@ -1,12 +1,21 @@
 "use client";
 
+import type { AppRouterClient, InferClientOutput } from "@api/api-types";
 import { useCallback } from "react";
 import { ErrorState, LoadingState } from "@/components/shared/states";
 import { useRouteSeed } from "@/hooks/use-route-seed";
 import { browserApi } from "@/lib/api/browser";
 import type { Message } from "@/lib/types";
-import type { AnalysisSearchResult } from "@/lib/types/rpc";
 import { AnalysisView } from "./view";
+
+/**
+ * The shape `analysis.search` actually returns, read off the backend's own
+ * output schema via `InferClientOutput` rather than restated by hand — which is
+ * what lets `lib/types/rpc.ts` go away.
+ */
+type AnalysisSearchResult = NonNullable<
+  InferClientOutput<AppRouterClient["analysis"]["search"]>
+>;
 
 /**
  * Client route for /analysis — was a server component.

@@ -1,21 +1,23 @@
 "use client";
 
+import type { AppRouterClient } from "@api/api-types";
 import { getBrowserClient } from "@/lib/orpc/client";
 import type { AppConfig } from "@/lib/types";
-import type { RpcClient } from "@/lib/types/rpc";
 
 /**
- * Browser-side data access over the `/trpc` WebSocket.
+ * Browser-side data access over `/trpc` (HTTP).
  *
- * Same procedure names as the server fetchers in `@/lib/api/server`, so a hook
- * can be re-pointed at either transport without the call site changing. The
- * page component seeds the cache with the SSR result and this client keeps it
+ * The client type is `AppRouterClient`, derived from the backend's own router
+ * via oRPC's `RouterClient`. It REPLACES a 170-line hand-written mirror of the
+ * router shape (`lib/types/rpc.ts`) that had to be kept in step by hand and was
+ * cast through `as unknown as` to boot — so a procedure added on the backend
+ * used to be invisible here until someone remembered to edit that file.
+ *
+ * The page component seeds the TanStack Query cache and this client keeps it
  * fresh; it does not re-request what it already has.
- *
- * Must only be imported from a client component — it constructs a WebSocket.
  */
-function client(): RpcClient {
-  return getBrowserClient() as unknown as RpcClient;
+function client(): AppRouterClient {
+  return getBrowserClient() as unknown as AppRouterClient;
 }
 
 export const browserApi = {
@@ -36,11 +38,11 @@ export const browserApi = {
     guilds: () => client().messages.guilds({}),
     textChannels: (guildId: string) =>
       client().messages.textChannels({ guildId }),
-    list: (query: Parameters<RpcClient["messages"]["list"]>[0]) =>
+    list: (query: Parameters<AppRouterClient["messages"]["list"]>[0]) =>
       client().messages.list(query),
     byChannel: (
       channelId: string,
-      query: Parameters<RpcClient["messages"]["byChannel"]>[0]["query"],
+      query: Parameters<AppRouterClient["messages"]["byChannel"]>[0]["query"],
     ) => client().messages.byChannel({ channelId, query }),
     detail: (id: string) => client().messages.detail({ id }),
     review: (input: { limit?: number; channelId?: string; cursor?: string }) =>
@@ -74,8 +76,18 @@ export const browserApi = {
       client().analysis.search(input),
   },
   chatbot: {
-    chat: (input: { message: string; context?: string; userId?: string }) =>
-      client().chatbot.chat(input),
+    chat: (input: {
+      message: string;
+      context?: {
+        messageCount?: number;
+        activeParticipants?: number;
+        lastActivity?: string;
+        topicsDiscussed?: string[];
+        guildId?: string;
+        channelId?: string;
+      };
+      userId?: string;
+    }) => client().chatbot.chat(input),
     history: (input: { limit?: number; userId?: string }) =>
       client().chatbot.history(input),
     clearHistory: (input: { userId?: string }) =>

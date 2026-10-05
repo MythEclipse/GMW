@@ -1,5 +1,6 @@
 "use client";
 
+import type { AppRouterClient, InferClientOutput } from "@api/api-types";
 import { useEffect, useState } from "react";
 import { MessageFeedCard } from "@/components/MessageFeedCard";
 import { Section } from "@/components/shared/section";
@@ -12,8 +13,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAnalysisSearch } from "@/hooks/use-data";
 import { useDebounced } from "@/hooks/use-debounced";
+import { isPipelineStatus, isVerdictStatus } from "@/lib/ai-status";
 import { formatRelative, truncate } from "@/lib/format";
-import type { AnalysisSearchResult } from "@/lib/types/rpc";
+
+/**
+ * The shape `analysis.search` actually returns, read off the backend's own
+ * output schema via `InferClientOutput` rather than restated by hand — which is
+ * what lets `lib/types/rpc.ts` go away.
+ */
+type AnalysisSearchResult = NonNullable<
+  InferClientOutput<AppRouterClient["analysis"]["search"]>
+>;
 
 export function AnalysisView({ guildId }: { guildId: string | null }) {
   const [input, setInput] = useState("");
@@ -103,7 +113,25 @@ export function AnalysisView({ guildId }: { guildId: string | null }) {
           >
             {results.map((message) => (
               <li key={message.id} className="px-3 py-2.5">
-                <MessageFeedCard message={message} />
+                <MessageFeedCard
+                  message={{
+                    ...message,
+                    // The API types these as plain strings; the card wants the
+                    // PipelineStatus / VerdictStatus unions. The guards in
+                    // @/lib/ai-status exist for exactly this narrowing.
+                    ai_status: isPipelineStatus(message.ai_status)
+                      ? message.ai_status
+                      : null,
+                    verdict_status: isVerdictStatus(message.verdict_status)
+                      ? message.verdict_status
+                      : null,
+                    // The API types this as `unknown` (jsonb). The card wants
+                    // string[]; anything else is not evidence it can render.
+                    verdict_evidence: Array.isArray(message.verdict_evidence)
+                      ? (message.verdict_evidence as string[])
+                      : null,
+                  }}
+                />
                 <p className="mt-1 pl-1 font-mono text-micro text-ink-faint">
                   {formatRelative(message.created_at)} · channel{" "}
                   {message.channel_id}

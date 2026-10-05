@@ -28,7 +28,17 @@ export interface ChatbotHistoryRow {
   user_message: string;
   bot_response: string;
   context: ChatbotContext | null;
-  created_at: string;
+  /**
+   * Epoch milliseconds, NOT an ISO string.
+   *
+   * `chatbot_messages.created_at` is a bigint column and the query below
+   * returns `Number(r.created_at)`. This said `string`, which nothing caught
+   * until P4 gave the frontend oRPC's real `RouterClient` type — the frontend's
+   * hand-written mirror claimed `number`, the backend claimed `string`, and the
+   * two met only through an `as unknown as` cast. Declared honestly so the two
+   * sides finally agree.
+   */
+  created_at: number;
 }
 
 export class ChatbotRepository {
