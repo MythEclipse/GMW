@@ -25,7 +25,7 @@
  * Run: bun test tests/
  */
 
-import pg from "pg"
+import type pg from "pg"
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest"
 import type {
 	LlmGateway,
@@ -33,9 +33,7 @@ import type {
 } from "../src/modules-gateway/ai-moderation/llmGateway.js"
 import { ModerationWorker } from "../src/modules-gateway/ai-moderation/worker.js"
 
-const DB_URL =
-	process.env.TEST_DATABASE_URL ??
-	"postgres://postgres:***@127.0.0.1:5433/gmw_mod"
+import { type IsolatedPool, tryCreateIsolatedPool } from "./isolated-pool.js"
 
 /** The bot-dedicated channel this feature exists for. */
 const SKIP_CHANNEL = "1308392257975488593"
@@ -45,6 +43,11 @@ const NORMAL_CHANNEL = "chan-normal"
 
 let pool: pg.Pool
 let reachable = false
+/**
+ * Drops this file's isolated schema. Null when the database was unreachable, in
+ * which case there is nothing to clean up.
+ */
+let isolation: IsolatedPool | null = null
 
 async function seed(
 	rows: { id: string; channel: string; user?: string; thread?: string }[],
@@ -117,17 +120,19 @@ const TEST_WORKER_CONFIG = {
 } as const
 
 beforeAll(async () => {
-	pool = new pg.Pool({ connectionString: DB_URL, max: 2 })
-	try {
-		await pool.query("SELECT 1")
-		reachable = true
-	} catch {
+	// Own schema, so this file's TRUNCATEs cannot reach another file's rows.
+	// See ./isolated-pool.ts for why the suite is serialised without this.
+	isolation = await tryCreateIsolatedPool("skipped_channel", { max: 2 })
+	if (!isolation) {
 		reachable = false
+		return
 	}
+	pool = isolation.pool
+	reachable = true
 })
 
 afterAll(async () => {
-	await pool?.end()
+	await isolation?.cleanup()
 })
 
 describe("a skipped channel is never analysed", () => {
