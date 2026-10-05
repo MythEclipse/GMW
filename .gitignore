@@ -3,7 +3,6 @@ node_modules
 .env
 apps/backend/dist/
 apps/frontend/dist/
-packages/db/prisma/generated/
 public/app/
 .muxer-queue.**
 .claude/

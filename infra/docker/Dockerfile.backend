@@ -11,10 +11,16 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source + manifests
-# The backend imports @gmw/db from packages/db, so the whole workspace has to
-# be copied — copying just this app leaves the workspace link dangling.
+# The root package.json and pnpm-workspace.yaml are still needed: pnpm resolves
+# the workspace before it can install this app's dependencies.
+#
+# `packages/` is deliberately NOT copied. It held `packages/db`, which existed
+# only to vendor the Prisma client and was unreferenced after the ORM moved to
+# Drizzle. The comment claiming "the backend imports @gmw/db from packages/db"
+# was left over from that era and was untrue; the COPY would fail outright once
+# the directory was deleted.
 COPY package.json ./
-COPY packages/ ./packages/
+COPY pnpm-workspace.yaml ./
 COPY apps/backend/ ./apps/backend/
 
 WORKDIR /build/apps/backend
