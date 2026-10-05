@@ -2,11 +2,7 @@ import "dotenv/config";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { migrate as migratePostgres } from "drizzle-orm/node-postgres/migrator";
 import { createChildLogger } from "@/shared/logger/index";
-import {
-  closeDrizzleDatabase,
-  initializeDatabase,
-  withDatabaseClient,
-} from "./drizzle.js";
+import { initializeDatabase, withDatabaseClient } from "./drizzle.js";
 import * as schema from "./schema.js";
 
 const logger = createChildLogger("migrate");
@@ -41,63 +37,74 @@ const MIGRATION_LOCK_KEY_2 = 531;
  *
  * Consequence to be aware of: an existing deployment MUST be rebuilt rather
  * than migrated onto. `scripts/reset-data.sh` is the supported path.
+ *
+ * IMPORTANT — this leaves the pool OPEN.
+ *
+ *   It used to close the pool in a `finally`, on the assumption that migration
+ *   was a standalone CLI concern. That assumption stopped being true when
+ *   Discord capture and the moderation worker moved into this same process:
+ *   both run after migrations, both use this pool, and `closeDatabase()` nulls
+ *   the module singleton as well as ending the pool. So every later `getPool()`
+ *   threw "Database not initialized. Call initializeDatabase() first." —
+ *   production lost message capture, the moderation worker, the verdict notifier
+ *   and the auto-delete enforcer, while the dashboard stayed green because it
+ *   reads through Prisma. Captured in prod logs at deploy a6105760.
+ *
+ *   Lifecycle is now the caller's: whoever opens the pool closes it, which is
+ *   what shutdown() in index.ts already does via closeDrizzleDatabase().
  */
 export async function runMigrations(): Promise<void> {
   try {
     logger.info("Starting PostgreSQL migrations");
     await initializeDatabase();
 
-    try {
-      await withDatabaseClient(async (client) => {
-        const db = drizzlePostgres(client, { schema });
+    await withDatabaseClient(async (client) => {
+      const db = drizzlePostgres(client, { schema });
 
-        await client.query("SELECT pg_advisory_lock($1, $2)", [
+      await client.query("SELECT pg_advisory_lock($1, $2)", [
+        MIGRATION_LOCK_KEY_1,
+        MIGRATION_LOCK_KEY_2,
+      ]);
+
+      try {
+        // Monkey-patch client.query to intercept and ignore Drizzle's
+        // hardcoded schema creation, which fails in PG15+ restricted public schemas.
+        const originalQuery = client.query;
+        client.query = (async (...args: any[]) => {
+          const queryText = args[0];
+          const text =
+            typeof queryText === "string" ? queryText : queryText?.text;
+          if (
+            text &&
+            typeof text === "string" &&
+            text.includes('CREATE SCHEMA IF NOT EXISTS "public"')
+          ) {
+            return {
+              rows: [],
+              command: "CREATE",
+              rowCount: 0,
+              oid: 0,
+              fields: [],
+            };
+          }
+          return Function.prototype.apply.call(originalQuery, client, args);
+        }) as typeof client.query;
+
+        try {
+          await migratePostgres(db, {
+            migrationsFolder: "./drizzle/migrations",
+            migrationsSchema: "public",
+          });
+        } finally {
+          client.query = originalQuery;
+        }
+      } finally {
+        await client.query("SELECT pg_advisory_unlock($1, $2)", [
           MIGRATION_LOCK_KEY_1,
           MIGRATION_LOCK_KEY_2,
         ]);
-
-        try {
-          // Monkey-patch client.query to intercept and ignore Drizzle's
-          // hardcoded schema creation, which fails in PG15+ restricted public schemas.
-          const originalQuery = client.query;
-          client.query = (async (...args: any[]) => {
-            const queryText = args[0];
-            const text =
-              typeof queryText === "string" ? queryText : queryText?.text;
-            if (
-              text &&
-              typeof text === "string" &&
-              text.includes('CREATE SCHEMA IF NOT EXISTS "public"')
-            ) {
-              return {
-                rows: [],
-                command: "CREATE",
-                rowCount: 0,
-                oid: 0,
-                fields: [],
-              };
-            }
-            return Function.prototype.apply.call(originalQuery, client, args);
-          }) as typeof client.query;
-
-          try {
-            await migratePostgres(db, {
-              migrationsFolder: "./drizzle/migrations",
-              migrationsSchema: "public",
-            });
-          } finally {
-            client.query = originalQuery;
-          }
-        } finally {
-          await client.query("SELECT pg_advisory_unlock($1, $2)", [
-            MIGRATION_LOCK_KEY_1,
-            MIGRATION_LOCK_KEY_2,
-          ]);
-        }
-      });
-    } finally {
-      await closeDrizzleDatabase();
-    }
+      }
+    });
 
     logger.info("PostgreSQL migrations completed successfully");
   } catch (error) {
