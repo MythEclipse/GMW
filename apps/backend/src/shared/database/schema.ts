@@ -323,6 +323,77 @@ export const voiceAutoReconnectTable = pgVoiceAutoReconnectTable;
 // =============================================================================
 
 /**
+ * Verdicts Table (PostgreSQL)
+ *
+ * The model's judgement per message, keyed by message_id (so it is a to-one
+ * relation from `messages`, and "no verdict" is a LEFT JOIN miss). Added to the
+ * Drizzle schema in P1c — already live and already read through Prisma, but the
+ * write path never needed a Drizzle definition of it.
+ */
+export const pgVerdictsTable = pgTable(
+  "verdicts",
+  {
+    message_id: pgText("message_id").primaryKey(),
+    status: pgText("status").notNull(),
+    flags: pgText("flags").array().notNull(),
+    categories: pgText("categories").array().notNull(),
+    confidence: pgReal("confidence").notNull(),
+    score: pgReal("score"),
+    analysis: pgText("analysis").notNull(),
+    evidence: pgJsonb("evidence").notNull(),
+    policy_version: pgText("policy_version"),
+    model: pgText("model"),
+    duration_ms: pgInteger("duration_ms"),
+    created_at: pgBigint("created_at", { mode: "number" }).notNull(),
+    updated_at: pgBigint("updated_at", { mode: "number" }).notNull(),
+    auto_delete_state: pgText("auto_delete_state"),
+    auto_delete_claimed_at: pgBigint("auto_delete_claimed_at", {
+      mode: "number",
+    }),
+    reason: pgText("reason"),
+    action: pgText("action"),
+  },
+  (table) => ({
+    statusIdx: pgIndex("idx_verdicts_status").on(table.status),
+  }),
+);
+
+export const verdictsTable = pgVerdictsTable;
+
+/**
+ * Analysis Attempts Table (PostgreSQL)
+ *
+ * Append-only record of every model call the worker makes, successful or not.
+ * The moderation "coverage" panel reads this: it is the honest denominator for
+ * attempt success rate. Added to the Drizzle schema in P1c — the table was
+ * already live and already queried (through Prisma) but had no Drizzle
+ * definition, because nothing on the write path needed one.
+ */
+export const pgAnalysisAttemptsTable = pgTable(
+  "analysis_attempts",
+  {
+    id: pgBigint("id", { mode: "number" }).primaryKey(),
+    message_id: pgText("message_id"),
+    worker_id: pgText("worker_id"),
+    attempt: pgInteger("attempt"),
+    outcome: pgText("outcome"),
+    error_code: pgText("error_code"),
+    error_message: pgText("error_message"),
+    duration_ms: pgInteger("duration_ms"),
+    model: pgText("model"),
+    prompt_tokens: pgInteger("prompt_tokens"),
+    created_at: pgBigint("created_at", { mode: "number" }),
+  },
+  (table) => ({
+    createdAtIdx: pgIndex("idx_analysis_attempts_created_at").on(
+      table.created_at,
+    ),
+  }),
+);
+
+export const analysisAttemptsTable = pgAnalysisAttemptsTable;
+
+/**
  * AI Analysis Runs Table (PostgreSQL)
  * Tracks AI analysis batch runs for conversation-level moderation
  */

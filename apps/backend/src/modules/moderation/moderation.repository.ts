@@ -1,4 +1,24 @@
-import { getDatabase } from "../../shared/database/index.js";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  lt,
+  ne,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
+import { getDatabase } from "../../shared/database/drizzle.js";
+import {
+  analysisAttemptsTable,
+  messagesTable,
+  moderationActionsTable,
+  verdictsTable,
+} from "../../shared/database/schema.js";
 import { readChannelName } from "../../shared/utils/channelName.js";
 import { localHour } from "../../shared/utils/localTime.js";
 
@@ -93,16 +113,23 @@ export class ModerationRepository {
     // Messages with no verdict at all are the `unjudged` bucket. Prisma's
     // groupBy cannot coalesce a NULL from a left join, so those rows are
     // counted separately rather than as part of the grouped verdict statuses.
-    const [byVerdictStatus, unjudged] = await Promise.all([
-      db.verdicts.groupBy({
-        by: ["status"],
-        _count: { _all: true },
-      }),
-      db.messages.count({
-        // `verdicts` is a to-one relation (verdicts.message_id is the primary
-        // key), so "no verdict" is `is: null`, not the to-many `none: {}`.
-        where: { verdicts: { is: null } },
-      }),
+    const [byVerdictStatus, unjudgedRows] = await Promise.all([
+      // `groupBy` is a plain aggregate in Drizzle: select the grouping column
+      // alongside `count(*)`. Prisma's `{_count: {_all: true}}` shape has no
+      // equivalent, so the row count comes straight from SQL COUNT.
+      db
+        .select({ status: verdictsTable.status, n: count() })
+        .from(verdictsTable)
+        .groupBy(verdictsTable.status),
+      // `verdicts.message_id` is the primary key, so "no verdict" is exactly a
+      // LEFT JOIN miss. `NOT EXISTS` says that in one pass; Prisma spelled it
+      // `{verdicts: {is: null}}`.
+      db
+        .select({ n: count() })
+        .from(messagesTable)
+        .where(
+          sql`NOT EXISTS (SELECT 1 FROM ${verdictsTable} v WHERE v.message_id = ${messagesTable.id})`,
+        ),
     ]);
 
     let executed = 0; // verdicts that call for action
@@ -113,18 +140,19 @@ export class ModerationRepository {
 
     for (const r of byVerdictStatus) {
       const status = String(r.status ?? "unjudged");
-      const count = r._count._all;
-      byStatus[status] = (byStatus[status] ?? 0) + count;
+      const n = r.n;
+      byStatus[status] = (byStatus[status] ?? 0) + n;
 
       if (status === "error") {
-        failed += count;
+        failed += n;
       } else if (status === "unjudged") {
-        pending += count;
+        pending += n;
       } else {
-        executed += count;
+        executed += n;
       }
     }
 
+    const unjudged = unjudgedRows[0]?.n ?? 0;
     if (unjudged > 0) {
       byStatus.unjudged = (byStatus.unjudged ?? 0) + unjudged;
       pending += unjudged;
@@ -149,15 +177,18 @@ export class ModerationRepository {
    */
   async getQueueStats() {
     const db = getDatabase();
-    const groups = await db.messages.groupBy({
-      by: ["ai_status"],
-      where: {
-        OR: [{ ai_status: { not: "analyzed" } }, { deleted_at: { not: null } }],
-      },
-      _count: { _all: true },
-    });
+    const groups = await db
+      .select({ ai_status: messagesTable.ai_status, n: count() })
+      .from(messagesTable)
+      .where(
+        or(
+          ne(messagesTable.ai_status, "analyzed"),
+          isNotNull(messagesTable.deleted_at),
+        ),
+      )
+      .groupBy(messagesTable.ai_status);
     const byStatus: Record<string, number> = {};
-    for (const r of groups) byStatus[String(r.ai_status)] = r._count._all;
+    for (const r of groups) byStatus[String(r.ai_status)] = r.n;
     return {
       by_status: byStatus,
       pending: byStatus.pending ?? 0,
@@ -178,58 +209,53 @@ export class ModerationRepository {
     // The where-clause is built with the query builder rather than by
     // concatenating into SQL text. The two enum-ish filters are still checked
     // against their allow-lists first, so an unknown value is ignored rather
-    // than forwarded — but even if that guard were removed, the values would
-    // arrive as bound parameters instead of being spliced into the statement.
-    const where: Record<string, unknown> = {};
+    // than forwarded — and Drizzle binds every value as a parameter, so nothing
+    // is spliced into the statement either way.
+    const conditions: SQL[] = [];
 
     if (
       query.status &&
       (STATUSES as readonly string[]).includes(query.status)
     ) {
-      where.status = query.status;
+      // `status` is declared as a pg enum in the schema, so Drizzle narrows the
+      // accepted values to the union. The allow-list check above already proved
+      // this is one of them; the cast just re-states that to the type system.
+      conditions.push(
+        eq(
+          moderationActionsTable.status,
+          query.status as (typeof STATUSES)[number],
+        ),
+      );
     }
     if (
       query.actionType &&
       (ACTION_TYPES as readonly string[]).includes(query.actionType)
     ) {
-      where.action_type = query.actionType;
+      conditions.push(
+        eq(
+          moderationActionsTable.action_type,
+          query.actionType as (typeof ACTION_TYPES)[number],
+        ),
+      );
     }
     if (query.cursor) {
-      // `created_at` is a BigInt holding epoch milliseconds, not a timestamp.
-      where.created_at = { lt: BigInt(Number(query.cursor)) };
+      // `created_at` is epoch milliseconds held as a number, not a timestamp.
+      conditions.push(
+        lt(moderationActionsTable.created_at, Number(query.cursor)),
+      );
     }
 
     // `limit + 1` rows are fetched so the extra row, if present, is the
     // existence proof for `nextCursor` without a second COUNT query.
-    const rows = await db.moderation_actions.findMany({
-      where,
-      orderBy: { created_at: "desc" },
-      take: limit + 1,
-      select: {
-        id: true,
-        message_id: true,
-        user_id: true,
-        guild_id: true,
-        action_type: true,
-        reason: true,
-        executed_by: true,
-        status: true,
-        error: true,
-        created_at: true,
-        executed_at: true,
-        flags: true,
-        categories: true,
-        confidence: true,
-        score: true,
-        evidence: true,
-        policy_version: true,
-        username: true,
-        server_nick: true,
-      },
-    });
+    const rows = await db
+      .select()
+      .from(moderationActionsTable)
+      .where(and(...conditions))
+      .orderBy(desc(moderationActionsTable.created_at))
+      .limit(limit + 1);
 
-    // `moderation_actions.message_id` has no foreign key and therefore no
-    // Prisma relation, so the previous LEFT JOIN to `messages` is reproduced
+    // `moderation_actions.message_id` has no foreign key, so there is no
+    // relation to traverse; the previous LEFT JOIN to `messages` is reproduced
     // as an explicit keyed lookup. Only the ids on this page are fetched, which
     // bounds the second query to at most `limit + 1` keys.
     const messageIds = [
@@ -239,10 +265,10 @@ export class ModerationRepository {
     ];
     const contents = new Map<string, string>();
     if (messageIds.length > 0) {
-      const msgs = await db.messages.findMany({
-        where: { id: { in: messageIds } },
-        select: { id: true, content: true },
-      });
+      const msgs = await db
+        .select({ id: messagesTable.id, content: messagesTable.content })
+        .from(messagesTable)
+        .where(inArray(messagesTable.id, messageIds));
       for (const m of msgs) contents.set(m.id, m.content);
     }
 
@@ -317,13 +343,15 @@ export class ModerationRepository {
     // column holds two storage shapes (see normalizeCategories), and the
     // cross-shape dedup plus "top 15" ordering is cheaper to express here
     // than to emulate through the query builder.
-    const catRows = await db.moderation_actions.findMany({
-      where: {
-        created_at: { gte: BigInt(since) },
-        categories: { not: "" },
-      },
-      select: { categories: true },
-    });
+    const catRows = await db
+      .select({ categories: moderationActionsTable.categories })
+      .from(moderationActionsTable)
+      .where(
+        and(
+          gte(moderationActionsTable.created_at, since),
+          ne(moderationActionsTable.categories, ""),
+        ),
+      );
 
     // A `not: null` test cannot be expressed on an optional scalar in the
     // typed filter, so NULL rows are dropped after the fetch — `normalizeCategories`
@@ -348,23 +376,25 @@ export class ModerationRepository {
     // the action represents. Count breaks ties within a decision.
     // `action_type` is declared NOT NULL in the schema, so the old
     // `action_type IS NOT NULL` guard has no counterpart here and is dropped.
-    const decGroups = await db.moderation_actions.groupBy({
-      by: ["action_type"],
-      where: { created_at: { gte: BigInt(since) } },
-      _count: true,
-    });
+    // Both `decisions` and `actions` below read the SAME grouped rows. Prisma
+    // ran the identical `groupBy` twice; there is no reason to pay for the
+    // round trip twice, and one result set feeds both rankings.
+    const actGroups = await db
+      .select({ action_type: moderationActionsTable.action_type, n: count() })
+      .from(moderationActionsTable)
+      .where(gte(moderationActionsTable.created_at, since))
+      .groupBy(moderationActionsTable.action_type);
 
     // Ranked by the DECISION, because a bare `GROUP BY action_type` returns rows in
     // an arbitrary order that is not a ranking. `action_type` is a text enum, so
-    // it needs the explicit CASE — `orderBy` on it directly would sort lexically
+    // it needs the explicit CASE — ordering on it directly would sort lexically
     // ("reset_nickname" > "delete_message"), which is not the order of force
-    // the action represents. Count breaks ties within a decision. Prisma's
-    // `orderBy` has no expression form, so the CASE is applied here.
+    // the action represents. Count breaks ties within a decision.
     const decisionRank = (t: string) =>
       t === "delete_message" ? 1 : t === "reset_nickname" ? 0 : -1;
 
-    const decisions = decGroups
-      .map((g) => ({ level: String(g.action_type), count: g._count as number }))
+    const decisions = actGroups
+      .map((g) => ({ level: String(g.action_type), count: g.n }))
       .sort(
         (a, b) =>
           decisionRank(b.level) - decisionRank(a.level) ||
@@ -372,14 +402,8 @@ export class ModerationRepository {
           a.level.localeCompare(b.level),
       );
 
-    const actGroups = await db.moderation_actions.groupBy({
-      by: ["action_type"],
-      where: { created_at: { gte: BigInt(since) } },
-      _count: true,
-    });
-
     const actions = actGroups
-      .map((g) => ({ type: String(g.action_type), count: g._count as number }))
+      .map((g) => ({ type: String(g.action_type), count: g.n }))
       .sort((a, b) => b.count - a.count || a.type.localeCompare(b.type));
 
     return {
@@ -402,24 +426,31 @@ export class ModerationRepository {
    */
   async getTopFlaggedDomains(days: number) {
     const db = getDatabase();
-    const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
 
-    const actions = await db.moderation_actions.findMany({
-      where: {
-        created_at: { gte: since },
-        OR: [
-          { reason: { not: null } },
-          { evidence: { not: null } },
-          { message_id: { not: null } },
-        ],
-      },
-      select: { id: true, message_id: true, reason: true, evidence: true },
-    });
+    const actions = await db
+      .select({
+        id: moderationActionsTable.id,
+        message_id: moderationActionsTable.message_id,
+        reason: moderationActionsTable.reason,
+        evidence: moderationActionsTable.evidence,
+      })
+      .from(moderationActionsTable)
+      .where(
+        and(
+          gte(moderationActionsTable.created_at, since),
+          or(
+            isNotNull(moderationActionsTable.reason),
+            isNotNull(moderationActionsTable.evidence),
+            isNotNull(moderationActionsTable.message_id),
+          ),
+        ),
+      );
 
     // The previous query joined to `messages` and read `m.content`. That
-    // content is now fetched per batch of message ids rather than joined,
-    // because `moderation_actions.message_id` has no foreign key and so no
-    // Prisma relation to traverse.
+    // content is fetched per batch of message ids rather than joined, because
+    // `moderation_actions.message_id` has no foreign key and so no relation to
+    // traverse.
     const messageIds = [
       ...new Set(
         actions.map((a) => a.message_id).filter((id): id is string => !!id),
@@ -427,10 +458,10 @@ export class ModerationRepository {
     ];
     const contents = new Map<string, string>();
     if (messageIds.length > 0) {
-      const msgs = await db.messages.findMany({
-        where: { id: { in: messageIds } },
-        select: { id: true, content: true },
-      });
+      const msgs = await db
+        .select({ id: messagesTable.id, content: messagesTable.content })
+        .from(messagesTable)
+        .where(inArray(messagesTable.id, messageIds));
       for (const m of msgs) contents.set(m.id, m.content);
     }
 
@@ -465,12 +496,17 @@ export class ModerationRepository {
    */
   async getTopFlaggedChannels(days: number) {
     const db = getDatabase();
-    const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
 
-    const actions = await db.moderation_actions.findMany({
-      where: { created_at: { gte: since }, message_id: { not: null } },
-      select: { message_id: true },
-    });
+    const actions = await db
+      .select({ message_id: moderationActionsTable.message_id })
+      .from(moderationActionsTable)
+      .where(
+        and(
+          gte(moderationActionsTable.created_at, since),
+          isNotNull(moderationActionsTable.message_id),
+        ),
+      );
 
     const messageIds = [
       ...new Set(
@@ -489,10 +525,19 @@ export class ModerationRepository {
     // equivalent for.
     const channelOfMessage = new Map<string, { id: string; name?: string }>();
     if (messageIds.length > 0) {
-      const msgs = await db.messages.findMany({
-        where: { id: { in: messageIds }, channel_id: { not: "" } },
-        select: { id: true, channel_id: true, metadata: true },
-      });
+      const msgs = await db
+        .select({
+          id: messagesTable.id,
+          channel_id: messagesTable.channel_id,
+          metadata: messagesTable.metadata,
+        })
+        .from(messagesTable)
+        .where(
+          and(
+            inArray(messagesTable.id, messageIds),
+            ne(messagesTable.channel_id, ""),
+          ),
+        );
       for (const m of msgs) {
         channelOfMessage.set(m.id, {
           id: m.channel_id as string,
@@ -538,15 +583,15 @@ export class ModerationRepository {
    */
   async getHourlyModeration(days: number) {
     const db = getDatabase();
-    const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
 
-    // `created_at` is epoch milliseconds in a BigInt. The hour-of-day is derived
-    // via `localHour`, which resolves in the database's timezone — see that
-    // helper for why UTC would be wrong here.
-    const rows = await db.moderation_actions.findMany({
-      where: { created_at: { gte: since } },
-      select: { created_at: true },
-    });
+    // `created_at` is epoch milliseconds. The hour-of-day is derived via
+    // `localHour`, which resolves in the database's timezone — see that helper
+    // for why UTC would be wrong here.
+    const rows = await db
+      .select({ created_at: moderationActionsTable.created_at })
+      .from(moderationActionsTable)
+      .where(gte(moderationActionsTable.created_at, since));
 
     const byHour = new Map<number, number>();
     for (const r of rows) {
@@ -572,27 +617,13 @@ export class ModerationRepository {
    */
   async getByCategory(days: number, category: string, limit = 50) {
     const db = getDatabase();
-    const since = BigInt(Date.now() - days * 24 * 60 * 60 * 1000);
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
 
-    const candidates = await db.moderation_actions.findMany({
-      where: { created_at: { gte: since } },
-      orderBy: { created_at: "desc" },
-      select: {
-        id: true,
-        message_id: true,
-        user_id: true,
-        guild_id: true,
-        action_type: true,
-        reason: true,
-        status: true,
-        created_at: true,
-        confidence: true,
-        score: true,
-        username: true,
-        server_nick: true,
-        categories: true,
-      },
-    });
+    const candidates = await db
+      .select()
+      .from(moderationActionsTable)
+      .where(gte(moderationActionsTable.created_at, since))
+      .orderBy(desc(moderationActionsTable.created_at));
 
     // The containment test (`normalizer(...) @> ARRAY[category]`) becomes a
     // membership check against the normalized list, which matches rows in
@@ -609,10 +640,10 @@ export class ModerationRepository {
     ];
     const contents = new Map<string, string>();
     if (messageIds.length > 0) {
-      const msgs = await db.messages.findMany({
-        where: { id: { in: messageIds } },
-        select: { id: true, content: true },
-      });
+      const msgs = await db
+        .select({ id: messagesTable.id, content: messagesTable.content })
+        .from(messagesTable)
+        .where(inArray(messagesTable.id, messageIds));
       for (const m of msgs) contents.set(m.id, m.content);
     }
 
@@ -652,27 +683,33 @@ export class ModerationRepository {
     const db = getDatabase();
     const since = Date.now() - days * 24 * 60 * 60 * 1000;
 
-    const [attempts, pendingCount] = await Promise.all([
-      db.analysis_attempts.groupBy({
-        by: ["outcome"],
-        where: { created_at: { gte: since } },
-        _count: true,
-      }),
+    const [attempts, pendingRows] = await Promise.all([
+      db
+        .select({ outcome: analysisAttemptsTable.outcome, n: count() })
+        .from(analysisAttemptsTable)
+        .where(gte(analysisAttemptsTable.created_at, since))
+        .groupBy(analysisAttemptsTable.outcome),
       // Work still owed: claimed by a worker, or waiting out a retry backoff.
-      db.messages.count({
-        where: {
-          ai_status: { in: ["pending", "claimed", "retry_wait"] },
-          created_at: { gte: BigInt(since) },
-        },
-      }),
+      db
+        .select({ n: count() })
+        .from(messagesTable)
+        .where(
+          and(
+            inArray(messagesTable.ai_status, [
+              "pending",
+              "claimed",
+              "retry_wait",
+            ]),
+            gte(messagesTable.created_at, since),
+          ),
+        ),
     ]);
 
     const counts: Record<string, number> = {};
     let total = 0;
     for (const r of attempts) {
-      const c = r._count as number;
-      counts[String(r.outcome)] = c;
-      total += c;
+      counts[String(r.outcome)] = r.n;
+      total += r.n;
     }
     // "Failed" is anything the worker could not turn into a verdict. `duplicate`
     // is not a failure — the model answered fine, we just discarded a stale
@@ -682,7 +719,7 @@ export class ModerationRepository {
       (counts.llm_error ?? 0) +
       (counts.parse_error ?? 0) +
       (counts.abandoned ?? 0);
-    const pending = pendingCount;
+    const pending = pendingRows[0]?.n ?? 0;
     return {
       total,
       completed,
