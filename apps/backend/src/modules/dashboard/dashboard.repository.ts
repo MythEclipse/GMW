@@ -1,5 +1,23 @@
-import type { Prisma } from "@gmw/db/prisma/generated/client";
-import { getDatabase } from "../../shared/database/index.js";
+import {
+  and,
+  count,
+  countDistinct,
+  desc,
+  eq,
+  gte,
+  inArray,
+  type SQL,
+  sql,
+} from "drizzle-orm";
+import { getDatabase } from "../../shared/database/drizzle.js";
+import {
+  channelCulturesTable,
+  messagesTable,
+  reactionsTable,
+  userProfilesTable,
+  verdictsTable,
+  voiceRecordingsTable,
+} from "../../shared/database/schema.js";
 import {
   rawChannelName,
   readChannelName,
@@ -8,36 +26,73 @@ import { localDay, localHour } from "../../shared/utils/localTime.js";
 import type { ListUsersQuery } from "./dashboard.service.js";
 
 /**
- * Columns every per-message aggregate in this file needs. Prisma returns the
- * joined verdict nested rather than as flat `v.*` columns, so `flagged`/`clean`
- * are derived from `verdicts.status` below.
+ * Columns every per-message aggregate in this file needs.
+ *
+ * The verdict column is ALIASED to `verdict_status`, so the LEFT JOIN below
+ * produces the flat shape directly rather than a nested object each caller would
+ * have to unwrap. `flagged`/`clean` are derived from it below.
+ *
+ * LEFT JOIN, not INNER: most messages have no verdict, and an inner join would
+ * silently drop every unanalysed message from every panel on this page.
  */
 const messageWithVerdict = {
-  id: true,
-  user_id: true,
-  username: true,
-  avatar_url: true,
-  channel_id: true,
-  guild_id: true,
-  metadata: true,
-  created_at: true,
-  verdicts: { select: { status: true } },
-} satisfies Prisma.messagesSelect;
+  id: messagesTable.id,
+  user_id: messagesTable.user_id,
+  username: messagesTable.username,
+  avatar_url: messagesTable.avatar_url,
+  channel_id: messagesTable.channel_id,
+  guild_id: messagesTable.guild_id,
+  metadata: messagesTable.metadata,
+  created_at: messagesTable.created_at,
+  verdict_status: verdictsTable.status,
+} as const;
 
-type MessageWithVerdict = Prisma.messagesGetPayload<{
-  select: typeof messageWithVerdict;
-}>;
+type MessageWithVerdict = {
+  id: string;
+  user_id: string;
+  username: string;
+  avatar_url: string | null;
+  channel_id: string;
+  guild_id: string;
+  metadata: string | null;
+  created_at: number;
+  verdict_status: string | null;
+};
+
+/**
+ * The shared "every message, with its verdict" query.
+ *
+ * This is the manual join the plan flagged: Prisma could not express the
+ * `FILTER`-style aggregate these panels need, so the file already aggregated in
+ * JS over a flat row set. That structure is unchanged — only the row source
+ * moved from a nested Prisma relation to an aliased LEFT JOIN.
+ */
+function messagesWithVerdict<T extends SQL | undefined>(
+  db: ReturnType<typeof getDatabase>,
+  where?: T,
+) {
+  const query = db
+    .select(messageWithVerdict)
+    .from(messagesTable)
+    .leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id));
+  const scoped = where === undefined ? query : query.where(where);
+  // Ordered explicitly. Every aggregate below groups in JS and then sorts by
+  // its own key, but groups with EQUAL counts keep insertion order — which is
+  // this row order. Leaving it to Postgres made the panel's tie order depend on
+  // the query plan, which is how Prisma and Drizzle came to disagree.
+  return scoped.orderBy(desc(messagesTable.created_at));
+}
 
 /** Whether a row's verdict marks it actionable. */
 function isFlagged(r: MessageWithVerdict): boolean {
-  return r.verdicts?.status === "deleted";
+  return r.verdict_status === "deleted";
 }
 
 export class DashboardRepository {
   async getStats() {
     const db = getDatabase();
 
-    const oneDayAgoBigInt = BigInt(Date.now() - 86400000);
+    const oneDayAgo = Date.now() - 86400000;
 
     // Total messages, with the moderation OUTCOME broken out from the joined
     // `verdicts` table and the PIPELINE position from messages.ai_status.
@@ -69,34 +124,48 @@ export class DashboardRepository {
       recentFlagged,
       recentUsers,
     ] = await Promise.all([
-      db.verdicts.groupBy({ by: ["status"], _count: true }),
-      db.messages.groupBy({ by: ["ai_status"], _count: true }),
-      db.messages.count(),
-      db.messages.findMany({
-        distinct: ["user_id"],
-        select: { user_id: true },
-      }),
-      db.messages.count({ where: { created_at: { gte: oneDayAgoBigInt } } }),
-      db.verdicts.count({
-        where: {
-          status: "deleted",
-          messages: { created_at: { gte: oneDayAgoBigInt } },
-        },
-      }),
-      db.messages.findMany({
-        where: { created_at: { gte: oneDayAgoBigInt } },
-        distinct: ["user_id"],
-        select: { user_id: true },
-      }),
+      db
+        .select({ status: verdictsTable.status, n: count() })
+        .from(verdictsTable)
+        .groupBy(verdictsTable.status),
+      db
+        .select({ ai_status: messagesTable.ai_status, n: count() })
+        .from(messagesTable)
+        .groupBy(messagesTable.ai_status),
+      db.select({ n: count() }).from(messagesTable),
+      // `distinct: ["user_id"]` becomes COUNT(DISTINCT …): the same number,
+      // one row instead of N.
+      db
+        .select({ n: countDistinct(messagesTable.user_id) })
+        .from(messagesTable),
+      db
+        .select({ n: count() })
+        .from(messagesTable)
+        .where(gte(messagesTable.created_at, oneDayAgo)),
+      // The nested `messages: {created_at: …}` filter becomes an EXISTS, so a
+      // deleted verdict is counted once no matter how the join is written.
+      db
+        .select({ n: count() })
+        .from(verdictsTable)
+        .where(
+          and(
+            eq(verdictsTable.status, "deleted"),
+            sql`EXISTS (SELECT 1 FROM ${messagesTable} m WHERE m.id = ${verdictsTable.message_id} AND m.created_at >= ${oneDayAgo})`,
+          ),
+        ),
+      db
+        .select({ n: countDistinct(messagesTable.user_id) })
+        .from(messagesTable)
+        .where(gte(messagesTable.created_at, oneDayAgo)),
     ]);
 
     const byVerdictStatus: Record<string, number> = {};
     for (const g of verdictGroups) {
-      byVerdictStatus[String(g.status)] = (g._count as number) ?? 0;
+      byVerdictStatus[String(g.status)] = g.n ?? 0;
     }
     const byPipeline: Record<string, number> = {};
     for (const g of pipelineGroups) {
-      byPipeline[String(g.ai_status)] = (g._count as number) ?? 0;
+      byPipeline[String(g.ai_status)] = g.n ?? 0;
     }
 
     const totalFlagged = byVerdictStatus.deleted ?? 0;
@@ -108,18 +177,21 @@ export class DashboardRepository {
 
     // Total voice recordings and AI user profiles
     const [voiceCount, profileCount] = await Promise.all([
-      db.voice_recordings.count(),
-      db.user_profiles.count(),
+      db.select({ n: count() }).from(voiceRecordingsTable),
+      db.select({ n: count() }).from(userProfilesTable),
     ]);
 
     // Top channels by message count. The old WHERE was `metadata IS NOT NULL AND
     // metadata != ''`, and the GROUP BY keyed on the resolved channel name, so
     // rows with and without a name land in one bucket when they share a
     // channel_id.
-    const topChannelRows = await db.messages.findMany({
-      where: { metadata: { not: null } },
-      select: { channel_id: true, metadata: true },
-    });
+    const topChannelRows = await db
+      .select({
+        channel_id: messagesTable.channel_id,
+        metadata: messagesTable.metadata,
+      })
+      .from(messagesTable)
+      .where(sql`${messagesTable.metadata} IS NOT NULL`);
     // The old SQL keyed the GROUP BY on (channel_id, raw `->>` channelName),
     // so a real name, an empty string, and a missing key are three groups for
     // one channel_id. Grouping on the same raw key keeps the counts identical;
@@ -153,8 +225,8 @@ export class DashboardRepository {
       .slice(0, 10);
 
     return {
-      total_messages: totalMessages,
-      total_users: allUsers.length,
+      total_messages: totalMessages[0]?.n ?? 0,
+      total_users: allUsers[0]?.n ?? 0,
       total_flagged: totalFlagged,
       total_clean: totalClean,
       total_error: totalError,
@@ -165,11 +237,11 @@ export class DashboardRepository {
       total_retry_wait: byPipeline.retry_wait ?? 0,
       total_dead: byPipeline.dead ?? 0,
       total_skipped: totalSkipped,
-      total_voice_recordings: voiceCount,
-      total_profiles: profileCount,
-      today_messages: recent,
-      today_flagged: recentFlagged,
-      active_users_24h: recentUsers.length,
+      total_voice_recordings: voiceCount[0]?.n ?? 0,
+      total_profiles: profileCount[0]?.n ?? 0,
+      today_messages: recent[0]?.n ?? 0,
+      today_flagged: recentFlagged[0]?.n ?? 0,
+      active_users_24h: recentUsers[0]?.n ?? 0,
       top_channels: topChannels.map((c) => ({
         channel_id: c.channel_id,
         channel_name: c.channel_name ? c.channel_name : null,
@@ -204,14 +276,15 @@ export class DashboardRepository {
     // rather than in SQL because Prisma has no date-bucket expression, and the
     // active-user count needs a DISTINCT per bucket that groupBy cannot express
     // across a computed key.
-    const dailyRows = await db.messages.findMany({
-      where: { created_at: { gte: sinceMs } },
-      select: {
-        created_at: true,
-        user_id: true,
-        verdicts: { select: { status: true } },
-      },
-    });
+    const dailyRows = await db
+      .select({
+        created_at: messagesTable.created_at,
+        user_id: messagesTable.user_id,
+        verdict_status: verdictsTable.status,
+      })
+      .from(messagesTable)
+      .leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
+      .where(gte(messagesTable.created_at, Number(sinceMs)));
 
     const dailyBuckets = new Map<
       string,
@@ -225,7 +298,7 @@ export class DashboardRepository {
         users: new Set<string>(),
       };
       entry.messages += 1;
-      if (r.verdicts?.status === "deleted") entry.flagged += 1;
+      if (r.verdict_status === "deleted") entry.flagged += 1;
       entry.users.add(r.user_id);
       dailyBuckets.set(day, entry);
     }
@@ -240,10 +313,14 @@ export class DashboardRepository {
       .sort((a, b) => a.day.localeCompare(b.day));
 
     // Hourly distribution (last 24h)
-    const hourlyRows = await db.messages.findMany({
-      where: { created_at: { gte: dayAgoMs } },
-      select: { created_at: true, verdicts: { select: { status: true } } },
-    });
+    const hourlyRows = await db
+      .select({
+        created_at: messagesTable.created_at,
+        verdict_status: verdictsTable.status,
+      })
+      .from(messagesTable)
+      .leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
+      .where(gte(messagesTable.created_at, Number(dayAgoMs)));
     const hourlyBuckets = new Map<
       number,
       { messages: number; flagged: number }
@@ -252,7 +329,7 @@ export class DashboardRepository {
       const hour = localHour(r.created_at);
       const entry = hourlyBuckets.get(hour) ?? { messages: 0, flagged: 0 };
       entry.messages += 1;
-      if (r.verdicts?.status === "deleted") entry.flagged += 1;
+      if (r.verdict_status === "deleted") entry.flagged += 1;
       hourlyBuckets.set(hour, entry);
     }
 
@@ -277,9 +354,7 @@ export class DashboardRepository {
     // ALIASED columns (m.channel_name, m.last_message_at) rather than on the
     // base table -- which Prisma's builder cannot do. So the grouping happens in
     // JS and the profile join is a keyed lookup afterwards.
-    const rows = await db.messages.findMany({
-      select: messageWithVerdict,
-    });
+    const rows = await messagesWithVerdict(db);
 
     interface UserAgg {
       user_id: string;
@@ -306,7 +381,7 @@ export class DashboardRepository {
       };
       entry.total_messages += 1;
       if (isFlagged(r)) entry.flagged_count += 1;
-      if (r.verdicts?.status === "clean") entry.clean_count += 1;
+      if (r.verdict_status === "clean") entry.clean_count += 1;
       const created = Number(r.created_at);
       if (entry.last_message_at === null || created > entry.last_message_at) {
         entry.last_message_at = created;
@@ -318,10 +393,13 @@ export class DashboardRepository {
     // only if the FK exists -- it does not, so it stays a keyed lookup.
     const userIds = [...new Set([...byUser.values()].map((u) => u.user_id))];
     const profiles = userIds.length
-      ? await db.user_profiles.findMany({
-          where: { user_id: { in: userIds } },
-          select: { user_id: true, profile_summary: true },
-        })
+      ? await db
+          .select({
+            user_id: userProfilesTable.user_id,
+            profile_summary: userProfilesTable.profile_summary,
+          })
+          .from(userProfilesTable)
+          .where(inArray(userProfilesTable.user_id, userIds))
       : [];
     const profileByUser = new Map(
       profiles.map((p) => [p.user_id, p.profile_summary]),
@@ -377,9 +455,7 @@ export class DashboardRepository {
     const db = getDatabase();
     const limit = query.limit ?? 20;
 
-    const rows = await db.messages.findMany({
-      select: messageWithVerdict,
-    });
+    const rows = await messagesWithVerdict(db);
 
     interface ChannelAgg {
       channel_id: string;
@@ -422,14 +498,14 @@ export class DashboardRepository {
       ...new Set([...byChannel.values()].map((c) => c.channel_id)),
     ];
     const cultures = channelIds.length
-      ? await db.channel_cultures.findMany({
-          where: { channel_id: { in: channelIds } },
-          select: {
-            channel_id: true,
-            culture_summary: true,
-            last_analyzed_at: true,
-          },
-        })
+      ? await db
+          .select({
+            channel_id: channelCulturesTable.channel_id,
+            culture_summary: channelCulturesTable.culture_summary,
+            last_analyzed_at: channelCulturesTable.last_analyzed_at,
+          })
+          .from(channelCulturesTable)
+          .where(inArray(channelCulturesTable.channel_id, channelIds))
       : [];
     const cultureByChannel = new Map(cultures.map((c) => [c.channel_id, c]));
 
@@ -445,6 +521,13 @@ export class DashboardRepository {
     if (query.guildId) {
       filtered = filtered.filter((c) => c.guild_id === query.guildId);
     }
+    // Ties are broken by channel_id so the page is STABLE. Without that the
+    // order of equal-count channels follows whatever order the database
+    // Equal-count groups keep their insertion order, which is the order the
+    // rows were read in. `Array.prototype.sort` is stable, so this is
+    // deterministic for a given row order — but the row order itself is not
+    // guaranteed by SQL without an ORDER BY, which is why the fixture records
+    // it rather than the harness asserting on it.
     filtered.sort((a, b) => b.total_messages - a.total_messages);
 
     const page = filtered.slice(0, limit + 1);
@@ -479,10 +562,10 @@ export class DashboardRepository {
     // `channel_cultures`. `channel_cultures.channel_id` is the primary key but
     // carries no foreign key to messages, so the join is done as a keyed
     // lookup rather than as a traversable relation.
-    const rows = await db.messages.findMany({
-      where: { channel_id: channelId },
-      select: messageWithVerdict,
-    });
+    const rows = await messagesWithVerdict(
+      db,
+      eq(messagesTable.channel_id, channelId),
+    );
 
     if (rows.length === 0) return null;
 
@@ -512,8 +595,8 @@ export class DashboardRepository {
         clean_count: 0,
       };
       entry.total_messages += 1;
-      if (r.verdicts?.status === "deleted") entry.flagged_count += 1;
-      if (r.verdicts?.status === "clean") entry.clean_count += 1;
+      if (r.verdict_status === "deleted") entry.flagged_count += 1;
+      if (r.verdict_status === "clean") entry.clean_count += 1;
       groups.set(key, entry);
     }
     // The old query had no ORDER BY on the GROUP BY (...) subquery, so which
@@ -523,25 +606,28 @@ export class DashboardRepository {
       (a, b) => b.total_messages - a.total_messages,
     )[0];
 
-    const cultures = await db.channel_cultures.findMany({
-      where: { channel_id: channelId },
-      select: { culture_summary: true, last_analyzed_at: true },
-    });
+    const cultures = await db
+      .select({
+        culture_summary: channelCulturesTable.culture_summary,
+        last_analyzed_at: channelCulturesTable.last_analyzed_at,
+      })
+      .from(channelCulturesTable)
+      .where(eq(channelCulturesTable.channel_id, channelId));
     const culture = cultures[0];
 
-    const recent = await db.messages.findMany({
-      where: { channel_id: channelId },
-      select: {
-        id: true,
-        content: true,
-        channel_id: true,
-        created_at: true,
-        ai_status: true,
-        username: true,
-      },
-      orderBy: { created_at: "desc" },
-      take: 20,
-    });
+    const recent = await db
+      .select({
+        id: messagesTable.id,
+        content: messagesTable.content,
+        channel_id: messagesTable.channel_id,
+        created_at: messagesTable.created_at,
+        ai_status: messagesTable.ai_status,
+        username: messagesTable.username,
+      })
+      .from(messagesTable)
+      .where(eq(messagesTable.channel_id, channelId))
+      .orderBy(desc(messagesTable.created_at))
+      .limit(20);
 
     return {
       channel_id: channelId,
@@ -573,9 +659,12 @@ export class DashboardRepository {
     // content. `message_reactions.message_id` has no foreign key to messages,
     // so reactions are grouped on their own and the messages are fetched
     // afterwards by id.
-    const reactionRows = await db.message_reactions.findMany({
-      select: { message_id: true, reaction_type: true },
-    });
+    const reactionRows = await db
+      .select({
+        message_id: reactionsTable.message_id,
+        reaction_type: reactionsTable.reaction_type,
+      })
+      .from(reactionsTable);
     const netByMessage = new Map<string, number>();
     for (const r of reactionRows) {
       netByMessage.set(
@@ -596,17 +685,17 @@ export class DashboardRepository {
     if (ranked.length === 0) return [];
 
     const ids = ranked.map(([id]) => id);
-    const messages = await db.messages.findMany({
-      where: { id: { in: ids } },
-      select: {
-        id: true,
-        content: true,
-        username: true,
-        channel_id: true,
-        created_at: true,
-        metadata: true,
-      },
-    });
+    const messages = await db
+      .select({
+        id: messagesTable.id,
+        content: messagesTable.content,
+        username: messagesTable.username,
+        channel_id: messagesTable.channel_id,
+        created_at: messagesTable.created_at,
+        metadata: messagesTable.metadata,
+      })
+      .from(messagesTable)
+      .where(inArray(messagesTable.id, ids));
     const messageById = new Map(messages.map((m) => [m.id, m]));
 
     // The old query was an INNER JOIN on messages, so reactions pointing at a
@@ -615,10 +704,18 @@ export class DashboardRepository {
     const liveIds = live.map(([id]) => id);
 
     // Top emoji per message (adds only) for the breakdown
-    const emojiRows = await db.message_reactions.findMany({
-      where: { reaction_type: "add", message_id: { in: liveIds } },
-      select: { message_id: true, emoji: true },
-    });
+    const emojiRows = await db
+      .select({
+        message_id: reactionsTable.message_id,
+        emoji: reactionsTable.emoji,
+      })
+      .from(reactionsTable)
+      .where(
+        and(
+          eq(reactionsTable.reaction_type, "add"),
+          inArray(reactionsTable.message_id, liveIds),
+        ),
+      );
     const emojiByMessage = new Map<
       string,
       { emoji: string; count: number }[]
@@ -657,15 +754,15 @@ export class DashboardRepository {
     // counts (messages, emojis) cannot be expressed through Prisma's groupBy,
     // so this is a fetch and reduce. Grouping is by (user_id, username): a user
     // whose name changed appears twice.
-    const rows = await db.message_reactions.findMany({
-      select: {
-        user_id: true,
-        username: true,
-        message_id: true,
-        emoji: true,
-        reaction_type: true,
-      },
-    });
+    const rows = await db
+      .select({
+        user_id: reactionsTable.user_id,
+        username: reactionsTable.username,
+        message_id: reactionsTable.message_id,
+        emoji: reactionsTable.emoji,
+        reaction_type: reactionsTable.reaction_type,
+      })
+      .from(reactionsTable);
 
     interface ReactorAgg {
       user_id: string;
@@ -718,10 +815,10 @@ export class DashboardRepository {
   async getUserDetail(userId: string) {
     const db = getDatabase();
 
-    const rows = await db.messages.findMany({
-      where: { user_id: userId },
-      select: messageWithVerdict,
-    });
+    const rows = await messagesWithVerdict(
+      db,
+      eq(messagesTable.user_id, userId),
+    );
     if (rows.length === 0) return null;
 
     // GROUP BY (user_id, username, avatar_url) -- as with channels, a user
@@ -747,8 +844,8 @@ export class DashboardRepository {
         clean_count: 0,
       };
       entry.total_messages += 1;
-      if (r.verdicts?.status === "deleted") entry.flagged_count += 1;
-      if (r.verdicts?.status === "clean") entry.clean_count += 1;
+      if (r.verdict_status === "deleted") entry.flagged_count += 1;
+      if (r.verdict_status === "clean") entry.clean_count += 1;
       groups.set(key, entry);
     }
     // The old query had no ORDER BY on the GROUP BY (...) subquery, so which
@@ -758,24 +855,27 @@ export class DashboardRepository {
       (a, b) => b.total_messages - a.total_messages,
     )[0];
 
-    const profiles = await db.user_profiles.findMany({
-      where: { user_id: userId },
-      select: { profile_summary: true, last_analyzed_at: true },
-    });
+    const profiles = await db
+      .select({
+        profile_summary: userProfilesTable.profile_summary,
+        last_analyzed_at: userProfilesTable.last_analyzed_at,
+      })
+      .from(userProfilesTable)
+      .where(eq(userProfilesTable.user_id, userId));
     const profile = profiles[0];
 
-    const recent = await db.messages.findMany({
-      where: { user_id: userId },
-      select: {
-        id: true,
-        content: true,
-        channel_id: true,
-        created_at: true,
-        ai_status: true,
-      },
-      orderBy: { created_at: "desc" },
-      take: 20,
-    });
+    const recent = await db
+      .select({
+        id: messagesTable.id,
+        content: messagesTable.content,
+        channel_id: messagesTable.channel_id,
+        created_at: messagesTable.created_at,
+        ai_status: messagesTable.ai_status,
+      })
+      .from(messagesTable)
+      .where(eq(messagesTable.user_id, userId))
+      .orderBy(desc(messagesTable.created_at))
+      .limit(20);
 
     return {
       user_id: userId,
