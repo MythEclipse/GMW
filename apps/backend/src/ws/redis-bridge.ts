@@ -94,14 +94,45 @@ export async function stopRedisBridge(): Promise<void> {
     return;
   }
 
-  try {
-    await subscriber.quit();
-    logger.info("Redis bridge stopped");
-  } catch (err) {
-    logger.error({ err }, "Error stopping Redis bridge");
-    // Force-close on error
-    subscriber.disconnect();
-  } finally {
-    subscriber = null;
+  // `quit()` below only settles once the server ACKNOWLEDGES it. With Redis
+  // unreachable — precisely during a Redis restart — it never settles, so this
+  // await hangs until the process's failsafe timer kills the process, and
+  // ioredis's reconnect timer keeps the event loop busy the whole time. So the
+  // connection is not asked to quit at all: `disconnectEventSubscriber()` drops
+  // it immediately, which is what "stop" has to mean when there is no server
+  // left to be polite to.
+  //
+  // Verified against a probe process with REDIS_URL on a closed port: before
+  // this, shutdown never logged "completed" and always hit the 10s failsafe.
+  const client = subscriber;
+  disconnectEventSubscriber();
+
+  // If the socket is up, close it cleanly so Redis drops the subscriber.
+  if (client.status === "ready") {
+    try {
+      await client.quit();
+      logger.info("Redis bridge stopped");
+    } catch (err) {
+      logger.error({ err }, "Error stopping Redis bridge");
+      client.disconnect();
+    }
+  } else {
+    logger.info("Redis bridge disconnected without quit (server unreachable)");
   }
+}
+
+/**
+ * Drop the subscriber connection immediately, without waiting for the server.
+ *
+ * Separate from `stopRedisBridge` because `quit()` only settles once the server
+ * ACKNOWLEDGES it. With Redis unreachable — precisely during a Redis restart —
+ * it never settles, so a shutdown that awaits it hangs until the process's
+ * failsafe timer kills it, and ioredis's reconnect timer keeps the event loop
+ * busy the whole time. This is the synchronous teardown that guarantees neither.
+ */
+export function disconnectEventSubscriber(): void {
+  if (!subscriber) return;
+  subscriber.disconnect();
+  subscriber = null;
+  logger.info("Redis event subscriber disconnected");
 }

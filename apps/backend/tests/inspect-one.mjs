@@ -67,7 +67,7 @@ try {
   console.log("\ngateway journal:");
   try {
     const out = execSync(
-      "sudo -n journalctl -u gmw-discord-gateway --since \"-6h\" -o cat --no-pager",
+      "sudo -n journalctl -u gmw-backend --since \"-6h\" -o cat --no-pager",
       { maxBuffer: 60 * 1024 * 1024 },
     ).toString();
     let n = 0;

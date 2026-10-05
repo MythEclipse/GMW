@@ -162,11 +162,8 @@ fi
   --noEmit false \
   prisma/generated/*.ts prisma/generated/internal/*.ts)
 
-log "Building backend"
+log "Building backend (HTTP + capture + moderation worker)"
 (cd apps/backend && bun run build)
-
-log "Building discord-gateway"
-(cd apps/discord-gateway && bun run build)
 
 log "Building frontend"
 (cd apps/frontend && bun run build)
@@ -175,7 +172,7 @@ log "Building frontend"
 # 3. Prune devDependencies (keep runtime node_modules lean)
 # ---------------------------------------------------------------------------
 log "Pruning devDependencies"
-for app_dir in apps/backend apps/discord-gateway packages/db; do
+for app_dir in apps/backend packages/db; do
   if [ -d "$app_dir/node_modules" ]; then
     find "$app_dir/node_modules" -maxdepth 2 -type d \
       \( -name 'typescript' -o -name '@biomejs' -o -name 'vitest' \
@@ -209,29 +206,15 @@ log "Installing wrappers to $BIN_DIR"
 sudo mkdir -p "$BIN_DIR"
 sudo chown root:root "$BIN_DIR"
 
-# backend
+# backend — one process for the HTTP surface, Discord capture and the
+# moderation worker. The other two wrappers ran the same app from a second
+# directory; there is no second directory any more.
 sudo tee "$BIN_DIR/gmw-backend" > /dev/null <<WRAPPER
 #!/usr/bin/env bash
 cd $CURRENT_LINK/apps/backend
 exec /usr/bin/node dist/index.js
 WRAPPER
 sudo chmod +x "$BIN_DIR/gmw-backend"
-
-# discord-gateway
-sudo tee "$BIN_DIR/gmw-discord-gateway" > /dev/null <<WRAPPER
-#!/usr/bin/env bash
-cd $CURRENT_LINK/apps/discord-gateway
-exec /usr/bin/node dist/index.js
-WRAPPER
-sudo chmod +x "$BIN_DIR/gmw-discord-gateway"
-
-# discord-gateway-worker
-sudo tee "$BIN_DIR/gmw-discord-gateway-worker" > /dev/null <<WRAPPER
-#!/usr/bin/env bash
-cd $CURRENT_LINK/apps/discord-gateway
-exec /usr/bin/node dist/moderation-worker.js
-WRAPPER
-sudo chmod +x "$BIN_DIR/gmw-discord-gateway-worker"
 
 # frontend
 sudo tee "$BIN_DIR/gmw-frontend" > /dev/null <<WRAPPER
@@ -254,7 +237,7 @@ sudo chmod +x "$BIN_DIR/gmw-proxy"
 # 6. Install systemd units + nginx config
 # ---------------------------------------------------------------------------
 log "Installing systemd units"
-for unit in gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-frontend gmw-proxy; do
+for unit in gmw-backend gmw-frontend gmw-proxy; do
   sudo cp "$RELEASE_DIR/infra/systemd/$unit.service" "/etc/systemd/system/$unit.service"
 done
 sudo systemctl daemon-reload
@@ -293,7 +276,7 @@ if [ "${RESET_RUNTIME_DATA:-1}" = "1" ]; then
   # them down on success, so the wipe cannot race a live gateway. Bringing
   # them back is our job below — on both the success and the failure path,
   # so a failed reset can never leave prod dark.
-  WRITERS="gmw-discord-gateway-worker gmw-discord-gateway gmw-backend"
+  WRITERS="gmw-backend"
   if ! sudo /usr/local/bin/bws-exec gmw bash "$RELEASE_DIR/scripts/reset-data.sh"; then
     echo "::error::runtime data reset FAILED — restarting writers" >&2
     sudo systemctl start $WRITERS || true
@@ -320,8 +303,14 @@ fi
 # 9. Enable + restart services
 # ---------------------------------------------------------------------------
 log "Enabling and restarting services"
-sudo systemctl enable gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-frontend gmw-proxy
-sudo systemctl restart gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-frontend gmw-proxy
+sudo systemctl enable gmw-backend gmw-frontend gmw-proxy
+sudo systemctl restart gmw-backend gmw-frontend gmw-proxy
+# Stop the two units the merge retired, if a previous deploy installed them.
+# `disable --now` is idempotent: it exits non-zero when the unit is unknown,
+# which is the normal case on a fresh host.
+sudo systemctl disable --now gmw-discord-gateway gmw-discord-gateway-worker 2>/dev/null || true
+sudo rm -f /etc/systemd/system/gmw-discord-gateway.service /etc/systemd/system/gmw-discord-gateway-worker.service
+sudo systemctl daemon-reload
 
 # ---------------------------------------------------------------------------
 # 10. Health check
@@ -335,7 +324,7 @@ sudo systemctl restart gmw-backend gmw-discord-gateway gmw-discord-gateway-worke
 # So: require every unit to be active on CONSECUTIVE polls across a stability
 # window, AND require the HTTP surfaces to actually answer. A port that is open
 # because the process died a moment later proves nothing.
-UNITS="gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-frontend gmw-proxy"
+UNITS="gmw-backend gmw-frontend gmw-proxy"
 STABLE_POLLS=3
 end=$((SECONDS+90))
 streak=0

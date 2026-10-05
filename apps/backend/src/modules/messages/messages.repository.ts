@@ -15,7 +15,7 @@ import type {
 /**
  * Thread/channel IDs to exclude from all message queries.
  * Messages in these threads (e.g. bot/selfbot spam) are skipped
- * both at capture time (discord-gateway) and when serving data
+ * both at capture time and when serving data
  * (backend API). Configured via EXCLUDED_THREAD_IDS and EXCLUDED_CHANNEL_IDS.
  */
 const EXCLUDED_THREAD_IDS = config.EXCLUDED_THREAD_IDS;

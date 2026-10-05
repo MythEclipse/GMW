@@ -1,12 +1,15 @@
 // ---------------------------------------------------------------------------
 // Redis Channel Constants — single source of truth
 //
-// All Redis channel names, status keys, and command types used for
-// inter-service communication between discord-gateway and backend.
+// All Redis channel names, status keys, and command types used on the Redis bus.
+// Capture and the dashboard run in ONE process now, but the bus and these
+// channel names are unchanged: publishing still goes out over Redis and the
+// bridge still reads it, so a failure inside one module cannot drop events for
+// the other, and the wire format the frontend already parses is untouched.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Event channels (discord-gateway -> backend via pub/sub)
+// Event channels (capture -> dashboard, via pub/sub)
 // ---------------------------------------------------------------------------
 
 export const DISCORD_MESSAGE_CREATED = "discord:message:created";
@@ -28,7 +31,7 @@ export const DISCORD_GUILD_MEMBER_REMOVED = "discord:guild_member:removed";
 export const DISCORD_MODERATION_ACTION = "discord:moderation:action";
 
 // ---------------------------------------------------------------------------
-// Command channels (backend -> discord-gateway)
+// Command channels (dashboard -> capture)
 // ---------------------------------------------------------------------------
 
 export const BACKEND_COMMAND = "backend:command";
@@ -43,7 +46,7 @@ export const COMMAND_GUILDS_TEXT_CHANNELS = "guilds:text-channels";
 export const COMMAND_MODERATION_ACTION = "moderation:action";
 
 // ---------------------------------------------------------------------------
-// Event envelope — used by discord-gateway when publishing to Redis
+// Event envelope — used by capture when publishing to Redis
 // ---------------------------------------------------------------------------
 
 export interface DiscordGatewayEvent {

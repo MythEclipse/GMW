@@ -21,8 +21,27 @@ export async function startHttpServer(): Promise<Server> {
   createWebSocketServer(server); // /ws — voice PCM + gateway events
   createORPCWebSocketServer(server); // /trpc — structured data RPCs
 
-  // Start Redis pub/sub bridge to forward discord-gateway events to WS clients
-  await startRedisBridge();
+  // Redis pub/sub bridge: forwards capture events to dashboard WS clients.
+  //
+  // Started, NOT awaited. `startRedisBridge` pings, and ioredis only rejects
+  // that ping after burning through 20 reconnect attempts — around a minute with
+  // Redis down. Awaiting it meant the HTTP port stayed closed until then, so a
+  // Redis outage took the DASHBOARD down with it: nothing to look at, and
+  // nothing to restart the dashboard from. The dashboard reads Postgres, not
+  // Redis, so it is fully useful without this bridge.
+  //
+  // Left unattached on purpose. ioredis retries on its own, so a bridge that
+  // starts after Redis returns still comes up; what is lost while Redis is down
+  // is live events, which the next page load reconciles from the database. The
+  // one failure worth surfacing loudly is a misconfigured REDIS_URL, and an
+  // unhandled rejection would take the process down for it — so the rejection
+  // is caught and logged here instead.
+  void startRedisBridge().catch((err) =>
+    logger.error(
+      { err },
+      "Redis bridge did not start — live events are missed, but the dashboard is up",
+    ),
+  );
 
   return new Promise<Server>((resolve, reject) => {
     server.listen(port, () => {

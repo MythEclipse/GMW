@@ -48,20 +48,15 @@ jobs:
           bun install --frozen-lockfile
           ./node_modules/.bin/tsc --noEmit
           # src/e2e.test.ts requires a live backend (API_BASE) — unit tests
-          # live in tests/ and are excluded by the bun test dir.
-          bun test tests/
-
-      - name: Install deps + test (discord-gateway)
-        working-directory: apps/discord-gateway
-        run: |
-          bun install --frozen-lockfile
-          ./node_modules/.bin/tsc --noEmit
-          bun test tests/
+          # live in the two test dirs and are excluded from the bun test path.
+          # tests-gateway/ came from the old discord-gateway app; it has its own
+          # setup-env values, which bunfig's single preload path cannot carry for
+          # two dirs, so tests/setup-env.ts is the env block for BOTH suites.
+          bun test tests/ tests-gateway/
 
       - name: Biome check (all apps)
         run: |
-          cd apps/backend && ./node_modules/.bin/biome check src/ tests/
-          cd ../discord-gateway && ./node_modules/.bin/biome check src/
+          cd apps/backend && ./node_modules/.bin/biome check src/ tests/ tests-gateway/
 
       - name: Install deps + typecheck + build (frontend)
         working-directory: apps/frontend
@@ -126,6 +121,9 @@ jobs:
         # matrix.service == 'discord-gateway'` guard existed only because the
         # Nix pipeline ran a 4-leg matrix; this pipeline is one-legged.
         #
+        # The Discord capture process and the moderation worker used to be
+        # separate units checked here; both are now inside gmw-backend.
+        #
         # RESET_RUNTIME_DATA=0 skips the wipe for an incident deploy.
         run: |
           echo "=== Deploying ${{ github.sha }} to $VPS_HOST ==="
@@ -137,7 +135,7 @@ jobs:
       - name: Verify services
         run: |
           ssh "$VPS_USER@$VPS_HOST" \
-            "for u in gmw-backend gmw-discord-gateway gmw-discord-gateway-worker gmw-frontend gmw-proxy; do \
+            "for u in gmw-backend gmw-frontend gmw-proxy; do \
                state=\$(sudo systemctl is-active \$u 2>/dev/null || echo inactive); \
                echo \"  \$u -> \$state\"; \
              done; \

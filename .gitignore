@@ -1,7 +1,6 @@
 node_modules
 /recordings
 .env
-apps/discord-gateway/dist/
 apps/backend/dist/
 apps/frontend/dist/
 packages/db/prisma/generated/

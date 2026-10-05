@@ -2,20 +2,34 @@
 // Source of truth — snake_case + number (matching PostgreSQL schema)
 
 /**
- * Pipeline position, NOT the judgement. Since migration 0020 this column says
- * only where a message is in the work queue; the outcome lives in
- * `verdicts.status` as clean | deleted | error. The old 'warn'/'flagged' values
- * here were fiction — nothing has written them since the split, and querying
- * for them silently matched zero rows.
+ * The QUEUE state, not the judgement.
+ *
+ * Migration 0020 replaced the v1 set with a hard CHECK constraint:
+ *   CHECK (ai_status IN ('pending','claimed','analyzed','retry_wait','dead','skipped'))
+ * so the v1 values ("processing", "clean", "warn", "flagged", "error") are
+ * rejected by the database. Declaring them here let code type-check against a
+ * state that can never be written. The judgement is `verdicts.status`
+ * ("clean" | "warn" | "flagged" | "error"), a separate column entirely.
  */
 export type AIStatus =
   | "pending"
-  | "processing"
   | "claimed"
   | "analyzed"
   | "retry_wait"
   | "dead"
   | "skipped";
+
+/**
+ * The verdict, from the `verdicts` table. Never stored in `ai_status`.
+ *
+ * Two real answers and one non-answer: a message either violates the policy
+ * (`deleted`) or it does not (`clean`). There is no `warn`/`flagged` middle
+ * tier, because a middle tier in practice meant "nobody acted on this" — the
+ * message stayed up while the pipeline called it handled. `error` is not a
+ * middle tier; it means the model could not read the message at all, which is a
+ * different thing entirely and still never authorises a deletion.
+ */
+export type VerdictStatus = "clean" | "deleted" | "error";
 
 export interface BroadcasterClient {
   messageCreated: (data: unknown) => void;
@@ -75,8 +89,27 @@ export interface MessageRecord {
   ai_categories?: string | null;
   ai_confidence?: number | null;
   ai_analyzed_at?: number | null;
-  ai_analysis_duration_ms?: number | null;
   ai_error?: string | null;
+  // ── The JUDGEMENT (from `verdicts`, joined by the backend) ───────────────
+  //
+  // `ai_status` is the QUEUE position and only ever says whether the worker
+  // is finished; it never carries the outcome. Without these fields a
+  // consumer of this record cannot tell "judged clean" from "not judged yet",
+  // and the dashboard badge falls back to rendering "unjudged".
+  verdict_status?: VerdictStatus | null;
+  /** Why the model deleted it. Required for a `deleted` verdict so the
+   *  decision is auditable and appealable. */
+  verdict_reason?: string | null;
+  verdict_score?: number | null;
+  verdict_confidence?: number | null;
+  verdict_flags?: string[] | null;
+  verdict_categories?: string[] | null;
+  verdict_analysis?: string | null;
+  verdict_model?: string | null;
+  verdict_policy_version?: string | null;
+  /** Wall-clock LLM time for the judgement, in ms. Written on the verdict
+   *  row, not on `messages`. */
+  ai_analysis_duration_ms?: number | null;
 }
 
 export interface AttachmentRecord {
@@ -105,7 +138,7 @@ export interface DashboardMessage {
   avatar_url: string | null;
   content: string;
   created_at: number;
-  type: "text" | "image";
+  type: "text" | "image" | "voice";
 }
 
 export interface MessageQuery {
@@ -143,6 +176,10 @@ export interface AnalysisQueueStatus {
   individualInFlightCount: number;
   individualCircuitBreakerActive: boolean;
   lastError: string | null;
+  /** Active batch worker jobs on the text lane (2026-09-24). */
+  activeTextRequests?: number;
+  /** Active batch worker jobs on the media lane (2026-09-24). */
+  activeMediaRequests?: number;
 }
 
 export type ReviewStatus = "pending" | "approved" | "rejected" | "escalated";
@@ -168,6 +205,8 @@ export interface ModerationAction {
   guild_id: string;
   action_type: ModerationActionType;
   reason: string | null;
+  username: string | null;
+  server_nick: string | null;
   executed_by: string | null;
   status: "pending" | "executed" | "failed";
   error: string | null;
@@ -181,6 +220,7 @@ export interface RetentionPolicy {
   channel_id: string | null;
   retention_days: number;
   apply_to_media: boolean;
+  apply_to_voice: boolean;
   enabled: boolean;
   created_at: number;
   updated_at: number;

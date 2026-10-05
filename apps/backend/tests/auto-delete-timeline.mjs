@@ -31,7 +31,7 @@ if (!Number.isFinite(restartMs)) {
   // the unit's first line instead and take the newest timestamp.
   const { execSync } = await import("node:child_process");
   const out = execSync(
-    "sudo -n journalctl -u gmw-discord-gateway -o short-iso --no-pager | tail -1",
+    "sudo -n journalctl -u gmw-backend -o short-iso --no-pager | tail -1",
   )
     .toString()
     .trim();

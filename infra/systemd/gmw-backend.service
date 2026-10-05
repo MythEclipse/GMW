@@ -1,5 +1,5 @@
 [Unit]
-Description=GMW Backend — Express HTTP/WS server
+Description=GMW — dashboard (HTTP/oRPC), Discord capture, and the moderation worker
 After=network-online.target
 Requires=network-online.target
 
@@ -9,8 +9,12 @@ Type=simple
 # Secrets dari Bitwarden Secrets Manager (BWS): wrapper fetch env lalu exec binary
 ExecStart=/usr/local/bin/bws-exec gmw /opt/gmw/bin/gmw-backend
 
+# Was 5s, back when this unit was the HTTP server alone. It now runs migrations,
+# opens two database pools, logs the Discord client in AND binds the HTTP port
+# before it answers anything, so a 5s window killed it mid-boot faster than it
+# could finish — systemd reported flapping instead of a real failure.
 Restart=always
-RestartSec=5
+RestartSec=15
 
 User=gmw
 Group=gmw
@@ -19,8 +23,13 @@ ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
 
-MemoryMax=256M
-TasksMax=128
+# Was 256M for the HTTP server alone. The three units this one replaces were
+# capped 256M (backend) + 1G (capture) + 512M (worker); 1G is the merged figure,
+# sized for Discord capture plus the moderation worker's in-flight vision and
+# text prompts. Note the failure mode this creates: an OOM in the worker now
+# takes the DASHBOARD down with it, where before it lost only capture.
+MemoryMax=1G
+TasksMax=256
 
 [Install]
 WantedBy=multi-user.target

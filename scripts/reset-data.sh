@@ -3,11 +3,10 @@
 # reset-data.sh — wipe GMW's runtime data on the VPS, for a clean post-deploy state.
 #
 # SCOPE, precisely:
-#   * Postgres `dcbot`   — every PUBLIC table EXCEPT `__drizzle_migrations`
-#                          (the migration ledger). Truncating the ledger would
-#                          make the gateway re-run all 26 migrations against a
-#                          wiped schema, which is the one way to actually break
-#                          a deploy.
+#   * Postgres `dcbot`   — the ENTIRE `public` schema, dropped and rebuilt.
+#                          The migration history is a single baseline, so an
+#                          empty database is the only supported starting point:
+#                          the backend applies the whole schema on next boot.
 #   * Hindsight          — the `gmw-moderation` bank ONLY, via
 #                          DELETE /v1/default/banks/{bank}/memories.
 #
@@ -64,7 +63,7 @@ echo "bank     : $MEM_BANK at $MEM_BASE"
 # them right after this runs, and a reset that ends with the writers back up
 # has restored what was just removed. If this script exits non-zero the trap
 # below brings them back, so a failed reset can never leave prod dark.
-WRITERS=(gmw-discord-gateway gmw-discord-gateway-worker gmw-backend)
+WRITERS=(gmw-backend)
 STOPPED=()
 
 restore_writers() {
@@ -124,11 +123,11 @@ fi
 # and it omits the seven tables that actually hold rows — including `verdicts`
 # and `analysis_attempts`. A hardcoded list is how that drift stayed invisible.
 #
-# __drizzle_migrations is excluded by name: it is the schema ledger, not data.
+# Everything in `public` goes, __drizzle_migrations included — it is part of the
+# schema, not data, and keeping it would make Drizzle skip the rebuild.
 TABLES=$(psql "$DATABASE_URL" -tA -c "
   SELECT tablename FROM pg_tables
   WHERE schemaname='public'
-    AND tablename <> '__drizzle_migrations'
   ORDER BY tablename;")
 
 if [ -z "$TABLES" ]; then
@@ -136,11 +135,8 @@ if [ -z "$TABLES" ]; then
   exit 1
 fi
 
-LEDGER=$(psql "$DATABASE_URL" -tA -c "
-  SELECT COALESCE(MAX(id)::text,'none') FROM __drizzle_migrations;" 2>/dev/null || echo "unreadable")
-
 echo
-echo "--- tables to wipe (ledger __drizzle_migrations preserved at id=$LEDGER) ---"
+echo "--- tables to drop ---"
 # n_live_tup is an estimate; good enough to show the operator what they are
 # about to lose, and it costs nothing.
 psql "$DATABASE_URL" -tA -F'|' -c "
@@ -148,7 +144,7 @@ psql "$DATABASE_URL" -tA -F'|' -c "
   FROM pg_class c
   JOIN pg_namespace n ON n.oid=c.relnamespace AND n.nspname='public'
   LEFT JOIN pg_stat_user_tables s ON s.relid=c.oid
-  WHERE c.relkind='r' AND c.relname <> '__drizzle_migrations'
+  WHERE c.relkind='r'
   ORDER BY c.relname;" | while IFS='|' read -r t n; do
   printf '  %-26s ~%s rows\n' "$t" "$n"
 done
@@ -163,15 +159,24 @@ if [ "$DRY_RUN" = 1 ]; then
   exit 0
 fi
 
-# Wipe in ONE statement: Postgres handles the FK graph
-# (attachments/verdicts/analysis_attempts -> messages) atomically, so there is
-# no ordering bug and no window where a wipe half-applied.
+# DROP the schema, not TRUNCATE the rows.
+#
+# The migration history was squashed to a single baseline, which is a BREAKING
+# change: applying it to a database that already has the old tables fails with
+# "relation already exists". There is no incremental path from the old chain to
+# the baseline, by design — so a reset has to rebuild the schema rather than
+# empty it and hope.
+#
+# DROP ... CASCADE removes the tables AND the __drizzle_migrations ledger in one
+# step, so the next boot sees an empty database and applies the baseline whole.
+# This is also why the ledger-exclusion and ledger-preservation assertions below
+# no longer exist: there is no ledger left to protect. The writers are stopped
+# above, so nothing can be mid-transaction against these tables.
 echo
-echo "--- wiping Postgres ---"
-# shellcheck disable=SC2086
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
-  TRUNCATE TABLE $(echo "$TABLES" | paste -sd, -) CASCADE;"
-echo "Postgres wipe OK"
+echo "--- dropping and rebuilding the Postgres schema ---"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "DROP SCHEMA public CASCADE;"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "CREATE SCHEMA public;"
+echo "Postgres schema dropped (the backend rebuilds it from the baseline on next boot)"
 
 # ── 2. Hindsight ───────────────────────────────────────────────────────────
 # DELETE .../memories empties the bank's documents, nodes and links but KEEPS
@@ -206,27 +211,33 @@ FAIL=0
 # re-captured). Asserting emptiness on an estimate fails a correct wipe, which
 # in CI means a red deploy for a reset that actually worked.
 #
-# The single row that can legitimately reappear is one the RESTARTED gateway
-# re-captures from live traffic after this script's verification runs — not a
-# failed wipe. So the bar is "the historical tables are empty", checked
-# exactly, and the check reports which tables are non-empty rather than
-# failing on a number that mixes estimate drift with real rows.
+# The schema is DROPPED rather than emptied, so the pass condition is strict and
+# simple: zero tables remain in `public`. There is no "rows re-captured by the
+# restarted gateway are expected" leniency any more — that clause belonged to the
+# TRUNCATE era, when leaving the tables in place meant a re-captured row was
+# harmless. With the schema gone, any survivor means the DROP did not work.
 echo "  postgres rows remaining:"
 # NB: pg_tables.tablename (not pg_class.relname) — the catalog view used here
 # names the column `tablename`. Getting this wrong aborts the verification under
 # `set -e` and reports a correct wipe as a failed one.
+# Counts every remaining table. After a schema DROP there should be NONE, so an
+# empty result is the PASS condition and any survivor is a real failure.
 NONEMPTY=$(psql "$DATABASE_URL" -tA -F'|' -c "
   SELECT tablename, (xpath('/row/c/text()', query_to_xml(
     format('SELECT count(*) AS c FROM %I', tablename), false, true, '')))[1]::text::int
   FROM pg_tables
-  WHERE schemaname='public' AND tablename <> '__drizzle_migrations'
+  WHERE schemaname='public'
   ORDER BY tablename;" | awk -F'|' '$2+0 > 0')
 
-if [ -z "$NONEMPTY" ]; then
-  echo "    (all tables empty)"
+SURVIVING_TABLES=$(psql "$DATABASE_URL" -tA -c "
+  SELECT count(*) FROM pg_tables WHERE schemaname='public';" 2>/dev/null || echo "err")
+
+if [ "$SURVIVING_TABLES" = "0" ]; then
+  echo "    (public schema is empty — rebuilt from the baseline on next boot)"
 else
-  echo "$NONEMPTY" | while IFS='|' read -r t c; do printf '    %-26s %s\n' "$t" "$c"; done
-  echo "    (rows re-captured by the restarted gateway are expected)"
+  echo "    x $SURVIVING_TABLES table(s) survived the DROP SCHEMA"
+  [ -n "$NONEMPTY" ] && echo "$NONEMPTY" | while IFS='|' read -r t c; do printf '      %-26s %s\n' "$t" "$c"; done
+  FAIL=1
 fi
 
 # Hindsight is asserted strictly: unlike Postgres there is no gateway writing
@@ -237,11 +248,14 @@ echo "  hindsight facts remaining     : $(printf '%s' "$STATS_AFTER" | sed -n 's
 printf '%s' "$STATS_AFTER" | grep -q '"total_nodes":0' \
   || { echo "  x Hindsight bank not empty" >&2; FAIL=1; }
 
-# The ledger is the one thing that must NOT have been touched.
+# The ledger must be GONE, not preserved: the whole schema was dropped so the
+# next boot applies the baseline from scratch. If it survived, Drizzle would see
+# the baseline as already applied and boot against an empty database.
 NOW_LEDGER=$(psql "$DATABASE_URL" -tA -c "
-  SELECT COALESCE(MAX(id)::text,'none') FROM __drizzle_migrations;" 2>/dev/null || echo "gone")
-echo "  migration ledger preserved    : $NOW_LEDGER (was $LEDGER)"
-[ "$NOW_LEDGER" = "$LEDGER" ] || { echo "  x MIGRATION LEDGER WAS DAMAGED" >&2; FAIL=1; }
+  SELECT count(*) FROM information_schema.tables
+   WHERE table_schema='public' AND table_name='__drizzle_migrations';" 2>/dev/null || echo "err")
+echo "  migration ledger cleared      : $NOW_LEDGER rows of schema remain"
+[ "$NOW_LEDGER" = "0" ] || { echo "  x SCHEMA NOT FULLY DROPPED" >&2; FAIL=1; }
 
 if [ "$FAIL" = 0 ]; then
   WIPE_OK=1

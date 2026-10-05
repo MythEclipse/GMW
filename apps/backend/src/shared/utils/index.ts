@@ -4,7 +4,6 @@ export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export * from "./channelName.js";
 export * from "./pagination.js";
 
 // ---------------------------------------------------------------------------
@@ -109,5 +108,8 @@ export async function retryWithBackoff<T>(
       });
     }
   }
-  throw lastError ?? new Error("Request failed after all retries");
+  // lastError is always set: the for-loop only exits via break when attempt
+  // === retries, which only happens in the catch branch that sets lastError.
+  if (!lastError) throw new Error("Unknown retry error");
+  throw lastError;
 }
