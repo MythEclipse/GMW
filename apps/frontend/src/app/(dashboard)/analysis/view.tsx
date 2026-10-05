@@ -111,7 +111,7 @@ export function AnalysisView({ guildId }: { guildId: string | null }) {
 						className="divide-y divide-hairline"
 						aria-busy={search.isFetching || isSearching || undefined}
 					>
-						{results.map((message) => (
+						{results.map((message: any) => (
 							<li key={message.id} className="px-3 py-2.5">
 								<MessageFeedCard
 									message={{
