@@ -1,10 +1,56 @@
 $schema: 'https://moonrepo.dev/schemas/project.json'
 
+# Per-project file group — see the identical block in apps/backend/moon.yml for
+# why this moved out of .moon/tasks.yml in the moon 2.x fix.
+#
+# frontend additionally excludes routeTree.gen.ts: it is generated from
+# src/routes and gitignored, so it is an OUTPUT of `routegen`, never an input.
+fileGroups:
+  ts:
+    - '**/*.ts'
+    - '**/*.tsx'
+    - '!dist/**'
+    - '!node_modules/**'
+    - '!src/routeTree.gen.ts'
+
 tasks:
+  # ── shared tasks, defined per project in moon 2.x ──────────────────────────
+  # Duplicated from apps/backend/moon.yml; see .moon/tasks.yml for why root
+  # inheritance does not work in 2.6.0.
+  #
+  # Two lint tasks on purpose. `lint` is biome at its DEFAULT severity (the
+  # backend runs `--diagnostic-level=error`); `lint-design` is oxlint running
+  # @shadcn/lint, which keeps Tailwind classes on the shadcn theme instead of
+  # raw colors. Frontend-only — folding it into the backend task would make the
+  # backend depend on a tool it does not have.
+  lint:
+    inputs:
+      - '@globs(ts)'
+      - 'biome.json'
+    command: 'biome check .'
+
+  lint-design:
+    inputs:
+      - '@globs(ts)'
+      - '.oxlintrc.json'
+    command: 'oxlint'
+    options:
+      cache: false
+
+  format:
+    inputs:
+      - '@globs(ts)'
+      - 'biome.json'
+    command: 'biome format --write .'
+    options:
+      cache: false
+
   dev:
     command: 'vite'
-    local: true
-    persistent: true
+    # `preset: 'server'`, not `local: true` + `persistent: true`. Both were
+    # moon 1.x fields rejected outright by 2.x — see apps/backend/moon.yml for
+    # the full rationale and the 2.0 rename.
+    preset: 'server'
 
   # `routeTree.gen.ts` is generated from src/routes and is gitignored, so every
   # task that compiles or bundles MUST depend on this. Without the edge a clean
@@ -17,7 +63,10 @@ tasks:
     outputs:
       - 'src/routeTree.gen.ts'
     command: 'vite build --mode routegen'
-    local: true
+    # Not a server — a one-shot codegen. Only the "don't cache" half of the old
+    # `local: true` applies; see apps/backend/moon.yml test-integration.
+    options:
+      cache: false
 
   # Frontend `typecheck` depends on `backend:build`.
   #
@@ -39,7 +88,7 @@ tasks:
       - 'tsconfig.base.json'
     outputs:
       - 'dist'
-    command: 'tsc --noEmit && vite build'
+    script: 'tsc --noEmit && vite build'
     deps:
       - 'backend:build'
       - 'routegen'

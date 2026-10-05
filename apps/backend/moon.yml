@@ -1,10 +1,79 @@
 $schema: 'https://moonrepo.dev/schemas/project.json'
 
+# Declared HERE, not in .moon/tasks.yml. moon 2.x resolves a file group against
+# the project that references it; the root-level declaration from the 1.x setup
+# was invisible to this project and every `@globs(ts)` failed with
+# `project::unknown_file_group`.
+#
+# 2.x shape is a map of id → array of inputs. The 1.x nested
+# `globs:`/`exclude:` object is rejected.
+fileGroups:
+  ts:
+    - '**/*.ts'
+    - '!dist/**'
+    - '!node_modules/**'
+  tests:
+    - '**/*.test.ts'
+    - 'tests/**'
+    - 'tests-gateway/**'
+    - '!node_modules/**'
+
 tasks:
+  # ── shared tasks, defined per project in moon 2.x ──────────────────────────
+  # These three used to live in `.moon/tasks.yml` and be inherited. moon 2.6.0
+  # does not inherit them, and every opt-in path failed (see the note in
+  # .moon/tasks.yml). They are duplicated in apps/frontend/moon.yml instead:
+  # four task definitions beat a graph that does not execute.
+  #
+  # The backend lints at `--diagnostic-level=error`, so warnings do not fail it.
+  # The frontend deliberately uses biome's DEFAULT severity. Three tools, three
+  # contracts: unifying them would either weaken the backend gate or make the
+  # backend fail on a frontend-only plugin.
+  typecheck:
+    inputs:
+      - '@globs(ts)'
+      - 'tsconfig.json'
+      - 'tsconfig.base.json'
+    command: 'tsc --noEmit'
+
+  lint:
+    inputs:
+      - '@globs(ts)'
+      - 'biome.json'
+    command: 'biome check --diagnostic-level=error .'
+
+  format:
+    inputs:
+      - '@globs(ts)'
+      - 'biome.json'
+    command: 'biome format --write .'
+    options:
+      cache: false
+
+  # Only the backend has tests today — 29 files, 11 of them real-Postgres
+  # integration tests that truncate shared tables. `vitest.config.ts` sets
+  # `fileParallelism: false` for exactly that reason; do not "optimise" it away.
+  test:
+    inputs:
+      - '@globs(ts)'
+      - '@globs(tests)'
+      - 'vitest.config.ts'
+    command: 'vitest run'
+
   dev:
     command: 'tsx watch src/index.ts'
-    local: true
-    persistent: true
+    # `preset: 'server'`, not `local: true` + `persistent: true`.
+    #
+    # Both of those were moon 1.x fields and moon 2.x rejects them outright —
+    # `local` was deleted in 2.0 (the name read as "host-only" when it actually
+    # meant "persistent server, don't cache"), and `persistent` relocated under
+    # `options`. `preset: 'server'` bundles the whole intent: cache off,
+    # outputStyle stream, persistent on, runInCI off.
+    #
+    # This file never parsed under moon 2 until now. The migration validated the
+    # task graph as YAML plus individually-run commands, so the breakage sat
+    # invisible until the CLI was actually installed.
+    preset: 'server'
 
   build:
     inputs:
@@ -18,13 +87,13 @@ tasks:
     # Node's native ESM loader rejects outright (ERR_MODULE_NOT_FOUND). The
     # Dockerfile historically ran bare `tsc` and skipped this step, which is why
     # it could not faithfully build the backend.
-    command: 'tsc && node scripts/fix-imports.mjs'
+    script: 'tsc && node scripts/fix-imports.mjs'
 
   # The characterization + P1a harnesses. They need a REAL database, so they
   # bypass `tests/setup-env.ts` (which deliberately points DATABASE_URL at a
   # dead port so a unit test cannot open a pool). Kept out of `test` so the unit
   # suite stays hermetic and runnable with no services.
-  test:integration:
+  test-integration:
     inputs:
       - '@globs(ts)'
       - 'tests/integration/**'
@@ -32,4 +101,29 @@ tasks:
     outputs:
       - '.moon/cache/test-integration'
     command: 'tsx tests/integration/characterize-repositories.ts --check'
-    local: true
+    # Same 1.x → 2.x fix as `dev` above. This task is NOT a server: it is a
+    # one-shot harness that needs a real database. What it needs from the old
+    # `local: true` is only "don't cache it" — the run talks to Postgres, and a
+    # cached result would hide a changed database. `options.cache: false` is the
+    # precise expression of that; `preset: 'server'` would wrongly mark it
+    # persistent and stream its output.
+    options:
+      cache: false
+
+  # Migration drift gate (skill §5): schema.ts and drizzle/migrations/ must move
+  # together. Exits 1 on drift, 2 when the baseline snapshot is missing.
+  #
+  # NOT part of `test` on purpose. It currently exits 2 by design — the repo has
+  # no `meta/0000_snapshot.json`, so the gate cannot yet evaluate drift. Folding
+  # a guaranteed failure into the test suite would block every PR; keeping it a
+  # separate task surfaces the real blocker without pretending CI is green.
+  db-check:
+    inputs:
+      - 'src/shared/database/schema.ts'
+      - 'drizzle/migrations/**'
+      - 'scripts/check-migration-drift.sh'
+    outputs:
+      - '.moon/cache/db-check'
+    command: 'bash scripts/check-migration-drift.sh'
+    options:
+      cache: false

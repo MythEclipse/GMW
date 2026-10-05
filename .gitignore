@@ -28,6 +28,12 @@ findings.md
 progress.md
 task_plan.md
 
+# `.moon/` used to be ignored wholesale, which made the ENTIRE task graph
+# untracked. That is why the moon 1.x -> 2.x breakage survived the migration
+# unnoticed: the configs that never parsed were not in version control at all.
+# The task configs must be committed; only the cache is generated.
+.moon/cache/
+
 # TanStack Router generates this from src/routes on every build.
 # Committing it would make every route change produce a second diff hunk and
 # merge conflicts on a machine-written file.

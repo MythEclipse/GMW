@@ -76,4 +76,27 @@ jobs:
         run: moon run :build
 
       - name: Design lint (frontend only)
-        run: moon run frontend:lint:design
+        run: moon run frontend:lint-design
+
+      # Migration drift gate (skill §5).
+      #
+      # NOT yet a blocking gate, and `continue-on-error` is deliberate rather
+      # than a shrug. This step currently exits 2 by design:
+      # `drizzle/migrations/meta/0000_snapshot.json` does not exist, because the
+      # baseline was captured with `pg_dump --schema-only` rather than generated
+      # by drizzle-kit. Without that snapshot drizzle-kit cannot diff schema.ts
+      # and emits a migration re-CREATing all 20 tables (verified 2026-10-05:
+      # `0001_heavy_molly_hayes.sql`, 325 lines of CREATE TABLE). Synthesising the
+      # snapshot from schema.ts is NOT safe yet — schema.ts declares 0 check()
+      # constraints and 0 SQL functions, while the live baseline has 6 CHECKs and
+      # 2 functions, one of which (`claim_messages`) is the worker's queue
+      # primitive. A snapshot taken from schema.ts today would record those as
+      # absent and the next real generate would DROP them.
+      #
+      # To make this blocking: port the 6 CHECK constraints and 2 functions into
+      # schema.ts, regenerate the snapshot, then delete the `continue-on-error`
+      # below. Until then this surfaces the blocker on every run instead of
+      # pretending the rule is enforced.
+      - name: Migration drift check
+        run: moon run backend:db-check
+        continue-on-error: true

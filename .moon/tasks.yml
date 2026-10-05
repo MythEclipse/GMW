@@ -1,83 +1,38 @@
 $schema: 'https://moonrepo.dev/schemas/tasks.json'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# THIS FILE NO LONGER DEFINES TASKS. It is intentionally near-empty.
+#
+# The 1.x setup defined `typecheck`, `lint`, `format`, `test` here and had both
+# projects inherit them. moon 2.x broke that: root-defined tasks are not
+# inherited by projects unless a project explicitly opts in, and the opt-in
+# paths all failed against 2.6.0 —
+#
+#   extends: '<same name>'   → stack overflow in the CLI (self-referential)
+#   extends: 'global'        → "extending an unknown task global"
+#   .moon/tasks/*.yml        → schema rejects the directory form
+#   fileGroups at root       → project::unknown_file_group (2.x resolves a group
+#                              against the referencing project, not the root)
+#
+# So each project now declares its own tasks, and the root `package.json`
+# aggregates them by target (`:typecheck` still means "both projects"). The
+# trade-off is duplication of ~4 task definitions between two moon.yml files;
+# the cost of the alternative is a task graph that does not execute at all.
+#
+# WHAT IS STILL HERE: the two fileGroups. They are duplicated per project for
+# the same resolution reason — a root group is invisible to `backend` and
+# `frontend`.
+# ─────────────────────────────────────────────────────────────────────────────
+
 fileGroups:
   ts:
-    globs:
-      - '**/*.ts'
-      - '**/*.tsx'
-    exclude:
-      - '**/dist/**'
-      - '**/node_modules/**'
-      - '**/routeTree.gen.ts'
-
+    - '**/*.ts'
+    - '**/*.tsx'
+    - '!**/dist/**'
+    - '!**/node_modules/**'
+    - '!**/routeTree.gen.ts'
   tests:
-    globs:
-      - '**/*.test.ts'
-      - 'tests/**'
-      - 'tests-gateway/**'
-    exclude:
-      - '**/node_modules/**'
-
-# ── typecheck ────────────────────────────────────────────────────────────────
-typecheck:
-  inputs:
-    - '@globs(ts)'
-    - 'tsconfig.json'
-    - 'tsconfig.base.json'
-  outputs:
-    - '.moon/cache/typecheck'
-  command: 'tsc --noEmit'
-
-# ── lint ─────────────────────────────────────────────────────────────────────
-# THREE lint definitions exist and they stay three, because they are three
-# different tools enforcing three different contracts:
-#
-#   backend   biome at --diagnostic-level=error  (errors fail, warnings don't)
-#   frontend  biome at its default severity
-#   frontend  oxlint, running @shadcn/lint — keeps Tailwind classes on the
-#             shadcn theme instead of raw colors and arbitrary values
-#
-# Unifying them would mean either weakening the backend's gate or making the
-# backend fail on a frontend-only plugin. Neither is worth the tidiness.
-lint:
-  inputs:
-    - '@globs(ts)'
-    - 'biome.json'
-  outputs:
-    - '.moon/cache/lint'
-  command: 'biome check .'
-
-# Frontend-only, and deliberately NOT part of any root aggregate: including it
-# would make the backend task depend on a tool it does not have.
-lint:design:
-  local: true
-  inputs:
-    - '@globs(ts)'
-    - '.oxlintrc.json'
-  outputs:
-    - '.moon/cache/lint-design'
-  command: 'oxlint'
-
-# ── format ───────────────────────────────────────────────────────────────────
-format:
-  inputs:
-    - '@globs(ts)'
-    - 'biome.json'
-  outputs:
-    - '.moon/cache/format'
-  command: 'biome format --write .'
-  local: true
-
-# ── test ─────────────────────────────────────────────────────────────────────
-# Only the backend has tests today — 29 files, and 11 of them are real-Postgres
-# integration tests that truncate shared tables. `vitest.config.ts` sets
-# `fileParallelism: false` for that reason; do not "optimise" it away.
-test:
-  inputs:
-    - '@globs(ts)'
+    - '**/*.test.ts'
     - 'tests/**'
     - 'tests-gateway/**'
-    - 'vitest.config.ts'
-  outputs:
-    - '.moon/cache/test'
-  command: 'vitest run'
+    - '!**/node_modules/**'

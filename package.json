@@ -7,13 +7,14 @@
   "scripts": {
     "typecheck": "moon run :typecheck",
     "lint": "moon run :lint",
-    "lint:design": "moon run frontend:lint:design",
+    "lint:design": "moon run frontend:lint-design",
     "format": "moon run :format",
     "test": "moon run :test",
     "build": "moon run :build",
     "dev": "moon run :dev"
   },
   "devDependencies": {
+    "@moonrepo/cli": "^2.6.0",
     "@types/bun": "latest"
   },
   "packageManager": "pnpm@10.33.2",
