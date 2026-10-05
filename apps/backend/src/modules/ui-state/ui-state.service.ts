@@ -1,5 +1,7 @@
+import { asc } from "drizzle-orm";
+import { getDatabase } from "@/shared/database/drizzle";
+import { uiStateTable } from "@/shared/database/schema";
 import { createChildLogger } from "@/shared/logger/index";
-import { getDatabase } from "../../shared/database/index.js";
 
 const logger = createChildLogger("ui-state.service");
 
@@ -8,9 +10,10 @@ export class UiStateService {
     const db = getDatabase();
     logger.debug("Fetching UI state");
 
-    const rows = await db.ui_state.findMany({
-      orderBy: { key: "asc" },
-    });
+    const rows = await db
+      .select()
+      .from(uiStateTable)
+      .orderBy(asc(uiStateTable.key));
 
     const result: Record<string, unknown> = {};
     for (const row of rows) {
@@ -34,11 +37,16 @@ export class UiStateService {
       const serialized =
         typeof value === "string" ? value : JSON.stringify(value);
 
-      await db.ui_state.upsert({
-        where: { key },
-        create: { key, value: serialized, updated_at: BigInt(now) },
-        update: { value: serialized, updated_at: BigInt(now) },
-      });
+      // Was Prisma's `upsert({where, create, update})`; Drizzle's equivalent is
+      // `onConflictDoUpdate`, which states the same single-statement intent
+      // rather than a read-then-write race.
+      await db
+        .insert(uiStateTable)
+        .values({ key, value: serialized, updated_at: now })
+        .onConflictDoUpdate({
+          target: uiStateTable.key,
+          set: { value: serialized, updated_at: now },
+        });
     }
 
     return await this.getState();

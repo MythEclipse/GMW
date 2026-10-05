@@ -1,5 +1,6 @@
+import { sql } from "drizzle-orm";
+import { getDatabase } from "@/shared/database/drizzle";
 import { createChildLogger } from "@/shared/logger/index";
-import { getDatabase } from "../../shared/database/index.js";
 
 const logger = createChildLogger("health.repository");
 
@@ -7,8 +8,10 @@ export class HealthRepository {
   async checkDatabaseConnection() {
     try {
       logger.debug("Running database health check");
-      const db = getDatabase();
-      await db.$queryRaw`SELECT 1`;
+      // Drizzle's `sql` template, not Prisma's `$queryRaw`. This endpoint is
+      // what deploy-direct.sh probes on every deploy, so it is the first query
+      // ported off Prisma (P1a) — retiring Prisma can no longer break deploys.
+      await getDatabase().execute(sql`SELECT 1`);
       logger.debug("Database health check passed");
       return { connected: true };
     } catch (err: unknown) {

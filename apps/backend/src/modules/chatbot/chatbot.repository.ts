@@ -1,5 +1,7 @@
-import { getDatabase } from "../../shared/database/index.js";
-import { createChildLogger } from "../../shared/logger/index.js";
+import { desc, eq } from "drizzle-orm";
+import { getDatabase } from "@/shared/database/drizzle";
+import { chatbotMessagesTable } from "@/shared/database/schema";
+import { createChildLogger } from "@/shared/logger/index.js";
 
 const logger = createChildLogger("chatbot.repository");
 
@@ -33,14 +35,12 @@ export class ChatbotRepository {
   async saveConversation(input: SaveConversationInput): Promise<void> {
     const db = getDatabase();
 
-    await db.chatbot_messages.create({
-      data: {
-        user_id: input.userId,
-        user_message: input.userMessage,
-        bot_response: input.botResponse,
-        context: (input.context ?? {}) as object,
-        created_at: input.timestamp,
-      },
+    await db.insert(chatbotMessagesTable).values({
+      user_id: input.userId,
+      user_message: input.userMessage,
+      bot_response: input.botResponse,
+      context: input.context ?? {},
+      created_at: input.timestamp,
     });
 
     logger.debug({ userId: input.userId }, "Conversation saved");
@@ -52,11 +52,16 @@ export class ChatbotRepository {
   ): Promise<ChatbotHistoryRow[]> {
     const db = getDatabase();
 
-    const rows = await db.chatbot_messages.findMany({
-      where: { user_id: userId },
-      orderBy: { created_at: "desc" },
-      take: limit,
-    });
+    // Newest-first, then reversed — same shape as the Prisma query it
+    // replaces. The reverse is load-bearing: the UI renders oldest-to-newest,
+    // so selecting ascending and reversing would keep the OLDEST `limit` rows
+    // instead of the newest.
+    const rows = await db
+      .select()
+      .from(chatbotMessagesTable)
+      .where(eq(chatbotMessagesTable.user_id, userId))
+      .orderBy(desc(chatbotMessagesTable.created_at))
+      .limit(limit);
 
     logger.debug({ userId, count: rows.length }, "Chat history fetched");
     return rows.reverse() as unknown as ChatbotHistoryRow[];
@@ -65,11 +70,17 @@ export class ChatbotRepository {
   async clearChatHistory(userId: string): Promise<void> {
     const db = getDatabase();
 
-    const deleted = await db.chatbot_messages.deleteMany({
-      where: { user_id: userId },
-    });
+    // Prisma's `deleteMany` returned `{count}`; Drizzle's `delete` returns the
+    // rows it removed, so the count is taken from the returning clause.
+    const deleted = await db
+      .delete(chatbotMessagesTable)
+      .where(eq(chatbotMessagesTable.user_id, userId))
+      .returning({ id: chatbotMessagesTable.id });
 
-    logger.info({ userId, deletedRows: deleted.count }, "Chat history cleared");
+    logger.info(
+      { userId, deletedRows: deleted.length },
+      "Chat history cleared",
+    );
   }
 }
 

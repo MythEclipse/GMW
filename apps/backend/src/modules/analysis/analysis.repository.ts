@@ -1,9 +1,11 @@
-import { getDatabase } from "../../shared/database/index.js";
-import { createChildLogger } from "../../shared/logger/index.js";
+import { and, desc, eq, ilike } from "drizzle-orm";
+import { getDatabase } from "@/shared/database/drizzle";
+import { messagesTable } from "@/shared/database/schema";
+import { createChildLogger } from "@/shared/logger/index.js";
 import {
   type MappedMessage,
   mapMessageRow,
-} from "../../shared/utils/messageMapper.js";
+} from "@/shared/utils/messageMapper.js";
 
 const logger = createChildLogger("analysis.repository");
 
@@ -24,16 +26,23 @@ export class AnalysisRepository {
 
     logger.debug({ q, channelId, guildId, limit }, "Searching analysis");
 
-    const rows = await db.messages.findMany({
-      where: {
-        content: { contains: q, mode: "insensitive" },
-        ...(guildId ? { guild_id: guildId } : {}),
-        ...(channelId ? { channel_id: channelId } : {}),
-      },
-      orderBy: { created_at: "desc" },
-      take: limit,
-    });
+    // `ilike` replaces Prisma's `{contains, mode: "insensitive"}`. An empty
+    // search string must still match every row, so it stays in the WHERE
+    // clause as `%%` rather than being dropped — same result set, one less
+    // special case than Prisma's `contains: ""` needed.
+    const conditions = [ilike(messagesTable.content, `%${q}%`)];
+    if (guildId) conditions.push(eq(messagesTable.guild_id, guildId));
+    if (channelId) conditions.push(eq(messagesTable.channel_id, channelId));
 
+    const rows = await db
+      .select()
+      .from(messagesTable)
+      .where(and(...conditions))
+      .orderBy(desc(messagesTable.created_at))
+      .limit(limit);
+
+    // `mapMessageRow` is ORM-agnostic: it reads a plain record and coerces the
+    // bigint columns itself, so the Drizzle row needs no reshaping first.
     return rows.map((r) => mapMessageRow(r as Record<string, unknown>));
   }
 }
