@@ -190,6 +190,60 @@ function isLookable(word: string): boolean {
 }
 
 /**
+ * The spans worth looking up in one message: longest-match phrases first,
+ * then single content words for whatever tokens remain.
+ *
+ * Framed Indonesian meaning lives in multi-word headwords — "kambing hitam"
+ * is a person unfairly blamed, not a goat that is black, and "rumah sakit"
+ * is one institution, not a house and an illness. Splitting on whitespace
+ * first throws that meaning away before the dictionary ever sees it.
+ *
+ * Greedy longest-match: at each token position, try the widest window that
+ * is a known phrase before falling back to the single token. A phrase and
+ * its first token cannot both win — they would be two rows for one span,
+ * and the definition of the single token would contradict the phrase's.
+ * Overlapping phrases ("mata kaki" vs "kaki") resolve to the longest,
+ * which is the one KBBI actually defines as a unit.
+ *
+ * `phrases` is the service's own headword list, lowercase, tokens joined by
+ * single spaces — the same normal form `tokenize` produces, so comparison
+ * is exact set membership, no fuzzy matching.
+ */
+export function extractSpans(
+  text: string | null | undefined,
+  phrases: ReadonlySet<string>,
+  limit: number,
+): string[] {
+  if (!text || limit <= 0) return [];
+  const tokens = tokenize(text);
+  const spans: string[] = [];
+  const seen = new Set<string>();
+  let i = 0;
+  while (i < tokens.length && spans.length < limit) {
+    let matched = false;
+    for (let width = Math.min(4, tokens.length - i); width >= 2; width--) {
+      const candidate = tokens.slice(i, i + width).join(" ");
+      if (!phrases.has(candidate)) continue;
+      if (!seen.has(candidate)) {
+        seen.add(candidate);
+        spans.push(candidate);
+      }
+      i += width;
+      matched = true;
+      break;
+    }
+    if (matched) continue;
+    const token = tokens[i] as string;
+    if (isLookable(token) && !seen.has(token)) {
+      seen.add(token);
+      spans.push(token);
+    }
+    i += 1;
+  }
+  return spans;
+}
+
+/**
  * The words in one message worth looking up, in order of first appearance.
  *
  * `limit` bounds a single message. A long message holds far more distinct words
@@ -202,8 +256,14 @@ function isLookable(word: string): boolean {
 export function selectDictionaryWords(
   text: string | null | undefined,
   limit: number,
+  phrases?: ReadonlySet<string>,
 ): string[] {
   if (!text || limit <= 0) return [];
+  // With a phrase index, phrase-first selection replaces the flat word list.
+  // Every existing caller that does not pass `phrases` keeps the old
+  // behaviour, so the stoplist/limit tests below pin the fallback, not a new
+  // semantic.
+  if (phrases) return extractSpans(text, phrases, limit);
 
   const seen = new Set<string>();
   const words: string[] = [];
@@ -229,9 +289,14 @@ export function selectBatchDictionaryWords(
   texts: readonly (string | null | undefined)[],
   perMessageLimit: number,
   batchLimit: number,
+  phrases?: ReadonlySet<string>,
 ): string[] {
-  return selectBatchDictionaryWordPlan(texts, perMessageLimit, batchLimit)
-    .batch;
+  return selectBatchDictionaryWordPlan(
+    texts,
+    perMessageLimit,
+    batchLimit,
+    phrases,
+  ).batch;
 }
 
 /**
@@ -248,6 +313,7 @@ export function selectBatchDictionaryWordPlan(
   texts: readonly (string | null | undefined)[],
   perMessageLimit: number,
   batchLimit: number,
+  phrases?: ReadonlySet<string>,
 ): { perMessage: Map<string, string[]>; batch: string[] } {
   const perMessage = new Map<string, string[]>();
   const seen = new Set<string>();
@@ -256,7 +322,7 @@ export function selectBatchDictionaryWordPlan(
 
   texts.forEach((text, index) => {
     const chosen: string[] = [];
-    for (const word of selectDictionaryWords(text, perMessageLimit)) {
+    for (const word of selectDictionaryWords(text, perMessageLimit, phrases)) {
       // Break, not filter: the budget must be consumed as the list is built,
       // or every candidate of the message that fills it is admitted at once.
       if (chosen.length >= batchLimit - batch.length) break;

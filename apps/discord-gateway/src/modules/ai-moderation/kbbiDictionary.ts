@@ -218,6 +218,54 @@ export class KbbiDictionary {
   /** Clear the word definition cache (used by tests or hot reloads). */
   clearCache(): void {
     this.cache.clear();
+    this.phraseCache = null;
+  }
+
+  private phraseCache: ReadonlySet<string> | null = null;
+
+  /**
+   * Every phrase headword the service knows, fetched once and cached.
+   *
+   * The selection layer needs the full set to match multi-word spans in a
+   * message — asking the service per candidate span would be one request per
+   * token window, which is the exact latency blow-up the batch lookup was
+   * built to avoid. The list is built from `/api/phrases`; a service without
+   * that route names no phrases and phrase-first selection silently degrades
+   * to the old whole-word-only behaviour.
+   *
+   * Returns an empty set on any failure — grounding is an enhancement, never
+   * a blocker — and `consulted` is NOT set: a phrase-list failure must not
+   * tell the worker the service had anything to say about words either.
+   */
+  async phrases(): Promise<ReadonlySet<string>> {
+    if (this.phraseCache) return this.phraseCache;
+    const url = `${this.cfg.baseUrl.replace(/\/+$/, "")}/api/phrases`;
+    try {
+      const response = await this.fetchImpl(url, {
+        signal: AbortSignal.timeout(this.cfg.timeoutMs),
+        headers: { accept: "application/json" },
+      });
+      if (!response.ok) {
+        log.warn(
+          { status: response.status },
+          "kbbi phrase list unavailable — phrase-first selection off",
+        );
+        return new Set();
+      }
+      const payload = (await response.json()) as { phrases?: unknown };
+      const list = Array.isArray(payload.phrases)
+        ? payload.phrases.filter((p): p is string => typeof p === "string")
+        : [];
+      const set = new Set(list);
+      this.phraseCache = set;
+      return set;
+    } catch (e) {
+      log.warn(
+        { err: e instanceof Error ? e.message : String(e) },
+        "kbbi phrase list fetch failed — phrase-first selection off",
+      );
+      return new Set();
+    }
   }
 
   private cacheSet(word: string, entry: DictionaryEntry | null): void {

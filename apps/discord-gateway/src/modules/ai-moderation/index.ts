@@ -7,6 +7,7 @@
  */
 
 export {
+  extractSpans,
   selectBatchDictionaryWords,
   selectDictionaryWords,
 } from "./dictionary-words.js";

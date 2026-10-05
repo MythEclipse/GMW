@@ -1453,6 +1453,12 @@ export class ModerationWorker {
     if (!this.dictionary) return EMPTY_DICTIONARY_LOOKUP;
     const { maxWords, maxWordsPerMessage } = this.dictionary.limits;
 
+    // Phrase-first selection needs the service's phrase list once per batch.
+    // On any failure it degrades to the empty set, which makes
+    // `selectBatchDictionaryWordPlan` fall back to whole-word selection — the
+    // exact behaviour before phrases were supported.
+    const phrases = await this.dictionary.phrases();
+
     // Only words that actually reach the batch are recorded against a message.
     // Recording every message's candidates while the budget is full claimed the
     // KBBI "does not know" words that were never sent, and `formatDefinitions`
@@ -1465,6 +1471,7 @@ export class ModerationWorker {
       messages.map((m) => m.content),
       maxWordsPerMessage,
       maxWords,
+      phrases,
     );
     if (perMessage.size === 0 || batch.length === 0)
       return EMPTY_DICTIONARY_LOOKUP;

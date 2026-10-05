@@ -360,6 +360,9 @@ pesan yang sedang dinilai. Muncul DI DALAM blok <message> itu sendiri, jadi
 setiap definisi milik pesan itu, bukan milik pesan lain di batch.
 
 Definisi ini adalah satu-satunya rujukan makna yang boleh kamu pakai.
+Entri bisa satu kata atau frasa banyak-kata ("kambing hitam", "rumah
+sakit"); makna frasa sering berbeda dari kata-kata penyusunnya, jadi pakai
+definisi frasa untuk seluruh span itu, bukan potongan kata per kata.
 
 - Pakai definisi untuk APA yang ditulis pengirim. Kalau pesan memakai kata
   dengan makna yang berbeda dari kamus, itu informasi penting: kata itu dipakai

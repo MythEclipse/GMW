@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  extractSpans,
   selectBatchDictionaryWordPlan,
   selectBatchDictionaryWords,
   selectDictionaryWords,
@@ -75,6 +76,115 @@ const CFG: DictionaryConfig = {
 
 // ── word selection ───────────────────────────────────────────────────────────
 
+// ── phrase-first selection ──────────────────────────────────────────────────
+
+describe("extractSpans", () => {
+  const PHRASES = new Set([
+    "kambing hitam",
+    "rumah sakit",
+    "naik daun",
+    "mata kaki",
+    "kepala dingin",
+  ]);
+
+  it("matches a multi-word headword as one span instead of its words", () => {
+    expect(extractSpans("dia jadi kambing hitam di tim", PHRASES, 8)).toEqual([
+      "kambing hitam",
+      "tim",
+    ]);
+  });
+
+  it("longest match wins when a phrase overlaps a shorter one", () => {
+    const spans = extractSpans("matanya bengkak di mata kaki", PHRASES, 8);
+    expect(spans).toContain("mata kaki");
+    // The tokens covered by the phrase are consumed as a unit — "mata" must
+    // not reappear as a free-standing word for the same span.
+    expect(spans.filter((s) => s === "mata")).toHaveLength(0);
+  });
+
+  it("falls back to single words when no phrase applies", () => {
+    // "kamu" is in the stoplist, so it drops out of the word-only tail.
+    expect(extractSpans("kamu kontol anjir", PHRASES, 8)).toEqual([
+      "kontol",
+      "anjir",
+    ]);
+  });
+
+  it("drops stoplist words in the word-only tail", () => {
+    expect(extractSpans("yang kambing hitam", PHRASES, 8)).toEqual([
+      "kambing hitam",
+    ]);
+  });
+
+  it("dedupes a phrase repeated in one message", () => {
+    // "dan"/"lain" are in the stoplist, so only the phrase survives.
+    expect(
+      extractSpans("rumah sakit dan rumah sakit lain", PHRASES, 8),
+    ).toEqual(["rumah sakit"]);
+  });
+
+  it("honours the limit", () => {
+    expect(
+      extractSpans("kambing hitam rumah sakit naik daun", PHRASES, 2),
+    ).toHaveLength(2);
+  });
+});
+
+describe("selectDictionaryWords with a phrase index", () => {
+  it("carries phrases straight through the selection cap", () => {
+    const phrases = new Set(["rumah sakit"]);
+    // "ke" and "sini" — "ke" is stoplist, "sini" is not... "sini" is not in the
+    // stoplist, so it survives; the phrase replaces "rumah" and "sakit".
+    expect(
+      selectDictionaryWords("ke sini ke rumah sakit kawan", 4, phrases),
+    ).toEqual(["sini", "rumah sakit", "kawan"]);
+  });
+});
+
+describe("KbbiDictionary.phrases", () => {
+  it("fetches /api/phrases once and caches it", async () => {
+    let calls = 0;
+    const kbbi = new KbbiDictionary(CFG, ((url: string) => {
+      calls += 1;
+      if (String(url).includes("/api/phrases")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ phrases: ["kambing hitam", "rumah sakit"] }),
+            { status: 200 },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ results: [] }), { status: 200 }),
+      );
+    }) as typeof fetch);
+
+    const first = await kbbi.phrases();
+    expect(first.has("kambing hitam")).toBe(true);
+    expect(calls).toBe(1);
+    const second = await kbbi.phrases();
+    expect(calls).toBe(1);
+    expect(second).toBe(first);
+  });
+
+  it("degrades to an empty set when the route is missing", async () => {
+    const kbbi = new KbbiDictionary(CFG, (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: "not found" }), {
+          status: 404,
+        }),
+      )) as typeof fetch);
+    const phrases = await kbbi.phrases();
+    expect(phrases.size).toBe(0);
+  });
+
+  it("degrades to an empty set when the service is down", async () => {
+    const kbbi = new KbbiDictionary(CFG, (() =>
+      Promise.reject(new Error("ECONNREFUSED"))) as typeof fetch);
+    expect((await kbbi.phrases()).size).toBe(0);
+  });
+});
+
 describe("selectDictionaryWords", () => {
   it("keeps content words and drops function words", () => {
     const words = selectDictionaryWords("dasar goblok otak kamu cok", 8);
@@ -126,6 +236,14 @@ describe("selectDictionaryWords", () => {
 });
 
 describe("selectBatchDictionaryWords", () => {
+  it("keeps the old word-only behaviour when no phrase index is given", () => {
+    // Every caller that does not pass the new argument keeps the semantic the
+    // stoplist/limit tests above pin — the phrase list is strictly additive.
+    expect(
+      selectBatchDictionaryWords(["biji dressings", "biji lagi makan"], 8, 24),
+    ).toEqual(["biji", "dressings", "makan"]);
+  });
+
   it("deduplicates across messages", () => {
     // "lagi" is in the stoplist, so it is not a candidate at all.
     expect(
