@@ -14,6 +14,13 @@ process.env.DISCORD_TOKEN = "test-discord-token"
 process.env.DATABASE_URL = "postgres://localhost:6432/test"
 process.env.AI_ANALYSIS_ENABLED = "true"
 process.env.AI_LLM_API_KEY = "sk-test"
+
+// loadConfig() refuses to boot when NODE_ENV=production and MUTATION_TOKEN is
+// missing or under 16 chars. This shell exports NODE_ENV=production, so without
+// this line every test importing the config singleton dies at import time —
+// which reads as a config bug rather than an env-setup one. Synthetic and ≥16
+// chars, satisfying the production rule instead of bypassing it.
+process.env.MUTATION_TOKEN = "test-mutation-token-0123456789"
 // Deterministic exclusion list so the capture-filter tests do not depend on
 // the host environment.
 process.env.EXCLUDED_CHANNEL_IDS = "blocked-chan,blocked-chan-2"

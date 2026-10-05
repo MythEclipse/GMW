@@ -10,6 +10,7 @@ import { messagesService } from "../modules/messages/messages.service"
 import { moderationService } from "../modules/moderation/moderation.service"
 import { uiStateService } from "../modules/ui-state/ui-state.service"
 import { config } from "../shared/config/index"
+import { mutationProcedure } from "./mutation-guard"
 
 // ── Dashboard ────────────────────────────────────────────────────
 const dashboardRouter = {
@@ -283,7 +284,7 @@ const chatbotRouter = {
 			const history = await chatbotService.getChatHistory(userId, input.limit)
 			return { history, total: history.length }
 		}),
-	clearHistory: os
+	clearHistory: mutationProcedure
 		.input(z.object({ userId: z.string().optional() }))
 		.handler(async ({ input }) => {
 			const userId = input.userId ?? "anonymous"
@@ -329,9 +330,14 @@ const configRouter = {
 }
 
 // ── UI State ──────────────────────────────────────────────────────
+// `get` stays public — it is a read. `update` is one of exactly TWO procedures
+// that write to the database, and it was reachable by anyone who could reach
+// the port: `z.record(z.string(), z.unknown())` accepted arbitrary keys, so a
+// single unauthenticated POST wrote whatever the caller liked. It now requires
+// x-mutation-token. See orpc/mutation-guard.ts.
 const uiStateRouter = {
 	get: os.handler(() => uiStateService.getState()),
-	update: os
+	update: mutationProcedure
 		.input(z.record(z.string(), z.unknown()))
 		.handler(({ input }) => uiStateService.updateState(input)),
 }

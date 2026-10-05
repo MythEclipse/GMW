@@ -34,7 +34,23 @@ export function createORPCWebSocketServer(server: Server): WebSocketServer {
 	server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
 		if (!req.url?.startsWith("/trpc")) return // let the /ws server handle it
 		wss.handleUpgrade(req, socket, head, (ws) => {
-			handler.upgrade(ws, { context: {} })
+			// Was `context: {}`. The write guard reads `x-mutation-token` off the
+			// context headers, so this transport needs them for parity with the
+			// HTTP one in http/app.ts — otherwise a mutation sent over the socket
+			// is rejected even with a valid token and the two transports disagree.
+			//
+			// Node's IncomingMessage.headers is a flat record; the WHATWG Headers
+			// the guard expects is built here, joining repeated names the way
+			// fetch does.
+			const headers = new Headers()
+			for (const [key, value] of Object.entries(req.headers)) {
+				if (value === undefined) continue
+				headers.set(
+					key,
+					Array.isArray(value) ? value.join(", ") : String(value),
+				)
+			}
+			handler.upgrade(ws, { context: { headers } })
 		})
 	})
 

@@ -117,6 +117,24 @@ export const configSchema = z
 		// is what nginx proxies and what CI's health check probes.
 		WEBSERVER_PORT: z.coerce.number().positive().default(3001),
 
+		// ── Write authorization ──────────────────────────────────────────────
+		// The dashboard is intentionally PUBLIC (see the note in http/app.ts):
+		// every read procedure is unauthenticated because nginx restricts the
+		// surface and there is no user model. That is defensible for reads and
+		// indefensible for writes — an unauthenticated `POST /trpc/uiState.update`
+		// lets anyone reaching the port write arbitrary keys into the database.
+		//
+		// So writes are gated on a shared secret rather than a user model, which is
+		// the smallest change that actually closes the hole. Empty means "no writes
+		// are accepted"; it does NOT mean "allow writes without a token".
+		//
+		// Required in production and enforced in loadConfig() below — an empty
+		// token in production would silently re-open what this closes.
+		//
+		// NOT exposed by the config.get procedure, which enumerates keys
+		// explicitly; keep it that way if that handler is ever widened to a spread.
+		MUTATION_TOKEN: z.string().default(""),
+
 		WEBHOOK_URLS: z
 			.string()
 			.default("")
@@ -448,6 +466,25 @@ export type AppConfig = z.infer<typeof configSchema> & {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 	try {
 		const parsed = configSchema.parse(env)
+
+		// MUTATION_TOKEN gates every write procedure. Failing closed in production
+		// is deliberate: an operator who forgets to set it should get a refusal to
+		// boot, not a silently public write endpoint. Development and test keep the
+		// empty default so `pnpm dev` and the hermetic unit suite work unchanged.
+		//
+		// Checked here rather than in the middleware so the failure names the
+		// missing variable instead of surfacing as a 403 nobody can explain.
+		if (
+			parsed.NODE_ENV === "production" &&
+			parsed.MUTATION_TOKEN.trim().length < 16
+		) {
+			throw new ConfigError(
+				"MUTATION_TOKEN is required in production and must be at least 16 characters.\n" +
+					"Every write procedure (uiState.update, chatbot.clearHistory) is unauthenticated without it.\n" +
+					"Generate one with: openssl rand -hex 32",
+			)
+		}
+
 		return {
 			...parsed,
 			EFFECTIVE_TEXT_GUILD_ID: parsed.TEXT_GUILD_ID ?? parsed.MONITOR_GUILD_ID,

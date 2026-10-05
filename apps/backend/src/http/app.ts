@@ -93,7 +93,11 @@ export function createHttpApp(): Hono {
 		// which is what the Express version's `next()` reached.
 		const { matched, response } = await orpcHandler.handle(c.req.raw, {
 			prefix: "/trpc",
-			context: {},
+			// Was `context: {}`. The write guard (orpc/mutation-guard.ts) reads
+			// `x-mutation-token` off these headers, and an empty object narrowed the
+			// context type to `Record<never, never>` — so `context.headers` did not
+			// typecheck and every mutation would have been rejected at runtime.
+			context: { headers: c.req.raw.headers },
 		})
 		if (!matched) {
 			throw new HTTPException(404)
