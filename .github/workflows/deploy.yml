@@ -36,12 +36,6 @@ jobs:
         with:
           bun-version: 1.4.2
 
-      - name: Generate Prisma client
-        working-directory: packages/db
-        run: |
-          bun install --frozen-lockfile
-          bun run generate
-
       - name: Install deps + test (backend)
         working-directory: apps/backend
         run: |
@@ -95,8 +89,8 @@ jobs:
 
       - name: Deploy via scripts/deploy-direct.sh
         # The heavy lifting lives in scripts/deploy-direct.sh, which runs ON
-        # the VPS: it clones the commit, runs bun install, prisma generate +
-        # compile, tsc build per app, prunes devDeps, installs wrappers +
+        # the VPS: it clones the commit, runs bun install,
+        # tsc build per app, prunes devDeps, installs wrappers +
         # systemd units + nginx config, switches /opt/gmw/current, restarts,
         # and runs a stability-aware health check (systemctl + HTTP probes).
         #

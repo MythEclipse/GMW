@@ -66,11 +66,6 @@ jobs:
       # Apply the Drizzle baseline so the integration tests have tables to
       # truncate. Drizzle owns the schema — there is exactly one baseline and no
       # incremental migrations.
-      - name: Install + generate (packages/db)
-        working-directory: packages/db
-        run: |
-          bun install --frozen-lockfile
-          bun run generate
 
       - name: Install + typecheck + test (backend)
         working-directory: apps/backend

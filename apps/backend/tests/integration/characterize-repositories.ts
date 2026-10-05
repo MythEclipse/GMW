@@ -29,10 +29,6 @@ import {
   closeDrizzleDatabase,
   initializeDatabase,
 } from "../../src/shared/database/drizzle.js";
-import {
-  closeDatabase as closePrisma,
-  initializeDatabase as initializePrisma,
-} from "../../src/shared/database/index.js";
 import { clearFixture, FIXTURE, seedFixture } from "./characterize-fixture.js";
 
 const SNAPSHOT_PATH = fileURLToPath(
@@ -369,12 +365,10 @@ function diff(before: unknown, after: unknown, path = ""): string[] {
 async function main() {
   const mode = process.argv[2] === "--check" ? "check" : "write";
 
-  // BOTH handles, on purpose. These three repositories read through Prisma
-  // (`shared/database/index.ts`); only the FIXTURE uses Drizzle
-  // (`executeAll`). Initialising just one leaves the other throwing
-  // "Database not initialized" and records 35 useless snapshots.
+  // ONE handle. The repositories used to read through Prisma while the fixture
+  // used Drizzle, so this initialised both; Prisma is gone as of P1d and every
+  // read now goes through the same Drizzle handle.
   await initializeDatabase();
-  await initializePrisma();
   await seedFixture();
 
   let actual: Record<string, unknown>;
@@ -384,7 +378,6 @@ async function main() {
     await clearFixture();
   }
   await closeDrizzleDatabase();
-  await closePrisma();
 
   if (mode === "write") {
     writeFileSync(SNAPSHOT_PATH, `${JSON.stringify(actual, null, 2)}\n`);

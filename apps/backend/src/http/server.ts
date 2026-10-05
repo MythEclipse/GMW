@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import { createChildLogger } from "@/shared/logger/index";
 import { createORPCWebSocketServer } from "../orpc/ws.js";
 import { config } from "../shared/config/index.js";
-import { initializeDatabase } from "../shared/database/index.js";
+import { initializeDatabase } from "../shared/database/drizzle.js";
 import { startRedisBridge } from "../ws/redis-bridge.js";
 import { createWebSocketServer } from "../ws/server.js";
 import { createHttpApp } from "./app.js";
@@ -10,6 +10,12 @@ import { createHttpApp } from "./app.js";
 const logger = createChildLogger("http.server");
 
 export async function startHttpServer(): Promise<Server> {
+  // ONE pool now. This used to open the Prisma client for the dashboard's
+  // reads while `gateway/bootstrap.ts` opened the Drizzle pool for writes — two
+  // pools against one database, both at POSTGRES_POOL_MAX, so the process held
+  // twice the connections it needed. The gateway already initialises Drizzle
+  // and every repository now reads through the same handle, so this is the
+  // only initialisation left.
   await initializeDatabase();
 
   const app = createHttpApp();

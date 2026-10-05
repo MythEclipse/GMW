@@ -118,50 +118,6 @@ export HOME="${HOME:-/var/lib/gmw}"
 mkdir -p "$HOME/.bun"
 bun install --frozen-lockfile
 
-log "Generating Prisma client"
-(cd packages/db && bunx prisma generate)
-
-# Node's native ESM loader resolves `import ... from "./enums"` inside the
-# generated .ts files by looking for a literal `.js` sibling (it does not
-# rewrite the specifier to .ts). The Prisma generator emits extension-less
-# relative imports, so we must (a) rewrite the specifiers to `./enums.js` and
-# (b) compile the .ts to .js in place; the runtime then finds the .js files
-# it asks for.
-log "Fixing Prisma generated import specifiers"
-(cd packages/db && node -e "
-const fs = require('fs');
-const path = require('path');
-function walk(dir) {
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, e.name);
-    if (e.isDirectory()) walk(p);
-    else if (e.name.endsWith('.ts')) {
-      const c = fs.readFileSync(p, 'utf8');
-      const n = c.replace(/from\s+['\"]([^'\"]+)['\"]/g, (m, spec) =>
-        ((spec.startsWith('./') || spec.startsWith('../')) &&
-         !/\.(js|ts|json|node|mjs|cjs)$/.test(spec))
-          ? 'from \"' + spec + '.js\"' : m);
-      if (n !== c) fs.writeFileSync(p, n);
-    }
-  }
-}
-walk('prisma/generated');
-console.log('  source specifiers rewritten');
-")
-
-log "Compiling Prisma generated client to JS"
-TSC_BIN=$(find "$RELEASE_DIR/node_modules/.bun" -path '*/typescript/bin/tsc' -type f | head -1)
-if [ -z "$TSC_BIN" ]; then
-  echo "FATAL: typescript compiler not found in release node_modules" >&2
-  exit 1
-fi
-(cd packages/db && "$TSC_BIN" --ignoreConfig \
-  --module esnext --target es2022 --moduleResolution bundler \
-  --outDir prisma/generated \
-  --declaration false --sourceMap false --skipLibCheck --esModuleInterop \
-  --noEmit false \
-  prisma/generated/*.ts prisma/generated/internal/*.ts)
-
 log "Building backend (HTTP + capture + moderation worker)"
 (cd apps/backend && bun run build)
 
@@ -172,7 +128,7 @@ log "Building frontend"
 # 3. Prune devDependencies (keep runtime node_modules lean)
 # ---------------------------------------------------------------------------
 log "Pruning devDependencies"
-for app_dir in apps/backend packages/db; do
+for app_dir in apps/backend; do
   if [ -d "$app_dir/node_modules" ]; then
     find "$app_dir/node_modules" -maxdepth 2 -type d \
       \( -name 'typescript' -o -name '@biomejs' -o -name 'vitest' \
@@ -189,18 +145,7 @@ done
 find node_modules -type l ! -exec test -e {} \; -delete 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 4. Fix workspace symlinks
-# ---------------------------------------------------------------------------
-# apps/backend imports @gmw/db; bun leaves a symlink in node_modules that
-# points to the release checkout. Ensure it resolves after the switch.
-if [ -L "apps/backend/node_modules/@gmw/db" ]; then
-  rm -f "apps/backend/node_modules/@gmw/db"
-  mkdir -p "apps/backend/node_modules/@gmw"
-  ln -sfn "$RELEASE_DIR/packages/db" "apps/backend/node_modules/@gmw/db"
-fi
-
-# ---------------------------------------------------------------------------
-# 5. Install wrappers
+# 4. Install wrappers
 # ---------------------------------------------------------------------------
 log "Installing wrappers to $BIN_DIR"
 sudo mkdir -p "$BIN_DIR"

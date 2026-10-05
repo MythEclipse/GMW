@@ -1,7 +1,9 @@
 {
   "name": "gmw",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "bun run --filter '*' lint",
@@ -9,7 +11,6 @@
     "test": "bun run --filter '*' test"
   },
   "devDependencies": {
-    "prisma": "7.10.0",
     "@types/bun": "latest"
   }
 }

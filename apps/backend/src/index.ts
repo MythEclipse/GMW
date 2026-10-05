@@ -46,7 +46,7 @@ import { createChildLogger } from "@/shared/logger/index";
 import { initializeDiscordGateway } from "./gateway/bootstrap.js";
 import { startHttpServer } from "./http/server.js";
 import { closeDrizzleDatabase } from "./shared/database/drizzle.js";
-import { closeDatabase } from "./shared/database/index.js";
+
 import { stopCommandBridge } from "./shared/redis/index.js";
 import { startModerationWorker } from "./worker/start.js";
 import { stopRedisBridge as stopEventBridge } from "./ws/redis-bridge.js";
@@ -147,17 +147,13 @@ async function shutdown(signal: string): Promise<void> {
     ]);
   });
 
-  await guard("close database pools", async () => {
-    // Two handles on one database: the Prisma client the dashboard reads
-    // through, and the Drizzle pool the gateway and the worker write through.
-    await Promise.allSettled([
-      closeDatabase().catch((err) =>
-        logger.warn({ err }, "closing Prisma pool"),
-      ),
-      closeDrizzleDatabase().catch((err) =>
-        logger.warn({ err }, "closing Drizzle pool"),
-      ),
-    ]);
+  await guard("close database pool", async () => {
+    // One handle now. This closed two pools — the Prisma client the dashboard
+    // read through, and the Drizzle pool the gateway wrote through — both
+    // against the same database, so half of that was redundant.
+    await closeDrizzleDatabase().catch((err) =>
+      logger.warn({ err }, "closing Drizzle pool"),
+    );
   });
 
   clearTimeout(forceExitTimer);
