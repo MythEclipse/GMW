@@ -1,0 +1,83 @@
+$schema: 'https://moonrepo.dev/schemas/tasks.json'
+
+fileGroups:
+  ts:
+    globs:
+      - '**/*.ts'
+      - '**/*.tsx'
+    exclude:
+      - '**/dist/**'
+      - '**/node_modules/**'
+      - '**/routeTree.gen.ts'
+
+  tests:
+    globs:
+      - '**/*.test.ts'
+      - 'tests/**'
+      - 'tests-gateway/**'
+    exclude:
+      - '**/node_modules/**'
+
+# ── typecheck ────────────────────────────────────────────────────────────────
+typecheck:
+  inputs:
+    - '@globs(ts)'
+    - 'tsconfig.json'
+    - 'tsconfig.base.json'
+  outputs:
+    - '.moon/cache/typecheck'
+  command: 'tsc --noEmit'
+
+# ── lint ─────────────────────────────────────────────────────────────────────
+# THREE lint definitions exist and they stay three, because they are three
+# different tools enforcing three different contracts:
+#
+#   backend   biome at --diagnostic-level=error  (errors fail, warnings don't)
+#   frontend  biome at its default severity
+#   frontend  oxlint, running @shadcn/lint — keeps Tailwind classes on the
+#             shadcn theme instead of raw colors and arbitrary values
+#
+# Unifying them would mean either weakening the backend's gate or making the
+# backend fail on a frontend-only plugin. Neither is worth the tidiness.
+lint:
+  inputs:
+    - '@globs(ts)'
+    - 'biome.json'
+  outputs:
+    - '.moon/cache/lint'
+  command: 'biome check .'
+
+# Frontend-only, and deliberately NOT part of any root aggregate: including it
+# would make the backend task depend on a tool it does not have.
+lint:design:
+  local: true
+  inputs:
+    - '@globs(ts)'
+    - '.oxlintrc.json'
+  outputs:
+    - '.moon/cache/lint-design'
+  command: 'oxlint'
+
+# ── format ───────────────────────────────────────────────────────────────────
+format:
+  inputs:
+    - '@globs(ts)'
+    - 'biome.json'
+  outputs:
+    - '.moon/cache/format'
+  command: 'biome format --write .'
+  local: true
+
+# ── test ─────────────────────────────────────────────────────────────────────
+# Only the backend has tests today — 29 files, and 11 of them are real-Postgres
+# integration tests that truncate shared tables. `vitest.config.ts` sets
+# `fileParallelism: false` for that reason; do not "optimise" it away.
+test:
+  inputs:
+    - '@globs(ts)'
+    - 'tests/**'
+    - 'tests-gateway/**'
+    - 'vitest.config.ts'
+  outputs:
+    - '.moon/cache/test'
+  command: 'vitest run'

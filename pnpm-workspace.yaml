@@ -1,0 +1,8 @@
+# Two workspaces, not three.
+#
+# `packages/db` is gone: it existed only to vend the Prisma client, and P1
+# deleted the last consumer of it. This is therefore the first workspace with
+# no cross-package dependency at all — which is also why no `workspace:*` entry
+# survives anywhere, and why the deploy script no longer needs a symlink repair.
+packages:
+  - "apps/*"

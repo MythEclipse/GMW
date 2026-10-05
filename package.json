@@ -5,12 +5,19 @@
     "apps/*"
   ],
   "scripts": {
-    "typecheck": "bun run --filter '*' typecheck",
-    "lint": "bun run --filter '*' lint",
-    "format": "bun run --filter '*' format",
-    "test": "bun run --filter '*' test"
+    "typecheck": "moon run :typecheck",
+    "lint": "moon run :lint",
+    "lint:design": "moon run frontend:lint:design",
+    "format": "moon run :format",
+    "test": "moon run :test",
+    "build": "moon run :build",
+    "dev": "moon run :dev"
   },
   "devDependencies": {
     "@types/bun": "latest"
+  },
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

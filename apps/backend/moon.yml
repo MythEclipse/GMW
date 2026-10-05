@@ -1,0 +1,35 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+tasks:
+  dev:
+    command: 'tsx watch src/index.ts'
+    local: true
+    persistent: true
+
+  build:
+    inputs:
+      - '@globs(ts)'
+      - 'tsconfig.json'
+      - 'tsconfig.base.json'
+    outputs:
+      - 'dist'
+    # `fix-imports.mjs` is not optional. `moduleResolution: bundler` makes tsc
+    # emit extension-less relative specifiers and leave `@/` untouched, which
+    # Node's native ESM loader rejects outright (ERR_MODULE_NOT_FOUND). The
+    # Dockerfile historically ran bare `tsc` and skipped this step, which is why
+    # it could not faithfully build the backend.
+    command: 'tsc && node scripts/fix-imports.mjs'
+
+  # The characterization + P1a harnesses. They need a REAL database, so they
+  # bypass `tests/setup-env.ts` (which deliberately points DATABASE_URL at a
+  # dead port so a unit test cannot open a pool). Kept out of `test` so the unit
+  # suite stays hermetic and runnable with no services.
+  test:integration:
+    inputs:
+      - '@globs(ts)'
+      - 'tests/integration/**'
+      - 'vitest.config.ts'
+    outputs:
+      - '.moon/cache/test-integration'
+    command: 'tsx tests/integration/characterize-repositories.ts --check'
+    local: true

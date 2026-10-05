@@ -1,0 +1,30 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+tasks:
+  dev:
+    command: 'vite'
+    local: true
+    persistent: true
+
+  # Frontend `typecheck` depends on `backend:build`.
+  #
+  # P4 makes the frontend import `AppRouterClient` as a TYPE from the backend,
+  # so its typecheck consumes `apps/backend/dist/*.d.ts`. Expressing that as a
+  # task edge is the point of moving to a task graph: nobody has to remember to
+  # build the backend first, and CI cannot typecheck a missing declaration tree.
+  typecheck:
+    command: 'tsc --noEmit'
+    deps:
+      - 'backend:build'
+
+  build:
+    inputs:
+      - '@globs(ts)'
+      - 'vite.config.ts'
+      - 'tsconfig.json'
+      - 'tsconfig.base.json'
+    outputs:
+      - 'dist'
+    command: 'tsc --noEmit && vite build'
+    deps:
+      - 'backend:build'

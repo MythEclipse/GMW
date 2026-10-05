@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "GMW base",
+  "_comment": [
+    "Shared compiler options only. Each app extends this and declares its own",
+    "target/lib/module/emit settings, because they genuinely differ: the backend",
+    "emits ES2020 Node code with declarations, the frontend bundles ES2022 for",
+    "the browser and never emits.",
+    "",
+    "`paths` is deliberately NOT here. TypeScript resolves `paths` relative to",
+    "the config file that DECLARES it, not the one that extends it — so a shared",
+    "`@/*` in this file would resolve against the repo root instead of each app's",
+    "own src/. Both apps keep that mapping in their own tsconfig.",
+    "",
+    "The backend also keeps `moduleResolution: bundler`, which makes tsc emit",
+    "extension-less relative specifiers. `apps/backend/scripts/fix-imports.mjs`",
+    "rewrites them for Node's ESM loader and is part of the build for that",
+    "reason — see apps/backend/moon.yml."
+  ],
+  "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}
