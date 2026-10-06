@@ -45,6 +45,17 @@ jobs:
 
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/gmw_test
+      # A DB-backed test file that cannot build its isolated schema FAILS the run
+      # rather than skipping. Without this, a missing schema silently skips every
+      # assertion in those files and the suite still reports green — measured at
+      # 21 files skipping against an empty database.
+      #
+      # These files need the schema applied to `gmw_test` before the test step,
+      # which this workflow does NOT yet do. Until it does, expect the test job
+      # to go red with `relation "public.messages" does not exist`; that is the
+      # gate working, not a broken test. Applying the schema safely is blocked on
+      # the missing drizzle baseline snapshot — see the Migration drift check.
+      GMW_REQUIRE_TEST_DB: "1"
 
     steps:
       - name: Checkout

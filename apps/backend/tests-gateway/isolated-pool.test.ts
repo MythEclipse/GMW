@@ -1,6 +1,7 @@
 import pg from "pg"
-import { expect, test } from "vitest"
+import { afterEach, expect, test } from "vitest"
 import {
+	createIsolatedPool,
 	integrationDatabaseUrl,
 	tryCreateIsolatedPool,
 } from "./isolated-pool.js"
@@ -8,19 +9,38 @@ import {
 /**
  * The isolation helper tested against a real Postgres.
  *
- * Skips (rather than fails) when no database is reachable, matching the
- * convention the other gateway tests already use — a developer without Postgres
- * should not see a red suite for an infrastructure reason.
+ * The first three skip (rather than fail) when the schema is unavailable,
+ * matching the convention the other gateway tests use — a developer without
+ * Postgres should not see a red suite for an infrastructure reason. But a skip
+ * that reads as a pass is exactly the failure mode this helper has to avoid, so
+ * a skipped one says so out loud instead of returning a bare `true`.
  *
- * The load-bearing assertion is the second one: a pool whose `search_path` did
- * NOT get pinned would silently truncate the shared `public` tables and
- * reintroduce the exact cross-file corruption this helper exists to prevent.
+ * The load-bearing assertions are the second and third: a pool whose
+ * `search_path` did NOT get pinned would silently truncate the shared `public`
+ * tables and reintroduce the exact cross-file corruption this helper exists to
+ * prevent.
  */
+
+/** Unreachable schema → a visible skip, never a silent one. */
+function skipIfNoSchema(iso: { pool: pg.Pool } | null): iso is null {
+	if (iso) return false
+	console.warn(
+		"[isolated-pool.test] SKIPPED — no test schema available; these assertions did NOT run",
+	)
+	return true
+}
+
+// The strict-mode test sets this; restore it so it cannot leak into other files.
+const originalRequire = process.env.GMW_REQUIRE_TEST_DB
+afterEach(() => {
+	if (originalRequire === undefined) delete process.env.GMW_REQUIRE_TEST_DB
+	else process.env.GMW_REQUIRE_TEST_DB = originalRequire
+})
 
 test("two isolated pools cannot see each other's rows", async () => {
 	const a = await tryCreateIsolatedPool("iso_a")
 	const b = await tryCreateIsolatedPool("iso_b")
-	if (!a || !b) return expect(true).toBe(true)
+	if (skipIfNoSchema(a) || skipIfNoSchema(b)) return
 
 	try {
 		await a.pool.query(
@@ -51,7 +71,7 @@ test("two isolated pools cannot see each other's rows", async () => {
 
 test("a TRUNCATE in an isolated pool leaves public untouched", async () => {
 	const iso = await tryCreateIsolatedPool("iso_trunc")
-	if (!iso) return expect(true).toBe(true)
+	if (skipIfNoSchema(iso)) return
 
 	try {
 		// A sentinel in public, written with an EXPLICIT schema qualification so it
@@ -78,7 +98,7 @@ test("a TRUNCATE in an isolated pool leaves public untouched", async () => {
 
 test("cleanup drops the schema it created", async () => {
 	const iso = await tryCreateIsolatedPool("iso_cleanup")
-	if (!iso) return expect(true).toBe(true)
+	if (skipIfNoSchema(iso)) return
 
 	const before = await iso.pool.query<{ n: string }>(
 		"SELECT count(*)::text n FROM information_schema.schemata WHERE schema_name LIKE 't_iso_cleanup%'",
@@ -101,4 +121,37 @@ test("cleanup drops the schema it created", async () => {
 	} finally {
 		await probe.end()
 	}
+})
+
+test("strict mode turns a skipped file into a failure", async () => {
+	// The regression this guards: CI provisions an empty postgres, so every
+	// DB-backed file skips. Permissively that is a GREEN suite testing nothing.
+	// With GMW_REQUIRE_TEST_DB=1 it must throw instead.
+	process.env.GMW_REQUIRE_TEST_DB = "1"
+
+	const probe = new pg.Pool({
+		connectionString: integrationDatabaseUrl,
+		max: 1,
+	})
+	const missing = await probe
+		.query<{ n: string }>(
+			"SELECT count(*)::text n FROM information_schema.tables WHERE table_schema='public' AND table_name='messages'",
+		)
+		.then((r) => r.rows[0].n === "0")
+		.finally(() => probe.end())
+
+	if (!missing) {
+		// The real schema is present, so there is nothing to simulate.
+		await expect(createIsolatedPool("iso_strict")).resolves.toBeTruthy()
+		return
+	}
+
+	// createIsolatedPool surfaces the raw cause; the strict-mode framing is
+	// tryCreateIsolatedPool's job, because that is the one callers use.
+	await expect(createIsolatedPool("iso_strict")).rejects.toThrow(
+		/public\.messages.*does not exist/s,
+	)
+	await expect(tryCreateIsolatedPool("iso_strict")).rejects.toThrow(
+		/GMW_REQUIRE_TEST_DB=1 is set/,
+	)
 })

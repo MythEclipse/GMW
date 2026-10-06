@@ -37,18 +37,32 @@ const DB_URL =
 	process.env.TEST_DATABASE_URL ??
 	"postgres://postgres:postgres@127.0.0.1:5433/gmw_mod"
 
-/** Tables the gateway tests truncate or seed. Mirrors their TRUNCATE lists. */
+/**
+ * The tables the gateway tests actually read or write in SQL.
+ *
+ * Derived from the tests, not guessed: every `TRUNCATE` target across the
+ * directory, plus every table named in a `FROM`/`INTO`/`UPDATE`. That is these
+ * four, and the TRUNCATE lists in the files agree —
+ *
+ *   TRUNCATE messages, verdicts, analysis_attempts, attachments
+ *
+ * An earlier version of this list carried ten names, six of them copied from a
+ * COMMENT in skipped-channel.test.ts that enumerates the migration's tables
+ * rather than anything the tests touch. Two of those six do not even exist: the
+ * table is `message_reactions`, not `reactions`. Under GMW_REQUIRE_TEST_DB=1
+ * that turned a working suite into 10 failing files with
+ * `relation "public.reactions" does not exist` — the strict mode working
+ * correctly on a list that was wrong.
+ *
+ * Adding a table here is only necessary when a test starts USING it. A name
+ * that does not exist in `public` fails the whole file, deliberately: a typo in
+ * this list must not look like a passing suite.
+ */
 const MIRRORED_TABLES = [
 	"messages",
 	"verdicts",
 	"analysis_attempts",
 	"attachments",
-	"message_reviews",
-	"message_edits",
-	"moderation_actions",
-	"reactions",
-	"user_profiles",
-	"chatbot_messages",
 ] as const
 
 export interface IsolatedPool {
@@ -96,10 +110,20 @@ export async function createIsolatedPool(
 		})
 
 		// Verify the pin took rather than trusting it.
-		const { rows } = await pool.query<{ sp: string }>("SHOW search_path")
-		if (!rows[0]?.sp?.includes(schema)) {
+		//
+		// The column is named `search_path`, not `sp`. An earlier version read
+		// `rows[0].sp`, which is undefined, so this check compared
+		// `undefined?.includes(schema)` -> undefined -> falsy and threw EVERY time.
+		// Permissive mode swallowed that into a silent skip, which is how a suite
+		// with zero isolation still reported green. Only GMW_REQUIRE_TEST_DB=1
+		// surfaced it. Read the real column, and assert the shape rather than
+		// probing for a name that may not exist.
+		const { rows } =
+			await pool.query<Record<string, string>>("SHOW search_path")
+		const actual = rows[0]?.search_path
+		if (typeof actual !== "string" || !actual.includes(schema)) {
 			throw new Error(
-				`search_path not pinned to ${schema} (got: ${rows[0]?.sp})`,
+				`search_path not pinned to ${schema} (got: ${actual ?? "no rows"})`,
 			)
 		}
 
@@ -132,8 +156,15 @@ export async function createIsolatedPool(
  * stops running and the suite stays green while testing nothing. That is not
  * hypothetical — CI provisions a stock `postgres:18` with no schema applied, so
  * `CREATE TABLE ... LIKE public.<table>` fails there until a migration step is
- * added to the workflow. A warning per file is the difference between "these
- * tests did not run" and "these tests passed".
+ * added to the workflow. Measured against an empty database: 21 files skip, and
+ * the suite reports success.
+ *
+ * So this ALSO FAILS THE RUN when it is skipped in CI, where a database is
+ * supposed to be available. A skip is legitimate on a laptop with no Postgres;
+ * it is a misconfigured pipeline everywhere else. Set
+ * `GMW_REQUIRE_TEST_DB=1` (the CI workflow does) to turn the warning into a
+ * thrown error, which fails the suite loudly instead of reporting a green run
+ * that tested nothing.
  */
 export async function tryCreateIsolatedPool(
 	fileLabel: string,
@@ -143,11 +174,20 @@ export async function tryCreateIsolatedPool(
 		return await createIsolatedPool(fileLabel, options)
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : String(error)
-		console.warn(
+		const message =
 			`[isolated-pool] ${fileLabel}: SKIPPED — ${reason}\n` +
-				`  Its assertions did NOT run. Either no database is reachable, or the\n` +
-				`  schema in \`public\` is missing the tables this file mirrors.`,
-		)
+			`  Its assertions did NOT run. Either no database is reachable, or the\n` +
+			`  schema in \`public\` is missing the tables this file mirrors.`
+
+		if (process.env.GMW_REQUIRE_TEST_DB === "1") {
+			throw new Error(
+				`${message}\n` +
+					`  GMW_REQUIRE_TEST_DB=1 is set, so a skipped DB-backed file is a\n` +
+					`  failure. Apply the schema to the test database before the test step.`,
+			)
+		}
+
+		console.warn(message)
 		return null
 	}
 }
