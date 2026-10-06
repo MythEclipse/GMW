@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest"
 import {
 	AttachmentTooLargeError,
 	downloadDiscordAttachment,
-} from "../src/modules-gateway/attachment-upload/attachmentUploader.js"
-import { shouldCaptureMessageLocation } from "../src/modules-gateway/message-capture/messageCapture.js"
+} from "../src/infrastructure/modules-gateway/attachment-upload/attachmentUploader.js"
+import { shouldCaptureMessageLocation } from "../src/infrastructure/modules-gateway/message-capture/messageCapture.js"
 
 describe("attachment download is bounded", () => {
 	it("refuses an oversized file from content-length, before buffering", async () => {
@@ -89,7 +89,7 @@ describe("capture location filtering", () => {
 		// the resolver must walk to the parent, and a thread in an excluded
 		// parent must be rejected. (The ids below come from the test env's
 		// EXCLUDED_CHANNEL_IDS, so this is deterministic rather than invented.)
-		const { config } = await import("../src/shared/config/index.js")
+		const { config } = await import("../src/infrastructure/config/index.js")
 		const blocked = config.EXCLUDED_CHANNEL_IDS[0]
 		expect(blocked).toBe("blocked-chan")
 

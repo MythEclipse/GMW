@@ -19,7 +19,7 @@ import {
 	NotFoundError,
 	UnauthorizedError,
 	ValidationError,
-} from "../src/shared/errors/index.js"
+} from "../src/domain/errors/index.js"
 // ─── Backend middleware ──────────────────────────────────────────────────────
 // ─── Shared utilities ─────────────────────────────────────────────────────────
 import {
@@ -28,7 +28,7 @@ import {
 	encodeCursor,
 	pageResult,
 	retryWithBackoff,
-} from "../src/shared/utils/index.js"
+} from "../src/domain/utils/index.js"
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 1. AppError / Error Hierarchy Tests

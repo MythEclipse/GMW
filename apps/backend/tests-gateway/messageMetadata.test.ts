@@ -14,7 +14,7 @@ import {
 	getMessageLocation,
 	getMessageMetadata,
 	parseRichMessageMetadata,
-} from "../src/modules-gateway/message-capture/messageMetadata.js"
+} from "../src/infrastructure/modules-gateway/message-capture/messageMetadata.js"
 
 /**
  * A discord.js `Collection`-alike: a real Map, because the code calls

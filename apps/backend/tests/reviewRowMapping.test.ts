@@ -30,12 +30,15 @@ import { describe, expect, it } from "vitest"
  */
 
 const repoPath = fileURLToPath(
-	new URL("../src/modules/messages/messages.repository.ts", import.meta.url),
+	new URL(
+		"../src/infrastructure/repositories/messages.repository.ts",
+		import.meta.url,
+	),
 )
 const rawSource = readFileSync(repoPath, "utf8")
 
 const mapperPath = fileURLToPath(
-	new URL("../src/shared/utils/messageMapper.ts", import.meta.url),
+	new URL("../src/domain/utils/messageMapper.ts", import.meta.url),
 )
 const mapperSource = readFileSync(mapperPath, "utf8")
 
@@ -132,12 +135,14 @@ describe("mapMessageRow converts every BigInt column, none by cast", () => {
 	 * blind spot.
 	 */
 	// The schema of record is now Drizzle's, so this guard reads
-	// `src/shared/database/schema.ts` instead of the deleted Prisma schema. The
+	// `src/infrastructure/database/schema.ts` instead of the deleted Prisma schema. The
 	// guard is unchanged in spirit: it must be DERIVED from the live schema,
 	// because a hand-maintained list only knows about the columns someone already
 	// got bitten by.
 	const schema = readFileSync(
-		fileURLToPath(new URL("../src/shared/database/schema.ts", import.meta.url)),
+		fileURLToPath(
+			new URL("../src/infrastructure/database/schema.ts", import.meta.url),
+		),
 		"utf8",
 	)
 

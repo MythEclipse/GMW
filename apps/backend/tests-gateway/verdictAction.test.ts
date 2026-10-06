@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest"
 import {
 	normaliseAction,
 	parseVerdicts,
-} from "../src/modules-gateway/ai-moderation/verdictParser.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/verdictParser.js"
 
 /**
  * `action` is the field the model uses to say WHICH enforcement should happen.

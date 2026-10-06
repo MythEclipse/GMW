@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import type {
 	LlmGateway,
 	LlmRequest,
-} from "../src/modules-gateway/ai-moderation/llmGateway.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/llmGateway.js"
 import {
 	assertLeaseCoversLlmTimeout,
 	batchWorstCaseMs,
@@ -30,7 +30,7 @@ import {
 	stickerAndEmojiUrls,
 	visionWaves,
 	type WorkerConfig,
-} from "../src/modules-gateway/ai-moderation/worker.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/worker.js"
 
 // Named DB_URL, not URL: `URL` shadows the global constructor.
 const DB_URL =

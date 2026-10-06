@@ -18,7 +18,7 @@
  */
 import type { InferClientOutputs } from "@orpc/client"
 import type { RouterClient } from "@orpc/server"
-import type { appRouter } from "./orpc/router.js"
+import type { appRouter } from "./presentation/orpc/router.js"
 
 export type { appRouter, InferClientOutputs as InferClientOutput }
 export type AppRouter = typeof appRouter

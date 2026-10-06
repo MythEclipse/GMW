@@ -11,11 +11,11 @@
 
 import type pg from "pg"
 import { expect, test } from "vitest"
-import type { LlmGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js"
+import type { LlmGateway } from "../src/infrastructure/modules-gateway/ai-moderation/llmGateway.js"
 import {
 	DEFAULT_WORKER_CONFIG,
 	ModerationWorker,
-} from "../src/modules-gateway/ai-moderation/worker.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/worker.js"
 import { type IsolatedPool, tryCreateIsolatedPool } from "./isolated-pool.js"
 
 const DB_URL =

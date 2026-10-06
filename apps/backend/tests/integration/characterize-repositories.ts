@@ -21,15 +21,15 @@
  */
 import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
-import { executeTool } from "../../src/modules/chatbot/chatbot.tools.js"
-import { DashboardRepository } from "../../src/modules/dashboard/dashboard.repository.js"
-import { MessagesRepository } from "../../src/modules/messages/messages.repository.js"
-import { ModerationRepository } from "../../src/modules/moderation/moderation.repository.js"
 import {
 	closeDrizzleDatabase,
 	getDatabase,
 	initializeDatabase,
-} from "../../src/shared/database/drizzle.js"
+} from "../../src/infrastructure/database/drizzle.js"
+import { executeTool } from "../../src/infrastructure/repositories/chatbot.tools.js"
+import { DashboardRepository } from "../../src/infrastructure/repositories/dashboard.repository.js"
+import { MessagesRepository } from "../../src/infrastructure/repositories/messages.repository.js"
+import { ModerationRepository } from "../../src/infrastructure/repositories/moderation.repository.js"
 import { clearFixture, FIXTURE, seedFixture } from "./characterize-fixture.js"
 
 const SNAPSHOT_PATH = fileURLToPath(

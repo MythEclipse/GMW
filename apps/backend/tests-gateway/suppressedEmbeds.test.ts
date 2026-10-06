@@ -13,13 +13,13 @@
  */
 import { describe, expect, test } from "vitest"
 
-import { isEligibleForAutoDelete } from "../src/modules-gateway/ai-moderation/autoDeleteEligibility.js"
+import { isEligibleForAutoDelete } from "../src/infrastructure/modules-gateway/ai-moderation/autoDeleteEligibility.js"
 import {
 	formatLinkEvidenceForPrompt,
 	hasSuppressedEmbeds,
 	isLinkOnlyPost,
 	pairLinksWithEmbeds,
-} from "../src/modules-gateway/message-capture/messageMetadata.js"
+} from "../src/infrastructure/modules-gateway/message-capture/messageMetadata.js"
 
 /** Real payload shape captured from the `Embedded` bot in production. */
 const SUPPRESSED_BOT_METADATA = JSON.stringify({

@@ -17,19 +17,19 @@ import {
 	selectBatchDictionaryWordPlan,
 	selectBatchDictionaryWords,
 	selectDictionaryWords,
-} from "../src/modules-gateway/ai-moderation/dictionary-words.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/dictionary-words.js"
 import {
 	type DictionaryConfig,
 	type DictionaryEntry,
 	formatDefinitions,
 	KbbiDictionary,
-} from "../src/modules-gateway/ai-moderation/kbbiDictionary.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/kbbiDictionary.js"
 import {
 	buildSystemPrompt,
 	clearPromptCache,
 	DICTIONARY_RULES,
 	OUTPUT_CONTRACT,
-} from "../src/modules-gateway/ai-moderation/policy.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/policy.js"
 
 /** A fetch stub that answers from a fixed word -> senses map. */
 function stubFetch(

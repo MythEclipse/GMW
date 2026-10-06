@@ -119,7 +119,7 @@ tasks:
   # separate task surfaces the real blocker without pretending CI is green.
   db-check:
     inputs:
-      - 'src/shared/database/schema.ts'
+      - 'src/infrastructure/database/schema.ts'
       - 'drizzle/migrations/**'
       - 'scripts/check-migration-drift.sh'
     outputs:

@@ -27,18 +27,18 @@
  * Both are pinned here so neither can be quietly reverted.
  */
 import { describe, expect, it } from "vitest"
-import { isEligibleForAutoDelete } from "../src/modules-gateway/ai-moderation/autoDeleteEligibility.js"
+import { isEligibleForAutoDelete } from "../src/infrastructure/modules-gateway/ai-moderation/autoDeleteEligibility.js"
 import {
 	buildSystemPrompt,
 	clearPromptCache,
 	LINK_RULES,
-} from "../src/modules-gateway/ai-moderation/policy.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/policy.js"
 import {
 	extractPostedUrls,
 	formatLinkEvidenceForPrompt,
 	isLinkOnlyPost,
 	pairLinksWithEmbeds,
-} from "../src/modules-gateway/message-capture/messageMetadata.js"
+} from "../src/infrastructure/modules-gateway/message-capture/messageMetadata.js"
 
 /**
  * The captured `messages.metadata` for a resolved Facebook share.

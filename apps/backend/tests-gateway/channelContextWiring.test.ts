@@ -11,14 +11,14 @@
 
 import type pg from "pg"
 import { expect, test } from "vitest"
-import type { LlmGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js"
+import type { LlmGateway } from "../src/infrastructure/modules-gateway/ai-moderation/llmGateway.js"
 import {
 	buildSystemPrompt,
 	CHANNEL_CONTEXT_RULES,
 	clearPromptCache,
-} from "../src/modules-gateway/ai-moderation/policy.js"
-import { ModerationWorker } from "../src/modules-gateway/ai-moderation/worker.js"
-import { formatChannelContextForPrompt } from "../src/modules-gateway/message-capture/messageMetadata.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/policy.js"
+import { ModerationWorker } from "../src/infrastructure/modules-gateway/ai-moderation/worker.js"
+import { formatChannelContextForPrompt } from "../src/infrastructure/modules-gateway/message-capture/messageMetadata.js"
 import { type IsolatedPool, tryCreateIsolatedPool } from "./isolated-pool.js"
 
 const DB_URL =

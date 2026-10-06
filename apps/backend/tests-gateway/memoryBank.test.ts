@@ -19,7 +19,7 @@
 import { createServer } from "node:http"
 import pg from "pg"
 import { expect, test } from "vitest"
-import type { LlmGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js"
+import type { LlmGateway } from "../src/infrastructure/modules-gateway/ai-moderation/llmGateway.js"
 import {
 	buildMemoryTags,
 	buildRecallQuery,
@@ -31,17 +31,17 @@ import {
 	formatMemoryContext,
 	type MemoryMessage,
 	ModerationMemoryBank,
-} from "../src/modules-gateway/ai-moderation/memoryBank.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/memoryBank.js"
 import {
 	buildSystemPrompt,
 	clearPromptCache,
 	HISTORY_RULES,
 	MEMORY_RULES,
-} from "../src/modules-gateway/ai-moderation/policy.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/policy.js"
 import {
 	DEFAULT_WORKER_CONFIG,
 	ModerationWorker,
-} from "../src/modules-gateway/ai-moderation/worker.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/worker.js"
 import { tryCreateIsolatedPool } from "./isolated-pool.js"
 
 /**

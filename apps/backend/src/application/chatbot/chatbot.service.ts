@@ -1,0 +1,518 @@
+import { tools } from "../../domain/chatbot/chatbot.toolDefs.js"
+import { config } from "../../infrastructure/config/index.js"
+import { getDatabase } from "../../infrastructure/database/drizzle.js"
+import { createChildLogger } from "../../infrastructure/logger/index.js"
+import type {
+	ChatbotContext,
+	ChatbotHistoryRow,
+	SaveConversationInput,
+} from "../../infrastructure/repositories/chatbot.repository.js"
+import { ChatbotRepository } from "../../infrastructure/repositories/chatbot.repository.js"
+import { executeTool } from "../../infrastructure/repositories/chatbot.tools.js"
+
+const logger = createChildLogger("chatbot.service")
+
+export class ChatbotService {
+	constructor(private readonly repository: ChatbotRepository) {}
+
+	async processMessage(
+		message: string,
+		context: ChatbotContext | undefined,
+		userId: string,
+	): Promise<string> {
+		logger.info(
+			{ userId, messageLength: message.length, context },
+			"processMessage called",
+		)
+		const recentContext = await this.getRecentConversationContext(userId)
+		// Scope the agent to the server/channel the user is chatting in. We no
+		// longer bake server stats into the prompt — the model must pull current
+		// data via tools (see buildSystemPrompt), so it always answers from live
+		// numbers instead of a stale snapshot.
+		//
+		// If the current request doesn't carry a guild/channel scope (e.g. a
+		// cross-server dashboard surface), fall back to the most recent scope the
+		// user was chatting in from history, so the agent doesn't drift to the
+		// wrong server between turns.
+		const explicitScope = {
+			guildId: context?.guildId,
+			channelId: context?.channelId,
+		}
+		const scope =
+			explicitScope.guildId || explicitScope.channelId
+				? explicitScope
+				: (recentContext.lastScope ?? {
+						guildId: undefined,
+						channelId: undefined,
+					})
+
+		const systemPrompt = this.buildSystemPrompt(scope)
+		const conversationHistory = this.buildHistoryMessages(recentContext.turns)
+		const llmResponse = await this.callLLM(
+			systemPrompt,
+			conversationHistory,
+			message,
+			scope,
+		)
+
+		return llmResponse
+	}
+
+	async saveConversation(input: SaveConversationInput): Promise<void> {
+		logger.info({ userId: input.userId }, "saveConversation called")
+		await this.repository.saveConversation(input)
+	}
+
+	async getChatHistory(
+		userId: string,
+		limit: number,
+	): Promise<ChatbotHistoryRow[]> {
+		logger.debug({ userId, limit }, "getChatHistory called")
+		return this.repository.getChatHistory(userId, limit)
+	}
+
+	async clearChatHistory(userId: string): Promise<void> {
+		logger.info({ userId }, "clearChatHistory called")
+		await this.repository.clearChatHistory(userId)
+	}
+
+	private async getRecentConversationContext(userId: string): Promise<{
+		turns: string[]
+		lastScope: { guildId?: string; channelId?: string } | null
+	}> {
+		const history = await this.repository.getChatHistory(userId, 8)
+		const turns: string[] = []
+		let lastScope: { guildId?: string; channelId?: string } | null = null
+		for (const row of history) {
+			turns.push(`User: ${row.user_message}`, `Bot: ${row.bot_response}`)
+			// Capture the most recent scope this user was chatting in, so the
+			// agent keeps server context across turns even if the current request
+			// doesn't carry one.
+			const g = row.context?.guildId
+			const c = row.context?.channelId
+			if (g || c) {
+				lastScope = {
+					guildId: g ?? undefined,
+					channelId: c ?? undefined,
+				}
+			}
+		}
+		return { turns, lastScope }
+	}
+
+	private buildSystemPrompt(scope: {
+		guildId?: string
+		channelId?: string
+	}): string {
+		const scopeLine = scope.guildId
+			? `- Scope: kamu menjawab soal server/guild id="${scope.guildId}"${scope.channelId ? `, channel id="${scope.channelId}"` : ""}.`
+			: "- Scope: tidak ada guild spesifik — jawab umum soal server ini."
+		return `Kamu adalah chatbot Discord Watcher — temen ngobrol yang tau keadaan server, dan kamu PUNYA AKSES ke data server lewat tools.
+
+${scopeLine}
+
+TOOLS YANG TERSEDIA (panggil saat user tanya soal data server):
+- get_server_stats → statistik server: total pesan, user aktif, jumlah deleted dan clean
+- get_top_channels → channel paling aktif (jumlah pesan terbanyak)
+- get_recent_activity → pesan terbaru (siapa, channel mana, jam berapa, isinya)
+- get_top_flagged → pesan yang di-flag AI (alasan, status keputusan, analysis)
+- search_messages → cari pesan berdasarkan kata kunci (LIKE search)
+- get_user_messages → pesan terbaru dari satu user tertentu
+- get_user_profile → profil AI dari seorang user (pola perilaku, gaya bicara)
+- get_channel_culture → norma/slang dari suatu channel
+- get_message_detail → 1 pesan lengkap beserta hasil analisis AI-nya
+- get_message_reviews → antrean review moderasi manual
+- get_voice_recordings → rekaman suara terbaru
+- get_moderation_timeline → tren harian: total vs deleted vs clean
+- get_corrections → riwayat koreksi false-positive AI
+
+ATURAN PENTING — JANGAN PAKAI KONTEKS STATIS:
+- Kamu TIDAK punya hafalan soal angka server. JANGAN tebak atau karang angka.
+- Untuk SEMUA pertanyaan soal data server, WAJIB panggil tool yang sesuai. Jawab HANYA dari hasil tool.
+- Tool otomatis di-scope ke guild/channel — kalau argumen kosong, biarkan kosong. Jangan isi ID tebakan.
+- Kalau tool balik error atau kosong, bilang aja data lagi ga ketemu, jangan karang.
+- Boleh panggil banyak tool dalam satu jawaban kalau pertanyaan butuh beberapa data (multi-hop).
+
+Gaya ngobrol:
+- Santai, hangat, kayak ngobrol sama temen
+- Pake Bahasa Indonesia sehari-hari, ga perlu kaku
+- Sesekali pake emoji wajar aja, ga berlebihan
+- Kalo ditanya di luar data server dan kamu ga tau, bilang aja terus tanya balik biar ngobrolnya jalan
+- Jangan sebut "rule", "instruksi", "prompt", "tool", atau apapun soal cara kamu berpikir
+- Biasa aja, ga usaha lucu-lucu amat — natural`
+	}
+
+	private buildHistoryMessages(
+		recentContext: string[],
+	): Array<{ role: "user" | "assistant"; content: string }> {
+		// recentContext is alternating User/Bot messages
+		return recentContext.map((text) => {
+			if (text.startsWith("User: ")) {
+				return { role: "user" as const, content: text.slice(6) }
+			}
+			return { role: "assistant" as const, content: text.slice(7) }
+		})
+	}
+
+	private async callLLM(
+		systemPrompt: string,
+		history: Array<{ role: "user" | "assistant"; content: string }>,
+		userMessage: string,
+		scope: { guildId?: string; channelId?: string },
+	): Promise<string> {
+		const apiKey = config.AI_LLM_API_KEY
+		const baseUrl = config.AI_LLM_BASE_URL
+		const model = config.AI_LLM_MODEL
+
+		if (!apiKey) {
+			logger.warn("AI_LLM_API_KEY not configured, using fallback response")
+			return this.fallbackResponse(userMessage)
+		}
+
+		try {
+			const { default: axios } = await import("axios")
+
+			const scopeHint = scope.guildId
+				? ` (scope: guild ${scope.guildId}${scope.channelId ? `, channel ${scope.channelId}` : ""})`
+				: ""
+			// Local message type that models the shapes the agent loop emits and
+			// accepts: plain system/user/assistant turns and assistant tool-calls +
+			// tool results. role is a union string so history entries typed as
+			// `"user" | "assistant"` don't break the discriminant.
+			type ChatMsg = {
+				role: "system" | "user" | "assistant" | "tool"
+				content?: string | null
+				tool_call_id?: string
+				tool_calls?: Array<{
+					id: string
+					type: "function"
+					function: { name: string; arguments: string }
+				}>
+			}
+			const messages: ChatMsg[] = [
+				{ role: "system", content: systemPrompt },
+				...history,
+				{ role: "user", content: `${userMessage}${scopeHint}` },
+			]
+
+			// ── Agentic tool loop ─────────────────────────────────────────
+			const MAX_TOOL_ROUNDS = 6
+			for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
+				const response = await axios.post(
+					`${baseUrl}/chat/completions`,
+					{
+						model,
+						messages,
+						tools,
+						tool_choice: "auto",
+						max_tokens: 600,
+						temperature: 0.4,
+						// Non-streaming: request a single complete response. omniroute may
+						// still emit SSE even with stream:false, so the parser below
+						// handle both raw-JSON and SSE bodies.
+						stream: false,
+						// Disable extended thinking / reasoning tokens so the bot answers
+						// directly (ignored by non-reasoning models).
+						reasoning_effort: "none",
+					},
+					{
+						headers: {
+							Authorization: `Bearer ${apiKey}`,
+							"Content-Type": "application/json",
+						},
+						timeout: 45_000,
+						responseType: "text",
+					},
+				)
+
+				// Parse the body into content + tool_calls. omniroute may return either
+				// a single JSON object (stream:false honored) or SSE text (stream
+				// implied) — parseResponse handles both.
+				const { content, toolCalls } = this.parseResponse(
+					response.data as string,
+				)
+
+				logger.debug(
+					{
+						round,
+						hasToolCalls: toolCalls.length > 0,
+						toolNames: toolCalls.map((t) => t.name),
+					},
+					"LLM round parsed",
+				)
+
+				if (toolCalls.length > 0) {
+					// Executor for a single tool call: pushes the assistant tool_call,
+					// runs the tool, returns { tc, result } so results can be appended
+					// in order after all tools execute in parallel.
+					const executions = await Promise.all(
+						toolCalls.map(async (tc) => {
+							messages.push({
+								role: "assistant",
+								content: null,
+								tool_calls: [
+									{
+										id: tc.id,
+										type: "function",
+										function: { name: tc.name, arguments: tc.arguments },
+									},
+								],
+							})
+							// Auto-scope: if the model omitted guildId/channelId, fill them
+							// from the request scope so tools query the right server without
+							// the model having to guess IDs.
+							const scopedArgs = { ...tc.args }
+							if (scope.guildId && scopedArgs.guildId == null) {
+								scopedArgs.guildId = scope.guildId
+							}
+							if (scope.channelId && scopedArgs.channelId == null) {
+								scopedArgs.channelId = scope.channelId
+							}
+							let result = ""
+							try {
+								result = await executeTool(tc.name, scopedArgs)
+							} catch (e) {
+								result = `Tool error: ${(e as Error).message}`
+							}
+							return { tc, result }
+						}),
+					)
+					// Append tool results in the SAME order as the tool_calls so the
+					// API's function-calling contract isn't violated by reordering.
+					for (const { tc, result } of executions) {
+						messages.push({
+							role: "tool",
+							tool_call_id: tc.id,
+							content: result,
+						})
+					}
+					if (round === MAX_TOOL_ROUNDS) {
+						logger.warn("Hit max tool rounds; returning what we have")
+					}
+					continue
+				}
+
+				if (content?.trim()) {
+					return content.trim()
+				}
+
+				logger.warn("LLM returned empty response (no tools, no content)")
+				return this.fallbackResponse(userMessage)
+			}
+
+			logger.warn("Tool loop exhausted without final content")
+			return this.fallbackResponse(userMessage)
+		} catch (error) {
+			logger.warn({ error }, "LLM call failed, using fallback response")
+			return this.fallbackResponse(userMessage)
+		}
+	}
+
+	/**
+	 * Parse an LLM HTTP body into content + tool_calls. Handles both shapes
+	 * omniroute can return: a single JSON object (stream:false honored) or SSE
+	 * text (stream implied). For SSE we delegate to parseSse.
+	 */
+	private parseResponse(body: string): {
+		content: string
+		toolCalls: Array<{
+			id: string
+			name: string
+			arguments: string
+			args: Record<string, unknown>
+		}>
+	} {
+		const trimmed = body.trim()
+		// Non-streaming response: a single JSON object.
+		if (trimmed.startsWith("{")) {
+			try {
+				const json = JSON.parse(trimmed) as {
+					choices?: Array<{
+						message?: {
+							content?: string | null
+							tool_calls?: Array<{
+								id?: string
+								type?: string
+								function?: { name?: string; arguments?: string }
+							}>
+						}
+						delta?: unknown
+					}>
+				}
+				const msg = json.choices?.[0]?.message
+				// If the router returned SSE-style shape under `choices[].delta`
+				// (rare), fall through to the SSE parser.
+				if (msg) {
+					const content = msg.content ?? ""
+					const toolCalls = (msg.tool_calls ?? []).map((tc, i) => {
+						const id = tc.id || `tool_${i}_${Date.now()}`
+						return {
+							id,
+							name: tc.function?.name ?? "",
+							arguments: tc.function?.arguments ?? "",
+							args: this.safeJsonParse(tc.function?.arguments ?? ""),
+						}
+					})
+					return { content: content.trim(), toolCalls }
+				}
+			} catch {
+				// Not valid JSON after all — treat as SSE below.
+			}
+		}
+		return this.parseSse(body)
+	}
+
+	/**
+	 * Parse an SSE stream body into accumulated content + any tool_calls.
+	 * omniroute (and most OpenAI-compatible routers) emit `data: {json}` lines
+	 * even when stream is only implied; we must collect deltas manually.
+	 */
+	private parseSse(body: string): {
+		content: string
+		toolCalls: Array<{
+			id: string
+			name: string
+			arguments: string
+			args: Record<string, unknown>
+		}>
+	} {
+		const contentParts: string[] = []
+		const toolById = new Map<
+			string,
+			{ id: string; name: string; arguments: string }
+		>()
+
+		const lines = body.split("\n")
+		for (const rawLine of lines) {
+			const line = rawLine.trim()
+			if (!line.startsWith("data:")) continue
+			const payload = line.slice(5).trim()
+			if (!payload || payload === "[DONE]") continue
+			try {
+				const json = JSON.parse(payload) as {
+					choices?: Array<{
+						delta?: {
+							content?: string
+							tool_calls?: Array<{
+								id?: string
+								index?: number
+								type?: string
+								function?: { name?: string; arguments?: string }
+							}>
+						}
+						finish_reason?: string | null
+					}>
+				}
+				const delta = json.choices?.[0]?.delta
+				if (!delta) continue
+				if (delta.content) contentParts.push(delta.content)
+				if (delta.tool_calls) {
+					for (const tc of delta.tool_calls) {
+						const idx = String(tc.index ?? 0)
+						const cur = toolById.get(idx) ?? {
+							id: tc.id ?? "",
+							name: "",
+							arguments: "",
+						}
+						// Keep the first non-empty id for this call index.
+						if (tc.id && !cur.id) cur.id = tc.id
+						if (tc.function?.name) cur.name += tc.function.name
+						if (tc.function?.arguments) cur.arguments += tc.function.arguments
+						toolById.set(idx, cur)
+					}
+				}
+			} catch {
+				// Skip malformed lines (keepalives, etc.)
+			}
+		}
+
+		// Build a de-duplicated id for any call the stream never assigned one.
+		let fallbackId = 0
+		const toolCalls = Array.from(toolById.values()).map((tc) => {
+			const id = tc.id || `tool_${fallbackId++}_${Date.now()}`
+			return {
+				id,
+				name: tc.name,
+				arguments: tc.arguments,
+				args: this.safeJsonParse(tc.arguments),
+			}
+		})
+
+		return { content: contentParts.join(""), toolCalls }
+	}
+
+	private safeJsonParse(s: string): Record<string, unknown> {
+		try {
+			return JSON.parse(s) as Record<string, unknown>
+		} catch {
+			return {}
+		}
+	}
+
+	private fallbackResponse(input: string): string {
+		const lower = input.toLowerCase()
+
+		if (
+			lower.includes("halo") ||
+			lower.includes("hai") ||
+			lower.includes("hi") ||
+			lower.includes("pagi") ||
+			lower.includes("siang") ||
+			lower.includes("malam")
+		) {
+			return "Halo! 👋 Lagi offline bentar, coba chat lagi nanti ya."
+		}
+
+		return "Maaf, lagi ada masalah koneksi. Coba tanya lagi nanti!"
+	}
+}
+
+/**
+ * Lazily constructed, not built at import time.
+ *
+ * `createChatbotService()` calls `getDatabase()`, which throws until
+ * `initializeDatabase()` has run. Deferring construction to first call keeps
+ * importing this file free of a database, which is what lets a unit test
+ * import the service and pass its own repository.
+ *
+ * Still one instance per process, which is what the oRPC router and the
+ * gateway assume when they import `chatbotService`.
+ */
+let instance: ChatbotService | undefined
+
+export const createChatbotService = () =>
+	new ChatbotService(new ChatbotRepository(getDatabase()))
+
+export const chatbotService: Pick<
+	ChatbotService,
+	"processMessage" | "saveConversation" | "getChatHistory" | "clearChatHistory"
+> = {
+	processMessage: (...args: Parameters<ChatbotService["processMessage"]>) => {
+		instance ??= createChatbotService()
+		return instance.processMessage(...args) as ReturnType<
+			ChatbotService["processMessage"]
+		>
+	},
+	saveConversation: (
+		...args: Parameters<ChatbotService["saveConversation"]>
+	) => {
+		instance ??= createChatbotService()
+		return instance.saveConversation(...args) as ReturnType<
+			ChatbotService["saveConversation"]
+		>
+	},
+	getChatHistory: (...args: Parameters<ChatbotService["getChatHistory"]>) => {
+		instance ??= createChatbotService()
+		return instance.getChatHistory(...args) as ReturnType<
+			ChatbotService["getChatHistory"]
+		>
+	},
+	clearChatHistory: (
+		...args: Parameters<ChatbotService["clearChatHistory"]>
+	) => {
+		instance ??= createChatbotService()
+		return instance.clearChatHistory(...args) as ReturnType<
+			ChatbotService["clearChatHistory"]
+		>
+	},
+}

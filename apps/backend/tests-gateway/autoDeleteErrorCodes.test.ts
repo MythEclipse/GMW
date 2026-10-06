@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { isAlreadyDeletedError } from "../src/modules-gateway/ai-moderation/autoDeleteManager.js"
+import { isAlreadyDeletedError } from "../src/infrastructure/modules-gateway/ai-moderation/autoDeleteManager.js"
 
 /**
  * The delete path used to record Discord's MESSAGE_ID_NOT_FOUND as a failure,

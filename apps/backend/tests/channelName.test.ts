@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { readChannelName } from "../src/shared/utils/channelName.js"
+import { readChannelName } from "../src/domain/utils/channelName.js"
 
 /**
  * `messages.metadata` is a `text` column holding a JSON document, NOT a jsonb

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { normalizeCategories } from "../src/modules/moderation/moderation.repository.js"
+import { normalizeCategories } from "../src/infrastructure/repositories/moderation.repository.js"
 
 /**
  * The SQL expression this replaces was verified against every distinct live

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import { HealthRepository } from "../src/modules/health/health.repository.js"
-import { HealthService } from "../src/modules/health/health.service.js"
+import { HealthService } from "../src/application/health/health.service.js"
+import { HealthRepository } from "../src/infrastructure/repositories/health.repository.js"
 
 /**
  * The payoff from injecting the database handle: these assertions run with no

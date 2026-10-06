@@ -13,7 +13,7 @@ import {
 	parseVerdicts,
 	resolveAction,
 	VERDICT_ACTIONS,
-} from "../src/modules-gateway/ai-moderation/verdictParser.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/verdictParser.js"
 
 describe("D10: a per-message defect must NOT fail the batch", () => {
 	// This is the 120x cost multiplier from the audit: one deferral sentence used

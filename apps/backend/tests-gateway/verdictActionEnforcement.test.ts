@@ -40,34 +40,40 @@ const { moderationActions, loggerCalls } = vi.hoisted(() => ({
 	loggerCalls: [] as string[],
 }))
 
-vi.mock("../src/modules-gateway/message-capture/messageStore.js", () => ({
-	messageStore: {
-		async createModerationAction(action: Record<string, unknown>) {
-			moderationActions.push(action)
-			return action
+vi.mock(
+	"../src/infrastructure/modules-gateway/message-capture/messageStore.js",
+	() => ({
+		messageStore: {
+			async createModerationAction(action: Record<string, unknown>) {
+				moderationActions.push(action)
+				return action
+			},
+			async updateMessageAsDeleted() {
+				return null
+			},
 		},
-		async updateMessageAsDeleted() {
-			return null
-		},
-	},
-}))
+	}),
+)
 
-vi.mock("../src/modules-gateway/ai-moderation/autoDeleteLogger.js", () => ({
-	logDeletionToChannel: async () => {
-		loggerCalls.push("channel-logged")
-	},
-	logAlreadyDeleted: async () => {
-		loggerCalls.push("already-deleted-logged")
-	},
-}))
+vi.mock(
+	"../src/infrastructure/modules-gateway/ai-moderation/autoDeleteLogger.js",
+	() => ({
+		logDeletionToChannel: async () => {
+			loggerCalls.push("channel-logged")
+		},
+		logAlreadyDeleted: async () => {
+			loggerCalls.push("already-deleted-logged")
+		},
+	}),
+)
 
 const { attemptAutoDeleteFlaggedMessage } = await import(
-	"../src/modules-gateway/ai-moderation/autoDeleteManager.js"
+	"../src/infrastructure/modules-gateway/ai-moderation/autoDeleteManager.js"
 )
 type VerdictLike =
-	import("../src/modules-gateway/ai-moderation/autoDeleteEligibility.js").VerdictLike
+	import("../src/infrastructure/modules-gateway/ai-moderation/autoDeleteEligibility.js").VerdictLike
 type AutoDeleteInput =
-	import("../src/modules-gateway/ai-moderation/autoDeleteManager.js").AutoDeleteInput
+	import("../src/infrastructure/modules-gateway/ai-moderation/autoDeleteManager.js").AutoDeleteInput
 
 /**
  * `messages.metadata` is a TEXT column, so the real enforcer receives a JSON

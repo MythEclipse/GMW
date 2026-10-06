@@ -9,8 +9,8 @@
  * Run: DSN=<prod dsn> bun tests/vision-description-probe.ts
  */
 import pg from "pg"
-import { createDefaultGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js"
-import { config } from "../src/shared/config/index.js"
+import { config } from "../src/infrastructure/config/index.js"
+import { createDefaultGateway } from "../src/infrastructure/modules-gateway/ai-moderation/llmGateway.js"
 
 // Same constant the worker uses. Read from source so this test cannot drift
 // away from what production actually sends.

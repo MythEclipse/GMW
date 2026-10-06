@@ -10,22 +10,23 @@
  *   DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/gmw_mod \
  *     ./node_modules/.bin/tsx tests/integration/p1a-repositories.ts
  */
-import { AnalysisRepository } from "../../src/modules/analysis/analysis.repository.js"
-import { ChatbotRepository } from "../../src/modules/chatbot/chatbot.repository.js"
-import { HealthRepository } from "../../src/modules/health/health.repository.js"
-import { KnowledgeRepository } from "../../src/modules/knowledge/knowledge.repository.js"
-import { uiStateService } from "../../src/modules/ui-state/ui-state.service.js"
+
+import { uiStateService } from "../../src/application/ui-state/ui-state.service.js"
 import {
 	closeDrizzleDatabase,
 	getDatabase,
 	initializeDatabase,
-} from "../../src/shared/database/drizzle.js"
+} from "../../src/infrastructure/database/drizzle.js"
 import {
 	channelCulturesTable,
 	messagesTable,
 	termGlossaryCacheTable,
 	uiStateTable,
-} from "../../src/shared/database/schema.js"
+} from "../../src/infrastructure/database/schema.js"
+import { AnalysisRepository } from "../../src/infrastructure/repositories/analysis.repository.js"
+import { ChatbotRepository } from "../../src/infrastructure/repositories/chatbot.repository.js"
+import { HealthRepository } from "../../src/infrastructure/repositories/health.repository.js"
+import { KnowledgeRepository } from "../../src/infrastructure/repositories/knowledge.repository.js"
 
 let failures = 0
 

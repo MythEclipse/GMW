@@ -1,7 +1,7 @@
 import { createRouterClient } from "@orpc/server"
 import { describe, expect, it } from "vitest"
-import { mutationProcedure } from "../src/orpc/mutation-guard.js"
-import { config } from "../src/shared/config/index.js"
+import { config } from "../src/infrastructure/config/index.js"
+import { mutationProcedure } from "../src/presentation/orpc/mutation-guard.js"
 
 /**
  * The write guard, exercised through oRPC's own router client so the assertions

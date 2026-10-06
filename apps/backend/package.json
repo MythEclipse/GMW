@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc && node scripts/fix-imports.mjs",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/shared/database/migrateCli.ts",
+    "db:migrate": "tsx src/infrastructure/database/migrateCli.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "dev": "tsx watch src/index.ts",

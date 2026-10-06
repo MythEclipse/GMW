@@ -27,8 +27,8 @@ import { describe, expect, it } from "vitest"
 import type {
 	LlmGateway,
 	LlmRequest,
-} from "../src/modules-gateway/ai-moderation/llmGateway.js"
-import { isVisionCapable } from "../src/modules-gateway/ai-moderation/worker.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/llmGateway.js"
+import { isVisionCapable } from "../src/infrastructure/modules-gateway/ai-moderation/worker.js"
 
 const IMAGE_URL = "https://cdn.discordapp.com/attachments/1/x.png"
 
@@ -71,7 +71,7 @@ async function visionRequestFor(
 	attachments: Array<{ type: string | null; url: string | null }>,
 ): Promise<LlmRequest | null> {
 	const { generateVisionDescriptionForTest } = await import(
-		"../src/modules-gateway/ai-moderation/worker.js"
+		"../src/infrastructure/modules-gateway/ai-moderation/worker.js"
 	)
 	const vision = capturingGateway()
 	await generateVisionDescriptionForTest(
@@ -106,7 +106,7 @@ describe("vision pass sends real image parts", () => {
 			},
 		}
 		const { generateVisionDescriptionForTest } = await import(
-			"../src/modules-gateway/ai-moderation/worker.js"
+			"../src/infrastructure/modules-gateway/ai-moderation/worker.js"
 		)
 		const out = await generateVisionDescriptionForTest(
 			pool,

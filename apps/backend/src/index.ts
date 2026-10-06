@@ -42,15 +42,14 @@
  */
 
 import type { Server } from "node:http"
-import { createChildLogger } from "@/shared/logger/index"
-import { initializeDiscordGateway } from "./gateway/bootstrap.js"
-import { startHttpServer } from "./http/server.js"
-import { closeDrizzleDatabase } from "./shared/database/drizzle.js"
-
-import { stopCommandBridge } from "./shared/redis/index.js"
-import { startModerationWorker } from "./worker/start.js"
-import { stopRedisBridge as stopEventBridge } from "./ws/redis-bridge.js"
-import { closeWebSocketServer } from "./ws/server.js"
+import { createChildLogger } from "@/infrastructure/logger/index"
+import { closeDrizzleDatabase } from "./infrastructure/database/drizzle.js"
+import { stopCommandBridge } from "./infrastructure/redis/index.js"
+import { stopRedisBridge as stopEventBridge } from "./infrastructure/redis/redis-bridge.js"
+import { initializeDiscordGateway } from "./presentation/gateway/bootstrap.js"
+import { startHttpServer } from "./presentation/http/server.js"
+import { startModerationWorker } from "./presentation/worker/start.js"
+import { closeWebSocketServer } from "./presentation/ws/server.js"
 
 const logger = createChildLogger("gmw")
 

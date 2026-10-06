@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest"
  * Lock the contract that the WS `stream_messages` handler + frontend
  * `useMessagesStream` depend on.
  *
- * Real behavior (src/modules/messages/messages.repository.ts → streamMany, and
- * src/ws/server.ts stream_messages handler):
+ * Real behavior (src/infrastructure/repositories/messages.repository.ts → streamMany, and
+ * src/presentation/ws/server.ts stream_messages handler):
  *  - ONE `stream_messages` request streams the WHOLE history for the scope,
  *    internally paging `limit+1` at a time (cursor = oldest created_at of the
  *    page) until exhausted or maxFrames is hit.

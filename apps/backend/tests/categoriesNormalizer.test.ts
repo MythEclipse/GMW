@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest"
 
 const repoPath = fileURLToPath(
 	new URL(
-		"../src/modules/moderation/moderation.repository.ts",
+		"../src/infrastructure/repositories/moderation.repository.ts",
 		import.meta.url,
 	),
 )

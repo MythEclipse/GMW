@@ -30,8 +30,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest"
 import type {
 	LlmGateway,
 	LlmRequest,
-} from "../src/modules-gateway/ai-moderation/llmGateway.js"
-import { ModerationWorker } from "../src/modules-gateway/ai-moderation/worker.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/llmGateway.js"
+import { ModerationWorker } from "../src/infrastructure/modules-gateway/ai-moderation/worker.js"
 
 import { type IsolatedPool, tryCreateIsolatedPool } from "./isolated-pool.js"
 

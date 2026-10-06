@@ -3,7 +3,7 @@
 # Migration drift gate (skill §5).
 #
 # WHAT IT ENFORCES
-#   A PR must not change `src/shared/database/schema.ts` without also changing
+#   A PR must not change `src/infrastructure/database/schema.ts` without also changing
 #   `drizzle/migrations/`. That is the whole rule: schema and migrations move
 #   together, or CI fails.
 #
@@ -41,7 +41,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-SCHEMA="src/shared/database/schema.ts"
+SCHEMA="src/infrastructure/database/schema.ts"
 MIGRATIONS="drizzle/migrations"
 BASELINE_SNAPSHOT="$MIGRATIONS/meta/0000_snapshot.json"
 

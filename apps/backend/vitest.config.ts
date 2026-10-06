@@ -7,7 +7,7 @@ import { defineConfig } from "vitest/config"
  * ## setupFiles is the faithful translation of bunfig.toml's `preload`
  *
  * `tests/setup-env.ts` assigns `process.env.*` BEFORE any test module imports
- * `src/shared/config/index.ts`, whose `loadConfig()` zod schema evaluates at
+ * `src/infrastructure/config/index.ts`, whose `loadConfig()` zod schema evaluates at
  * import time. That ordering IS the mechanism — drop it and 17 gateway tests
  * fail on `DISCORD_TOKEN: expected string, received undefined`. Keep the file
  * byte-identical; only its registration point moved.

@@ -16,8 +16,8 @@
  * Run: bun tests/nsfw-policy-probe.ts
  */
 
-import { createDefaultGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js"
-import { buildSystemPrompt } from "../src/modules-gateway/ai-moderation/policy.js"
+import { createDefaultGateway } from "../src/infrastructure/modules-gateway/ai-moderation/llmGateway.js"
+import { buildSystemPrompt } from "../src/infrastructure/modules-gateway/ai-moderation/policy.js"
 
 interface Case {
 	text: string

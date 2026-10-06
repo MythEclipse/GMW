@@ -24,7 +24,7 @@ import {
 	type MessageLike,
 	parseStringList,
 	type VerdictLike,
-} from "../src/modules-gateway/ai-moderation/autoDeleteEligibility.js"
+} from "../src/infrastructure/modules-gateway/ai-moderation/autoDeleteEligibility.js"
 
 function msg(overrides: Partial<MessageLike> = {}): MessageLike {
 	return {

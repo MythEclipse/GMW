@@ -19,7 +19,7 @@
  * the literals sidesteps that entirely — and these are test fixtures, not a
  * place where a bind parameter earns its keep.
  */
-import { executeAll } from "../../src/shared/database/drizzle.js"
+import { executeAll } from "../../src/infrastructure/database/drizzle.js"
 
 /** Fixed clock for the whole fixture: 2024-06-15T12:00:00Z. */
 export const T0 = 1_718_448_000_000

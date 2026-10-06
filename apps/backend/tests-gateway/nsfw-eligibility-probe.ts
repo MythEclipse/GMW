@@ -16,9 +16,9 @@
  * Run: bun tests/nsfw-eligibility-probe.ts
  */
 
-import { isEligibleForAutoDelete } from "../src/modules-gateway/ai-moderation/autoDeleteEligibility.js"
-import { createDefaultGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js"
-import { buildSystemPrompt } from "../src/modules-gateway/ai-moderation/policy.js"
+import { isEligibleForAutoDelete } from "../src/infrastructure/modules-gateway/ai-moderation/autoDeleteEligibility.js"
+import { createDefaultGateway } from "../src/infrastructure/modules-gateway/ai-moderation/llmGateway.js"
+import { buildSystemPrompt } from "../src/infrastructure/modules-gateway/ai-moderation/policy.js"
 
 const gateway = createDefaultGateway()
 const system = buildSystemPrompt({ mode: "text" })
