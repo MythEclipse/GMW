@@ -18,14 +18,25 @@ import { RPCLink } from "@orpc/client/fetch"
  * `@/lib/ws`. It is push-only: every subscriber there treats a payload as a
  * notification and re-issues a query rather than rendering it. So the two are
  * genuinely separate concerns and only this one moved.
+ *
+ * ITS URL MUST BE ABSOLUTE. `RPCLink`'s codec runs `new URL(baseUrl)` with no
+ * base and no resolution, so the relative `/trpc` default threw
+ * `TypeError: Failed to construct 'URL'` on the first request — which took out
+ * EVERY query in the app, not just the view that happened to render the error.
+ * Same-origin by default: the reverse proxy forwards `/trpc` to the backend, so
+ * no host is ever hardcoded here. `VITE_API_URL` still wins when set, and being
+ * run through `new URL(…, origin)` it accepts either an absolute origin or a
+ * path prefix like `/api`.
  */
 function rpcUrl(): string {
+	// The link is built lazily from a client component, so `location` is
+	// normally present. The fallback keeps a stray server-side call from
+	// crashing the render; it never becomes the origin a real request uses.
+	const origin =
+		typeof window === "undefined" ? "http://localhost" : window.location.origin
 	const configured = import.meta.env.VITE_API_URL
-	if (configured) return `${configured.replace(/\/$/, "")}/trpc`
-
-	// Same-origin: the reverse proxy forwards /trpc to the backend, so no host is
-	// ever hardcoded here.
-	return "/trpc"
+	const path = configured ? `${configured.replace(/\/$/, "")}/trpc` : "/trpc"
+	return new URL(path, origin).toString()
 }
 
 let link: ClientLink<Record<string, never>> | null = null
