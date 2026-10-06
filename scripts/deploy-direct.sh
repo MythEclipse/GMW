@@ -291,6 +291,31 @@ sudo systemctl daemon-reload
 # because the process died a moment later proves nothing.
 UNITS="gmw-backend gmw-frontend gmw-proxy"
 STABLE_POLLS=3
+
+# HTTP surfaces, not just process liveness. Defined BEFORE the stability loop
+# because the loop gates on them too — see the note at the loop's HTTP gate.
+check_http() {
+  local label="$1" url="$2" code
+  # `|| code=000`, not `|| echo 000`: the old form appended to `-w`'s own
+  # `000` and printed `000000`, which read like a typo rather than a refusal.
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url") || code=000
+  echo "  $label ($url) -> $code"
+  [ "$code" = "200" ]
+}
+
+check_surfaces() {
+  # 1 = every surface answered, matching the `http_ok` convention this block
+  # replaced. The shell convention is the opposite (0 = success), so the flip
+  # happens exactly once, here — returning `$http_ok` raw made every probe
+  # report failure with all four surfaces at 200.
+  local http_ok=1
+  check_http "backend"     "http://127.0.0.1:4001/api/health" || http_ok=0
+  check_http "frontend"    "http://127.0.0.1:4017/"           || http_ok=0
+  check_http "proxy"       "http://127.0.0.1:4009/"           || http_ok=0
+  check_http "proxy/api"   "http://127.0.0.1:4009/api/health" || http_ok=0
+  return $((1 - http_ok))
+}
+
 end=$((SECONDS+90))
 streak=0
 while [ $SECONDS -lt $end ]; do
@@ -302,6 +327,17 @@ while [ $SECONDS -lt $end ]; do
       break
     fi
   done
+  # `is-active` turns true the instant systemd spawns the process, but after a
+  # reset deploy the backend drops the schema and rebuilds the WHOLE thing from
+  # the baseline before it binds :4001 — so the unit reads `active` for several
+  # seconds while the port still refuses connections. The one-shot probe that
+  # used to run after this loop sampled exactly that gap and failed the deploy
+  # on a perfectly healthy backend (backend -> 000000, proxy/api -> 502), which
+  # is the same defect the comment above warns about, one layer down.
+  # Gating the streak on the surfaces is what makes "stable" mean "serving".
+  if [ $ok -eq 1 ] && ! check_surfaces >/dev/null 2>&1; then
+    ok=0
+  fi
   if [ $ok -eq 1 ]; then
     streak=$((streak+1))
     if [ $streak -ge $STABLE_POLLS ]; then
@@ -314,30 +350,18 @@ while [ $SECONDS -lt $end ]; do
 done
 
 if [ $streak -lt $STABLE_POLLS ]; then
-  echo "::error::One or more services failed to stay active" >&2
+  echo "::error::Services failed to stay active and answering" >&2
   for u in $UNITS; do
     state=$(sudo systemctl is-active "$u" 2>/dev/null || echo inactive)
     echo "  $u -> $state"
   done
+  log "Checking HTTP surfaces"
+  check_surfaces || true
   exit 1
 fi
 
-# HTTP surfaces, not just process liveness.
-check_http() {
-  local label="$1" url="$2" code
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || echo 000)
-  echo "  $label ($url) -> $code"
-  [ "$code" = "200" ]
-}
-
 log "Checking HTTP surfaces"
-http_ok=1
-check_http "backend"     "http://127.0.0.1:4001/api/health" || http_ok=0
-check_http "frontend"    "http://127.0.0.1:4017/"          || http_ok=0
-check_http "proxy"       "http://127.0.0.1:4009/"          || http_ok=0
-check_http "proxy/api"   "http://127.0.0.1:4009/api/health" || http_ok=0
-
-if [ $http_ok -ne 1 ]; then
+if ! check_surfaces; then
   echo "::error::One or more HTTP surfaces did not answer 200" >&2
   exit 1
 fi
