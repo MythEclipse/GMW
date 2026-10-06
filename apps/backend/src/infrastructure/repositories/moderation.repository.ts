@@ -14,7 +14,6 @@ import {
 } from "drizzle-orm"
 import { readChannelName } from "../../domain/utils/channelName.js"
 import { localHour } from "../../domain/utils/localTime.js"
-import { getDatabase } from "../database/drizzle.js"
 import type { DatabaseHandle } from "../database/handle.js"
 import {
 	analysisAttemptsTable,

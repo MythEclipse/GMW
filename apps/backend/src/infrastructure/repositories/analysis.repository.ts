@@ -3,7 +3,6 @@ import {
 	type MappedMessage,
 	mapMessageRow,
 } from "../../domain/utils/messageMapper.js"
-import { getDatabase } from "../database/drizzle.js"
 import type { DatabaseHandle } from "../database/handle.js"
 import { messagesTable } from "../database/schema.js"
 import { createChildLogger } from "../logger/index.js"

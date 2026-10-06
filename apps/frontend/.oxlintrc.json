@@ -10,7 +10,7 @@
   ],
   "settings": {
     "shadcn": {
-      "ui": "@/components/ui"
+      "ui": "#/components/ui"
     }
   },
   "rules": {

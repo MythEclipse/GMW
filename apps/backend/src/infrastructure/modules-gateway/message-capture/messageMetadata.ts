@@ -1309,7 +1309,7 @@ export function getDisplayContent(message: Message): string {
  * Unresolvable tokens keep Discord's own name from the token, so no numeric
  * snowflake ever reaches the reader. Content without "<" is returned untouched.
  * Used by both the LLM prompt pipeline (conversationContext / moderationBuilders)
- * and mirrored in the frontend (lib/format.ts renderMessageContent).
+ * and mirrored in the frontend (libs/format.ts renderMessageContent).
  */
 export function renderDiscordMentions(
 	content: string,

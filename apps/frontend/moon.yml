@@ -92,3 +92,19 @@ tasks:
     deps:
       - 'backend:build'
       - 'routegen'
+
+  # kana §9: each project declares dev/build/test. Root `package.json` already
+  # routes `test` to `moon run :test`, which aggregates this with backend:test.
+  #
+  # No `@globs(tests)` here — unlike the backend, this project's fileGroups
+  # only defines `ts`, and adding an unused group would be a lie about what the
+  # task reads. Colocated `src/**/*.test.{ts,tsx}` is covered by `@globs(ts)`.
+  #
+  # `vitest run` not `vitest`: one shot, no watch, so CI and `moon run :test`
+  # terminate. A vacuous pass (zero tests) is currently the expected result —
+  # the harness is wired up ahead of the tests themselves.
+  test:
+    inputs:
+      - '@globs(ts)'
+      - 'vitest.config.mts'
+    command: 'vitest run'

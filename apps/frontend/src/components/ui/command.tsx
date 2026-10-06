@@ -1,5 +1,3 @@
-"use client"
-
 import { Command as CommandPrimitive } from "cmdk"
 import { cn } from "cn"
 import { CheckIcon, SearchIcon } from "lucide-react"
@@ -10,8 +8,8 @@ import {
 	DialogDescription,
 	DialogHeader,
 	DialogTitle,
-} from "@/components/ui/dialog"
-import { InputGroup, InputGroupAddon } from "@/components/ui/input-group"
+} from "#/components/ui/dialog"
+import { InputGroup, InputGroupAddon } from "#/components/ui/input-group"
 
 function Command({
 	className,

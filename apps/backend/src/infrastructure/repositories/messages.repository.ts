@@ -3,14 +3,10 @@ import {
 	asc,
 	desc,
 	eq,
-	gt,
 	gte,
-	ilike,
 	inArray,
-	isNotNull,
 	isNull,
 	lt,
-	ne,
 	notInArray,
 	or,
 	type SQL,
@@ -25,13 +21,11 @@ import { readChannelName } from "../../domain/utils/channelName.js"
 import { localHour } from "../../domain/utils/localTime.js"
 import { mapMessageRow } from "../../domain/utils/messageMapper.js"
 import { config } from "../config/index.js"
-import { getDatabase } from "../database/drizzle.js"
 import type { DatabaseHandle } from "../database/handle.js"
 import {
 	analysisAttemptsTable,
 	attachmentsTable,
 	messageEditsTable,
-	messageReviewsTable,
 	messagesTable,
 	verdictsTable,
 } from "../database/schema.js"

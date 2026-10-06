@@ -4,7 +4,7 @@
  * The frontend imports from HERE, and only as types — it never reaches into
  * `apps/backend/src` for runtime code. `AppRouter` describes the RPC surface and
  * `AppRouterClient` is the client type derived from it, which is what lets
- * `apps/frontend/src/lib/api/browser.ts` drop its hand-written mirror of the
+ * `apps/frontend/src/libs/api/browser.ts` drop its hand-written mirror of the
  * router shape and get the real one instead.
  *
  * Named `api-types.ts`, not `index.ts`: this repo's `src/index.ts` is the process

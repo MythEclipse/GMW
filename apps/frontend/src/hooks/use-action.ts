@@ -1,5 +1,3 @@
-"use client"
-
 import { useCallback, useState } from "react"
 
 /**
@@ -10,7 +8,7 @@ import { useCallback, useState } from "react"
  * different errors for the same action — a bug the previous implementation had
  * by combining this with a local `useState` catch.
  */
-export interface UseActionResult<TArgs extends unknown[], TData> {
+export interface IUseActionResult<TArgs extends unknown[], TData> {
 	run: (...args: TArgs) => Promise<TData | undefined>
 	isPending: boolean
 	error: Error | null
@@ -20,7 +18,7 @@ export interface UseActionResult<TArgs extends unknown[], TData> {
 
 export function useAction<TArgs extends unknown[], TData>(
 	fn: (...args: TArgs) => Promise<TData>,
-): UseActionResult<TArgs, TData> {
+): IUseActionResult<TArgs, TData> {
 	const [isPending, setIsPending] = useState(false)
 	const [error, setError] = useState<Error | null>(null)
 	const [data, setData] = useState<TData | null>(null)

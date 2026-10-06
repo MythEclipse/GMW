@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { DEFAULT_ROUTE } from "@/lib/navigation"
+import { DEFAULT_ROUTE } from "#/libs/navigation"
 
 /**
  * `/` — redirects to the first nav destination.

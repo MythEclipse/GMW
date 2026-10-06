@@ -10,94 +10,106 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as SplatRouteImport } from './routes/$'
-import { Route as AnalysisRouteRouteImport } from './routes/analysis/route'
-import { Route as ChannelsRouteRouteImport } from './routes/channels/route'
-import { Route as DashboardRouteRouteImport } from './routes/dashboard/route'
-import { Route as GlossaryRouteRouteImport } from './routes/glossary/route'
-import { Route as MessagesRouteRouteImport } from './routes/messages/route'
-import { Route as ModerationRouteRouteImport } from './routes/moderation/route'
-import { Route as UsersRouteRouteImport } from './routes/users/route'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
+import { Route as AuthenticatedSplatRouteImport } from './routes/_authenticated/$'
+import { Route as AuthenticatedAnalysisRouteRouteImport } from './routes/_authenticated/analysis/route'
+import { Route as AuthenticatedChannelsRouteRouteImport } from './routes/_authenticated/channels/route'
+import { Route as AuthenticatedDashboardRouteRouteImport } from './routes/_authenticated/dashboard/route'
+import { Route as AuthenticatedGlossaryRouteRouteImport } from './routes/_authenticated/glossary/route'
+import { Route as AuthenticatedMessagesRouteRouteImport } from './routes/_authenticated/messages/route'
+import { Route as AuthenticatedModerationRouteRouteImport } from './routes/_authenticated/moderation/route'
+import { Route as AuthenticatedUsersRouteRouteImport } from './routes/_authenticated/users/route'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SplatRoute = SplatRouteImport.update({
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedSplatRoute = AuthenticatedSplatRouteImport.update({
   id: '/$',
   path: '/$',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AnalysisRouteRoute = AnalysisRouteRouteImport.update({
-  id: '/analysis',
-  path: '/analysis',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ChannelsRouteRoute = ChannelsRouteRouteImport.update({
-  id: '/channels',
-  path: '/channels',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DashboardRouteRoute = DashboardRouteRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GlossaryRouteRoute = GlossaryRouteRouteImport.update({
-  id: '/glossary',
-  path: '/glossary',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MessagesRouteRoute = MessagesRouteRouteImport.update({
-  id: '/messages',
-  path: '/messages',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ModerationRouteRoute = ModerationRouteRouteImport.update({
-  id: '/moderation',
-  path: '/moderation',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const UsersRouteRoute = UsersRouteRouteImport.update({
+const AuthenticatedAnalysisRouteRoute =
+  AuthenticatedAnalysisRouteRouteImport.update({
+    id: '/analysis',
+    path: '/analysis',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedChannelsRouteRoute =
+  AuthenticatedChannelsRouteRouteImport.update({
+    id: '/channels',
+    path: '/channels',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedDashboardRouteRoute =
+  AuthenticatedDashboardRouteRouteImport.update({
+    id: '/dashboard',
+    path: '/dashboard',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedGlossaryRouteRoute =
+  AuthenticatedGlossaryRouteRouteImport.update({
+    id: '/glossary',
+    path: '/glossary',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedMessagesRouteRoute =
+  AuthenticatedMessagesRouteRouteImport.update({
+    id: '/messages',
+    path: '/messages',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedModerationRouteRoute =
+  AuthenticatedModerationRouteRouteImport.update({
+    id: '/moderation',
+    path: '/moderation',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedUsersRouteRoute = AuthenticatedUsersRouteRouteImport.update({
   id: '/users',
   path: '/users',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/analysis': typeof AnalysisRouteRoute
-  '/channels': typeof ChannelsRouteRoute
-  '/dashboard': typeof DashboardRouteRoute
-  '/glossary': typeof GlossaryRouteRoute
-  '/messages': typeof MessagesRouteRoute
-  '/moderation': typeof ModerationRouteRoute
-  '/users': typeof UsersRouteRoute
-  '/$': typeof SplatRoute
+  '/analysis': typeof AuthenticatedAnalysisRouteRoute
+  '/channels': typeof AuthenticatedChannelsRouteRoute
+  '/dashboard': typeof AuthenticatedDashboardRouteRoute
+  '/glossary': typeof AuthenticatedGlossaryRouteRoute
+  '/messages': typeof AuthenticatedMessagesRouteRoute
+  '/moderation': typeof AuthenticatedModerationRouteRoute
+  '/users': typeof AuthenticatedUsersRouteRoute
+  '/$': typeof AuthenticatedSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/analysis': typeof AnalysisRouteRoute
-  '/channels': typeof ChannelsRouteRoute
-  '/dashboard': typeof DashboardRouteRoute
-  '/glossary': typeof GlossaryRouteRoute
-  '/messages': typeof MessagesRouteRoute
-  '/moderation': typeof ModerationRouteRoute
-  '/users': typeof UsersRouteRoute
-  '/$': typeof SplatRoute
+  '/analysis': typeof AuthenticatedAnalysisRouteRoute
+  '/channels': typeof AuthenticatedChannelsRouteRoute
+  '/dashboard': typeof AuthenticatedDashboardRouteRoute
+  '/glossary': typeof AuthenticatedGlossaryRouteRoute
+  '/messages': typeof AuthenticatedMessagesRouteRoute
+  '/moderation': typeof AuthenticatedModerationRouteRoute
+  '/users': typeof AuthenticatedUsersRouteRoute
+  '/$': typeof AuthenticatedSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/analysis': typeof AnalysisRouteRoute
-  '/channels': typeof ChannelsRouteRoute
-  '/dashboard': typeof DashboardRouteRoute
-  '/glossary': typeof GlossaryRouteRoute
-  '/messages': typeof MessagesRouteRoute
-  '/moderation': typeof ModerationRouteRoute
-  '/users': typeof UsersRouteRoute
-  '/$': typeof SplatRoute
+  '/_authenticated': typeof AuthenticatedRouteWithChildren
+  '/_authenticated/analysis': typeof AuthenticatedAnalysisRouteRoute
+  '/_authenticated/channels': typeof AuthenticatedChannelsRouteRoute
+  '/_authenticated/dashboard': typeof AuthenticatedDashboardRouteRoute
+  '/_authenticated/glossary': typeof AuthenticatedGlossaryRouteRoute
+  '/_authenticated/messages': typeof AuthenticatedMessagesRouteRoute
+  '/_authenticated/moderation': typeof AuthenticatedModerationRouteRoute
+  '/_authenticated/users': typeof AuthenticatedUsersRouteRoute
+  '/_authenticated/$': typeof AuthenticatedSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -125,26 +137,20 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/analysis'
-    | '/channels'
-    | '/dashboard'
-    | '/glossary'
-    | '/messages'
-    | '/moderation'
-    | '/users'
-    | '/$'
+    | '/_authenticated'
+    | '/_authenticated/analysis'
+    | '/_authenticated/channels'
+    | '/_authenticated/dashboard'
+    | '/_authenticated/glossary'
+    | '/_authenticated/messages'
+    | '/_authenticated/moderation'
+    | '/_authenticated/users'
+    | '/_authenticated/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AnalysisRouteRoute: typeof AnalysisRouteRoute
-  ChannelsRouteRoute: typeof ChannelsRouteRoute
-  DashboardRouteRoute: typeof DashboardRouteRoute
-  GlossaryRouteRoute: typeof GlossaryRouteRoute
-  MessagesRouteRoute: typeof MessagesRouteRoute
-  ModerationRouteRoute: typeof ModerationRouteRoute
-  UsersRouteRoute: typeof UsersRouteRoute
-  SplatRoute: typeof SplatRoute
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -156,75 +162,101 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$': {
-      id: '/$'
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/$': {
+      id: '/_authenticated/$'
       path: '/$'
       fullPath: '/$'
-      preLoaderRoute: typeof SplatRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedSplatRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/analysis': {
-      id: '/analysis'
+    '/_authenticated/analysis': {
+      id: '/_authenticated/analysis'
       path: '/analysis'
       fullPath: '/analysis'
-      preLoaderRoute: typeof AnalysisRouteRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedAnalysisRouteRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/channels': {
-      id: '/channels'
+    '/_authenticated/channels': {
+      id: '/_authenticated/channels'
       path: '/channels'
       fullPath: '/channels'
-      preLoaderRoute: typeof ChannelsRouteRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedChannelsRouteRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/dashboard': {
-      id: '/dashboard'
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedDashboardRouteRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/glossary': {
-      id: '/glossary'
+    '/_authenticated/glossary': {
+      id: '/_authenticated/glossary'
       path: '/glossary'
       fullPath: '/glossary'
-      preLoaderRoute: typeof GlossaryRouteRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedGlossaryRouteRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/messages': {
-      id: '/messages'
+    '/_authenticated/messages': {
+      id: '/_authenticated/messages'
       path: '/messages'
       fullPath: '/messages'
-      preLoaderRoute: typeof MessagesRouteRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedMessagesRouteRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/moderation': {
-      id: '/moderation'
+    '/_authenticated/moderation': {
+      id: '/_authenticated/moderation'
       path: '/moderation'
       fullPath: '/moderation'
-      preLoaderRoute: typeof ModerationRouteRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedModerationRouteRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/users': {
-      id: '/users'
+    '/_authenticated/users': {
+      id: '/_authenticated/users'
       path: '/users'
       fullPath: '/users'
-      preLoaderRoute: typeof UsersRouteRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthenticatedUsersRouteRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
   }
 }
 
+interface AuthenticatedRouteChildren {
+  AuthenticatedAnalysisRouteRoute: typeof AuthenticatedAnalysisRouteRoute
+  AuthenticatedChannelsRouteRoute: typeof AuthenticatedChannelsRouteRoute
+  AuthenticatedDashboardRouteRoute: typeof AuthenticatedDashboardRouteRoute
+  AuthenticatedGlossaryRouteRoute: typeof AuthenticatedGlossaryRouteRoute
+  AuthenticatedMessagesRouteRoute: typeof AuthenticatedMessagesRouteRoute
+  AuthenticatedModerationRouteRoute: typeof AuthenticatedModerationRouteRoute
+  AuthenticatedUsersRouteRoute: typeof AuthenticatedUsersRouteRoute
+  AuthenticatedSplatRoute: typeof AuthenticatedSplatRoute
+}
+
+const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAnalysisRouteRoute: AuthenticatedAnalysisRouteRoute,
+  AuthenticatedChannelsRouteRoute: AuthenticatedChannelsRouteRoute,
+  AuthenticatedDashboardRouteRoute: AuthenticatedDashboardRouteRoute,
+  AuthenticatedGlossaryRouteRoute: AuthenticatedGlossaryRouteRoute,
+  AuthenticatedMessagesRouteRoute: AuthenticatedMessagesRouteRoute,
+  AuthenticatedModerationRouteRoute: AuthenticatedModerationRouteRoute,
+  AuthenticatedUsersRouteRoute: AuthenticatedUsersRouteRoute,
+  AuthenticatedSplatRoute: AuthenticatedSplatRoute,
+}
+
+const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
+  AuthenticatedRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AnalysisRouteRoute: AnalysisRouteRoute,
-  ChannelsRouteRoute: ChannelsRouteRoute,
-  DashboardRouteRoute: DashboardRouteRoute,
-  GlossaryRouteRoute: GlossaryRouteRoute,
-  MessagesRouteRoute: MessagesRouteRoute,
-  ModerationRouteRoute: ModerationRouteRoute,
-  UsersRouteRoute: UsersRouteRoute,
-  SplatRoute: SplatRoute,
+  AuthenticatedRoute: AuthenticatedRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

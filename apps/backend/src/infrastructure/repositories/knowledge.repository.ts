@@ -1,5 +1,5 @@
 import { desc, ilike, or } from "drizzle-orm"
-import { executeAll, getDatabase } from "../database/drizzle.js"
+import { executeAll } from "../database/drizzle.js"
 import type { DatabaseHandle } from "../database/handle.js"
 import {
 	channelCulturesTable,

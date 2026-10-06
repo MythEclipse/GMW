@@ -1,5 +1,4 @@
 import { desc, eq } from "drizzle-orm"
-import { getDatabase } from "../database/drizzle.js"
 import type { DatabaseHandle } from "../database/handle.js"
 import { chatbotMessagesTable } from "../database/schema.js"
 import { createChildLogger } from "../logger/index.js"

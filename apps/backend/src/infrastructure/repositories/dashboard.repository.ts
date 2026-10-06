@@ -15,7 +15,6 @@ import {
 	readChannelName,
 } from "../../domain/utils/channelName.js"
 import { localDay, localHour } from "../../domain/utils/localTime.js"
-import { getDatabase } from "../database/drizzle.js"
 import type { DatabaseHandle } from "../database/handle.js"
 import {
 	channelCulturesTable,

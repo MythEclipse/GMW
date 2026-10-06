@@ -1,5 +1,3 @@
-"use client"
-
 import {
 	type InfiniteData,
 	type UseInfiniteQueryResult,
@@ -8,29 +6,29 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query"
-import { browserApi } from "@/lib/api/browser"
+import { browserApi } from "#/libs/api/browser"
 import type {
-	ActivityCell,
-	ChannelCulture,
-	ChannelPage,
-	DashboardActivity,
-	DashboardStats,
-	FlaggedChannel,
-	FlaggedDomain,
-	GlossaryTerm,
-	Guild,
-	MessageEdit,
-	MessagePage,
-	MessageQuery,
-	ModerationActionPage,
-	ModerationStats,
-	ModerationTrends,
-	ReviewResult,
-	TextChannel,
-	TopReaction,
-	TopReactor,
-	UserPage,
-} from "@/lib/types"
+	IActivityCell,
+	IChannelCulture,
+	IChannelPage,
+	IDashboardActivity,
+	IDashboardStats,
+	IFlaggedChannel,
+	IFlaggedDomain,
+	IGlossaryTerm,
+	IGuild,
+	IMessageEdit,
+	IMessagePage,
+	IMessageQuery,
+	IModerationActionPage,
+	IModerationStats,
+	IModerationTrends,
+	IReviewResult,
+	ITextChannel,
+	ITopReaction,
+	ITopReactor,
+	IUserPage,
+} from "#/libs/types"
 
 /**
  * TanStack Query data layer — replaces the SWR hooks this file used to hold.
@@ -86,7 +84,7 @@ export const qk = {
 	guilds: ["messages", "guilds"] as const,
 	textChannels: (guildId: string) =>
 		["messages", "textChannels", guildId] as const,
-	messagePage: (query: MessageQuery) => ["messages", "list", query] as const,
+	messagePage: (query: IMessageQuery) => ["messages", "list", query] as const,
 	review: (channelId: string | undefined) =>
 		["messages", "review", channelId ?? "all"] as const,
 	messageActivity: (days: number) => ["messages", "activity", days] as const,
@@ -109,7 +107,7 @@ export const qk = {
 } as const
 
 /** A paged list whose backend hands back an opaque resume token. */
-export interface CursorPage<T> {
+export interface ICursorPage<T> {
 	results: T[]
 	nextCursor: string | null
 }
@@ -119,7 +117,7 @@ export interface CursorPage<T> {
 export function useStats() {
 	return useQuery({
 		queryKey: qk.stats,
-		queryFn: () => browserApi.dashboard.stats() as Promise<DashboardStats>,
+		queryFn: () => browserApi.dashboard.stats() as Promise<IDashboardStats>,
 		...shared,
 	})
 }
@@ -128,7 +126,7 @@ export function useActivity(days: number) {
 	return useQuery({
 		queryKey: qk.activity(days),
 		queryFn: () =>
-			browserApi.dashboard.activity(days) as Promise<DashboardActivity>,
+			browserApi.dashboard.activity(days) as Promise<IDashboardActivity>,
 		...shared,
 		refetchInterval: LIVE,
 	})
@@ -141,7 +139,7 @@ export function useUsers(search: string) {
 			browserApi.dashboard.users({
 				limit: 20,
 				search: search || undefined,
-			}) as Promise<UserPage>,
+			}) as Promise<IUserPage>,
 		...shared,
 		placeholderData: (prev) => prev,
 	})
@@ -163,7 +161,7 @@ export function useChannels(search: string, guildId?: string) {
 				limit: 50,
 				search: search || undefined,
 				guildId,
-			}) as Promise<ChannelPage>,
+			}) as Promise<IChannelPage>,
 		...shared,
 		placeholderData: (prev) => prev,
 	})
@@ -181,7 +179,7 @@ export function useTopReactions(limit: number) {
 	return useQuery({
 		queryKey: qk.reactions(limit),
 		queryFn: () =>
-			browserApi.dashboard.reactions(limit) as Promise<TopReaction[]>,
+			browserApi.dashboard.reactions(limit) as Promise<ITopReaction[]>,
 		...shared,
 		refetchInterval: LIVE,
 	})
@@ -191,7 +189,7 @@ export function useTopReactors(limit: number) {
 	return useQuery({
 		queryKey: qk.reactors(limit),
 		queryFn: () =>
-			browserApi.dashboard.reactors(limit) as Promise<TopReactor[]>,
+			browserApi.dashboard.reactors(limit) as Promise<ITopReactor[]>,
 		...shared,
 		refetchInterval: LIVE,
 	})
@@ -202,7 +200,7 @@ export function useTopReactors(limit: number) {
 export function useGuilds() {
 	return useQuery({
 		queryKey: qk.guilds,
-		queryFn: () => browserApi.messages.guilds() as Promise<Guild[]>,
+		queryFn: () => browserApi.messages.guilds() as Promise<IGuild[]>,
 		...shared,
 	})
 }
@@ -217,7 +215,7 @@ export function useTextChannels(guildId: string | null) {
 			: (["messages", "textChannels", null] as const),
 		queryFn: () =>
 			browserApi.messages.textChannels(guildId as string) as Promise<
-				TextChannel[]
+				ITextChannel[]
 			>,
 		enabled: Boolean(guildId),
 		...shared,
@@ -234,10 +232,10 @@ export function useTextChannels(guildId: string | null) {
  * stalls early or fetches the same page forever.
  */
 export function useMessageFeed(
-	query: MessageQuery,
+	query: IMessageQuery,
 	enabled: boolean,
 ): UseInfiniteQueryResult<
-	InfiniteData<MessagePage, string | undefined>,
+	InfiniteData<IMessagePage, string | undefined>,
 	Error
 > {
 	return useInfiniteQuery({
@@ -246,7 +244,7 @@ export function useMessageFeed(
 			browserApi.messages.list({
 				...query,
 				cursor: pageParam ?? undefined,
-			}) as Promise<MessagePage>,
+			}) as Promise<IMessagePage>,
 		initialPageParam: undefined as string | undefined,
 		getNextPageParam: (last) => last.nextCursor ?? undefined,
 		// The backend rejects a list with neither guild nor channel, so the feed
@@ -255,7 +253,7 @@ export function useMessageFeed(
 		enabled: enabled && Boolean(query.guildId || query.channelId),
 		...shared,
 	}) as UseInfiniteQueryResult<
-		InfiniteData<MessagePage, string | undefined>,
+		InfiniteData<IMessagePage, string | undefined>,
 		Error
 	>
 }
@@ -272,7 +270,7 @@ export function useReviewFeed(
 	channelId: string | undefined,
 	limit: number,
 ): UseInfiniteQueryResult<
-	InfiniteData<ReviewResult, string | undefined>,
+	InfiniteData<IReviewResult, string | undefined>,
 	Error
 > {
 	return useInfiniteQuery({
@@ -282,12 +280,12 @@ export function useReviewFeed(
 				limit,
 				channelId,
 				cursor: pageParam ?? undefined,
-			}) as Promise<ReviewResult>,
+			}) as Promise<IReviewResult>,
 		initialPageParam: undefined as string | undefined,
 		getNextPageParam: (last) => last.cursor ?? undefined,
 		...shared,
 	}) as UseInfiniteQueryResult<
-		InfiniteData<ReviewResult, string | undefined>,
+		InfiniteData<IReviewResult, string | undefined>,
 		Error
 	>
 }
@@ -300,7 +298,7 @@ export function useEditFeed(
 	channelId: string | undefined,
 	limit: number,
 ): UseInfiniteQueryResult<
-	InfiniteData<CursorPage<MessageEdit> | MessageEdit[], string | undefined>,
+	InfiniteData<ICursorPage<IMessageEdit> | IMessageEdit[], string | undefined>,
 	Error
 > {
 	return useInfiniteQuery({
@@ -310,7 +308,7 @@ export function useEditFeed(
 				limit,
 				channelId,
 				cursor: pageParam ?? undefined,
-			}) as unknown as Promise<CursorPage<MessageEdit> | MessageEdit[]>,
+			}) as unknown as Promise<ICursorPage<IMessageEdit> | IMessageEdit[]>,
 		initialPageParam: undefined as string | undefined,
 		// `undefined` for either shape. A bare array carries no cursor, so an older
 		// backend simply yields a single page and the tab degrades to "no further
@@ -319,7 +317,10 @@ export function useEditFeed(
 			Array.isArray(last) ? undefined : (last.nextCursor ?? undefined),
 		...shared,
 	}) as UseInfiniteQueryResult<
-		InfiniteData<CursorPage<MessageEdit> | MessageEdit[], string | undefined>,
+		InfiniteData<
+			ICursorPage<IMessageEdit> | IMessageEdit[],
+			string | undefined
+		>,
 		Error
 	>
 }
@@ -328,7 +329,7 @@ export function useMessageActivity(days: number) {
 	return useQuery({
 		queryKey: qk.messageActivity(days),
 		queryFn: () =>
-			browserApi.messages.activity(days) as Promise<ActivityCell[]>,
+			browserApi.messages.activity(days) as Promise<IActivityCell[]>,
 		...shared,
 	})
 }
@@ -338,7 +339,7 @@ export function useMessageActivity(days: number) {
 export function useModerationStats() {
 	return useQuery({
 		queryKey: qk.modStats,
-		queryFn: () => browserApi.moderation.stats() as Promise<ModerationStats>,
+		queryFn: () => browserApi.moderation.stats() as Promise<IModerationStats>,
 		...shared,
 		refetchInterval: LIVE,
 	})
@@ -352,7 +353,7 @@ export function useModerationActions(status: string, actionType: string) {
 				limit: 50,
 				status: status || undefined,
 				actionType: actionType || undefined,
-			}) as Promise<ModerationActionPage>,
+			}) as Promise<IModerationActionPage>,
 		...shared,
 		placeholderData: (prev) => prev,
 	})
@@ -362,7 +363,7 @@ export function useModerationTrends(days: number) {
 	return useQuery({
 		queryKey: qk.modTrends(days),
 		queryFn: () =>
-			browserApi.moderation.trends(days) as Promise<ModerationTrends>,
+			browserApi.moderation.trends(days) as Promise<IModerationTrends>,
 		...shared,
 		refetchInterval: LIVE,
 	})
@@ -372,7 +373,7 @@ export function useFlaggedDomains(days: number) {
 	return useQuery({
 		queryKey: qk.domains(days),
 		queryFn: () =>
-			browserApi.moderation.topDomains(days) as Promise<FlaggedDomain[]>,
+			browserApi.moderation.topDomains(days) as Promise<IFlaggedDomain[]>,
 		...shared,
 		refetchInterval: LIVE,
 	})
@@ -382,7 +383,7 @@ export function useFlaggedChannels(days: number) {
 	return useQuery({
 		queryKey: qk.flaggedChannels(days),
 		queryFn: () =>
-			browserApi.moderation.topChannels(days) as Promise<FlaggedChannel[]>,
+			browserApi.moderation.topChannels(days) as Promise<IFlaggedChannel[]>,
 		...shared,
 		refetchInterval: LIVE,
 	})
@@ -430,7 +431,7 @@ export function useChannelCultures(search: string) {
 			browserApi.knowledge.channelCultures({
 				limit: 50,
 				search: search || undefined,
-			}) as Promise<ChannelCulture[]>,
+			}) as Promise<IChannelCulture[]>,
 		...shared,
 		placeholderData: (prev) => prev,
 	})
@@ -443,7 +444,7 @@ export function useGlossary(search: string) {
 			browserApi.knowledge.glossary({
 				limit: 50,
 				search: search || undefined,
-			}) as Promise<GlossaryTerm[]>,
+			}) as Promise<IGlossaryTerm[]>,
 		...shared,
 		placeholderData: (prev) => prev,
 	})
@@ -473,7 +474,7 @@ export function useInvalidate() {
  * paged endpoints disagree: `list` answers `{ data, nextCursor }`, `review`
  * answers `{ results, limit, cursor }`, and `editHistory` answers
  * `{ results, nextCursor }`. The generic is on the ELEMENT type, not the page,
- * so callers get `Message[]` / `MessageEdit[]` back rather than `unknown[]`.
+ * so callers get `IMessage[]` / `IMessageEdit[]` back rather than `unknown[]`.
  *
  * WHY A BARE PAGE IS ALSO ACCEPTED
  *

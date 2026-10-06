@@ -9,6 +9,20 @@
     ],
     "module": "esnext",
     "noEmit": true,
+    // kana §4: relative imports carry a real .ts/.tsx extension. tsc refuses
+    // that specifier shape unless this is on, and `noEmit` (set above) is the
+    // precondition for turning it on — which is why it lives here and NOT in
+    // tsconfig.base.json: the backend emits JS, so the flag would break it.
+    "allowImportingTsExtensions": true,
+    // kana §4's remaining compilerOptions. Deliberately NOT in
+    // tsconfig.base.json: the backend EMITS JavaScript, so allowImportingTsExtensions
+    // would break `backend:build`, and verbatimModuleSyntax would force a
+    // different emit contract on it. Both apps share `strict` from base; these
+    // four are the frontend-only half.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
     "allowJs": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
@@ -17,13 +31,7 @@
       "vite/client"
     ],
     "paths": {
-      "@/*": [
-        "./src/*"
-      ],
-      "@api/*": [
-        "../backend/src/*"
-      ],
-      "@/*": [
+      "#/*": [
         "./src/*",
         "../backend/src/*"
       ]

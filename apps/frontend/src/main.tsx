@@ -1,11 +1,11 @@
 import "@fontsource-variable/inter"
 import "@fontsource-variable/jetbrains-mono"
-import "./app/globals.css"
+import "./styles.css"
 
-import { createRouter, RouterProvider } from "@tanstack/react-router"
+import { RouterProvider } from "@tanstack/react-router"
 import { ThemeProvider } from "next-themes"
 import { createRoot } from "react-dom/client"
-import { routeTree } from "./routeTree.gen"
+import { createAppRouter } from "./router.tsx"
 
 /**
  * SPA entry point — replaces `src/app/layout.tsx`, then `src/router.tsx`.
@@ -25,14 +25,11 @@ import { routeTree } from "./routeTree.gen"
  */
 
 /**
- * One router for the SPA, built from the generated tree.
- *
- * Created here rather than exported from a module so the boot-failure handler
- * below can still catch a throw during module evaluation — a router constructed
- * at import time would kill the bundle before React mounts.
+ * The router itself is built in `./router.tsx`, which also registers the route
+ * tree so `useSearch({ from })` and `Link to` are checked against real route
+ * ids. Construction still happens HERE, inside the `try` below — see
+ * `createAppRouter`'s doc for why a factory rather than an exported instance.
  */
-const router = createRouter({ routeTree, defaultPreload: false })
-
 const container = document.getElementById("root")
 
 if (!container) {
@@ -63,10 +60,11 @@ function showBootFailure(container: HTMLElement, error: unknown): void {
 }
 
 try {
+	const router = createAppRouter()
 	createRoot(container).render(
 		/*
 		 * attribute="class" is what makes the `dark:` variants in the shadcn
-		 * primitives and the .dark token block in globals.css apply.
+		 * primitives and the .dark token block in styles.css apply.
 		 *
 		 * defaultTheme/storageKey are deliberately left at their next-themes
 		 * defaults — the inline script in index.html reads the same `theme` key,

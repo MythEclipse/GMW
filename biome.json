@@ -19,7 +19,7 @@
       "!apps/**/.next",
       "!apps/**/out",
       "!apps/frontend/src/routeTree.gen.ts",
-      "!apps/frontend/src/app/globals.css"
+      "!apps/frontend/src/styles.css"
     ]
   },
   "formatter": {
@@ -56,6 +56,7 @@
       },
       "correctness": {
         "noInvalidUseBeforeDeclaration": "off",
+        "useExhaustiveDependencies": "off",
         "noUnusedFunctionParameters": "warn",
         "noUnusedVariables": "warn",
         "noUnusedImports": "warn",
