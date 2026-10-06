@@ -4,11 +4,39 @@ import { config } from "../../infrastructure/config/index.js"
 import { initializeDatabase } from "../../infrastructure/database/drizzle.js"
 import { createChildLogger } from "../../infrastructure/logger/index.js"
 import { startRedisBridge } from "../../infrastructure/redis/redis-bridge.js"
-import { createORPCWebSocketServer } from "../orpc/ws.js"
-import { createWebSocketServer } from "../ws/server.js"
+import {
+	closeORPCWebSocketServer,
+	createORPCWebSocketServer,
+} from "../orpc/ws.js"
+import { closeWebSocketServer, createWebSocketServer } from "../ws/server.js"
 import { createHttpApp } from "./app.js"
 
 const logger = createChildLogger("http.server")
+
+/**
+ * Stop the surface `startHttpServer` built and wait for it to drain.
+ *
+ * `server.close()` resolves only once the LAST connection is gone, and both
+ * WebSocket servers are `noServer: true` — their own `close()` stops new
+ * upgrades but never ends an existing client, so one connected dashboard holds
+ * the HTTP close open forever. Releasing those sockets only after awaiting the
+ * close is a deadlock: the failsafe timer fires, `Graceful shutdown timed out`
+ * is logged, and the process exits 1 — which is what every production restart
+ * did before this ordering.
+ *
+ * So: stop accepting, drop the upgraded clients, drop the reverse proxy's idle
+ * keep-alive sockets, then wait for what is genuinely in flight.
+ */
+export async function stopHttpSurface(server: Server): Promise<void> {
+	const drained = new Promise<void>((resolve) => server.close(() => resolve()))
+
+	closeWebSocketServer()
+	closeORPCWebSocketServer()
+	server.closeIdleConnections()
+
+	await drained
+	logger.info("HTTP server closed")
+}
 
 /**
  * `serve()` RETURNS THE UNDERLYING `http.Server`, and that is the whole point.

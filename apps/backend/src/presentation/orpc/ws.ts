@@ -8,6 +8,25 @@ import { appRouter } from "./router"
 
 const logger = createChildLogger("orpc.ws")
 
+/** Set by `createORPCWebSocketServer` so shutdown can terminate its clients. */
+let _wss: WebSocketServer | null = null
+
+/**
+ * Stop serving `/trpc` and disconnect every client on it.
+ *
+ * Same trap as the `/ws` server: `close()` on a `noServer` instance stops new
+ * upgrades but leaves existing sockets alone, and an open socket is a
+ * connection that `httpServer.close()` waits for — so shutdown cannot drain
+ * until these are terminated too.
+ */
+export function closeORPCWebSocketServer(): void {
+	if (!_wss) return
+	logger.info({ clients: _wss.clients.size }, "Closing oRPC WebSocket server")
+	for (const client of _wss.clients) client.terminate()
+	_wss.close(() => logger.info("oRPC WebSocket server closed"))
+	_wss = null
+}
+
 /**
  * Attach the oRPC WebSocket handler to the shared HTTP server, on a path
  * SEPARATE from the voice/binary WebSocket (`/ws`). All structured data RPCs
@@ -30,6 +49,7 @@ export function createORPCWebSocketServer(server: Server): WebSocketServer {
 	})
 
 	const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false })
+	_wss = wss
 
 	server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
 		if (!req.url?.startsWith("/trpc")) return // let the /ws server handle it

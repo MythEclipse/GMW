@@ -47,9 +47,8 @@ import { closeDrizzleDatabase } from "./infrastructure/database/drizzle.js"
 import { stopCommandBridge } from "./infrastructure/redis/index.js"
 import { stopRedisBridge as stopEventBridge } from "./infrastructure/redis/redis-bridge.js"
 import { initializeDiscordGateway } from "./presentation/gateway/bootstrap.js"
-import { startHttpServer } from "./presentation/http/server.js"
+import { startHttpServer, stopHttpSurface } from "./presentation/http/server.js"
 import { startModerationWorker } from "./presentation/worker/start.js"
-import { closeWebSocketServer } from "./presentation/ws/server.js"
 
 const logger = createChildLogger("gmw")
 
@@ -101,9 +100,10 @@ async function shutdown(signal: string): Promise<void> {
 	logger.info({ signal }, "Shutting down gracefully")
 
 	// Failsafe: graceful shutdown must never hang the process forever.
-	// httpServer.close() waits for ALL open connections (including lingering
-	// WebSocket/keep-alive sockets), so on a stuck connection the process would
-	// otherwise sit zombie and systemd (Restart=always) can never revive it.
+	// The WebSocket and keep-alive sockets that used to deadlock step one are
+	// released inside `stopHttpSurface`, so what is left to wait for is an
+	// in-flight request — but one stuck connection would still leave the
+	// process zombie, and systemd (Restart=always) can never revive that.
 	const forceExitTimer = setTimeout(() => {
 		logger.error({ signal }, "Graceful shutdown timed out; forcing exit")
 		process.exit(1)
@@ -114,13 +114,7 @@ async function shutdown(signal: string): Promise<void> {
 	// The order is the reverse of startup.
 	await guard("stop accepting HTTP connections", async () => {
 		if (!httpServer) return
-		await new Promise<void>((resolve) => {
-			httpServer?.close(() => {
-				logger.info("HTTP server closed")
-				resolve()
-			})
-		})
-		closeWebSocketServer()
+		await stopHttpSurface(httpServer)
 	})
 
 	await guard("stop Discord capture", async () => {

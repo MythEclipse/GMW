@@ -63,7 +63,13 @@ async function sendInitialStates(ws: WebSocket): Promise<void> {
 
 export function closeWebSocketServer(): void {
 	if (!_wss) return
-	logger.info("Closing WebSocket server")
+	logger.info({ clients: _wss.clients.size }, "Closing WebSocket server")
+	// `noServer: true` means `close()` only stops NEW upgrades: it waits for
+	// clients that will never disconnect, and those upgraded sockets are exactly
+	// what `httpServer.close()` waits on. Terminating them here is what lets the
+	// surface drain — releasing them after awaiting that close deadlocks until
+	// the failsafe timer kills the process.
+	for (const client of _wss.clients) client.terminate()
 	_wss.close(() => logger.info("WebSocket server closed"))
 	_wss = null
 }
