@@ -116,7 +116,22 @@ cd "$RELEASE_DIR"
 log "Installing dependencies (pnpm install)"
 export HOME="${HOME:-/var/lib/gmw}"
 mkdir -p "$HOME/.local/share/pnpm"
-pnpm install --frozen-lockfile
+# Copies, not hardlinks — this is load-bearing, not a preference.
+#
+# Step 7 runs `chown -R gmw:gmw "$RELEASE_DIR"` so the service can own its own
+# files. With pnpm's default hardlink import, a release file and a file in the
+# developer's `node_modules` AND their pnpm store are the SAME inode, because
+# prod and dev share one filesystem here and the deploy runs as the same user
+# that owns the checkout. That chown therefore escaped the release directory
+# and flipped the developer's files to `gmw`, after which their next install
+# died with:
+#   EPERM: operation not permitted, chmod '.../node_modules/.pnpm/...'
+# It took effect on every deploy, and it silently desynchronised the store too.
+#
+# Copying keeps the chown scoped to the tree it is meant to change and leaves
+# the store untouched (it is only ever read from here). Cost is one extra
+# ~577M tree per release; note that old releases are never pruned.
+npm_config_package_import_method=copy pnpm install --frozen-lockfile
 
 log "Building backend (HTTP + capture + moderation worker)"
 (cd apps/backend && pnpm run build)
