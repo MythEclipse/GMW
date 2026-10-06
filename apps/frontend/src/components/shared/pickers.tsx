@@ -46,16 +46,30 @@ export function GuildPicker({
 	onChange: (guildId: string) => void
 	disabled?: boolean
 }) {
+	// An EMPTY list still needs a `<Select.Root>`. Returning a bare
+	// SelectTrigger here made base-ui throw "SelectRootContext is missing",
+	// which the error boundary reported as `Base UI error #60` and took down
+	// the whole panel rather than one control.
+	//
+	// This branch is exactly what a freshly reset database lands on:
+	// `monitorGuildId` comes from env, so the view already has a guild id,
+	// while `guilds` only gains a row once a message has been captured. So
+	// every deploy — which resets by design — opened on this code path.
+	//
+	// The Root is mounted disabled with no items, so the trigger renders its
+	// own label and can never open. `disabled` sits on the Root, matching how
+	// ChannelPicker threads it, so the trigger inherits it.
 	if (guilds.length === 0) {
 		return (
-			<SelectTrigger
-				size="sm"
-				disabled
-				className="min-h-11 sm:min-h-8 w-full sm:w-52"
-				aria-label="Guild"
-			>
-				No guilds yet
-			</SelectTrigger>
+			<Select disabled>
+				<SelectTrigger
+					size="sm"
+					className="min-h-11 sm:min-h-8 w-full sm:w-52"
+					aria-label="Guild"
+				>
+					No guilds yet
+				</SelectTrigger>
+			</Select>
 		)
 	}
 
