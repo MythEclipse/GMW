@@ -126,6 +126,14 @@ export async function createIsolatedPool(
 /**
  * The variant for files that have always degraded to a no-op when the database
  * is unreachable. Returns null instead of throwing.
+ *
+ * IT WARNS BEFORE DOING SO. A silent skip is indistinguishable from a pass: if
+ * the tables this file mirrors are missing, every one of its assertions quietly
+ * stops running and the suite stays green while testing nothing. That is not
+ * hypothetical — CI provisions a stock `postgres:18` with no schema applied, so
+ * `CREATE TABLE ... LIKE public.<table>` fails there until a migration step is
+ * added to the workflow. A warning per file is the difference between "these
+ * tests did not run" and "these tests passed".
  */
 export async function tryCreateIsolatedPool(
 	fileLabel: string,
@@ -133,7 +141,13 @@ export async function tryCreateIsolatedPool(
 ): Promise<IsolatedPool | null> {
 	try {
 		return await createIsolatedPool(fileLabel, options)
-	} catch {
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error)
+		console.warn(
+			`[isolated-pool] ${fileLabel}: SKIPPED — ${reason}\n` +
+				`  Its assertions did NOT run. Either no database is reachable, or the\n` +
+				`  schema in \`public\` is missing the tables this file mirrors.`,
+		)
 		return null
 	}
 }

@@ -22,8 +22,9 @@
  * received 0 WebSocket frames while the worker was actively writing verdicts.
  */
 
-import pg from "pg"
+import type pg from "pg"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
+import { type IsolatedPool, tryCreateIsolatedPool } from "./isolated-pool.js"
 
 const DB_URL =
 	process.env.TEST_DATABASE_URL ??
@@ -31,19 +32,23 @@ const DB_URL =
 
 let pool: pg.Pool
 let reachable = false
+/** Drops this file's isolated schema; null when no database was reachable. */
+let isolation: IsolatedPool | null = null
 
 beforeAll(async () => {
-	pool = new pg.Pool({ connectionString: DB_URL, max: 2 })
-	try {
-		await pool.query("SELECT 1")
-		reachable = true
-	} catch {
+	// Own schema: this file's TRUNCATEs cannot reach another file's rows.
+	// See ./isolated-pool.ts.
+	isolation = await tryCreateIsolatedPool("verdict_notifier", { max: 4 })
+	if (!isolation) {
 		reachable = false
+		return
 	}
+	pool = isolation.pool
+	reachable = true
 })
 
 afterAll(async () => {
-	await pool?.end().catch(() => {})
+	await isolation?.cleanup()
 })
 
 async function seed(

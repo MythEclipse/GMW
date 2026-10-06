@@ -42,6 +42,7 @@ import {
 	DEFAULT_WORKER_CONFIG,
 	ModerationWorker,
 } from "../src/modules-gateway/ai-moderation/worker.js"
+import { tryCreateIsolatedPool } from "./isolated-pool.js"
 
 /**
  * A minimal valid `MemoryMessage`, so the tests below can state only the field
@@ -584,13 +585,11 @@ class StubBank {
 }
 
 test("the prompt carries the recalled memory AND the author names", async () => {
-	const pool = new pg.Pool({ connectionString: DB_URL, max: 2 })
-	try {
-		await pool.query("SELECT 1")
-	} catch {
-		await pool.end()
-		return expect(true).toBe(true)
-	}
+	// Own schema: this file's TRUNCATEs cannot reach another file's rows.
+	// See ./isolated-pool.ts.
+	const isolation = await tryCreateIsolatedPool("memory_bank", { max: 2 })
+	if (!isolation) return expect(true).toBe(true)
+	const pool = isolation.pool
 
 	const CONTEXT =
 		'<memory_context bank="gmw-moderation" channels="c1">\n' +
@@ -686,17 +685,15 @@ test("the prompt carries the recalled memory AND the author names", async () => 
 	// An ISO timestamp, not the raw bigint.
 	expect(stored.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
 
-	await pool.end()
+	await isolation.cleanup()
 })
 
 test("the image description reaches the memory bank, not just the prompt", async () => {
-	const pool = new pg.Pool({ connectionString: DB_URL, max: 2 })
-	try {
-		await pool.query("SELECT 1")
-	} catch {
-		await pool.end()
-		return expect(true).toBe(true)
-	}
+	// Own schema: this file's TRUNCATEs cannot reach another file's rows.
+	// See ./isolated-pool.ts.
+	const isolation = await tryCreateIsolatedPool("memory_bank", { max: 2 })
+	if (!isolation) return expect(true).toBe(true)
+	const pool = isolation.pool
 
 	// Two gateways: the vision model that describes the image, and the text
 	// model that judges it. The description must survive BOTH uses — the
@@ -784,17 +781,15 @@ test("the image description reaches the memory bank, not just the prompt", async
 		"seorang pria memegang kartu joker",
 	)
 
-	await pool.end()
+	await isolation.cleanup()
 })
 
 test("with no bank wired, the prompt is exactly what it was before", async () => {
-	const pool = new pg.Pool({ connectionString: DB_URL, max: 2 })
-	try {
-		await pool.query("SELECT 1")
-	} catch {
-		await pool.end()
-		return expect(true).toBe(true)
-	}
+	// Own schema: this file's TRUNCATEs cannot reach another file's rows.
+	// See ./isolated-pool.ts.
+	const isolation = await tryCreateIsolatedPool("memory_bank", { max: 2 })
+	if (!isolation) return expect(true).toBe(true)
+	const pool = isolation.pool
 
 	let seenUser = ""
 	const gateway: LlmGateway = {
@@ -847,5 +842,5 @@ test("with no bank wired, the prompt is exactly what it was before", async () =>
 	// The author still renders, just in the pre-memory shape.
 	expect(seenUser).toContain("u1")
 
-	await pool.end()
+	await isolation.cleanup()
 })

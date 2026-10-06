@@ -9,13 +9,14 @@
  * as before.
  */
 
-import pg from "pg"
+import type pg from "pg"
 import { expect, test } from "vitest"
 import type { LlmGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js"
 import {
 	DEFAULT_WORKER_CONFIG,
 	ModerationWorker,
 } from "../src/modules-gateway/ai-moderation/worker.js"
+import { type IsolatedPool, tryCreateIsolatedPool } from "./isolated-pool.js"
 
 const DB_URL =
 	process.env.TEST_DATABASE_URL ??
@@ -23,6 +24,8 @@ const DB_URL =
 
 let pool: pg.Pool
 let reachable = false
+/** Drops this test's isolated schema; null when no database was reachable. */
+let isolation: IsolatedPool | null = null
 
 /** A worker wired to a gateway that records the prompt it was handed. */
 function recordingWorker(capture: (prompt: string) => void): ModerationWorker {
@@ -71,14 +74,12 @@ async function seed(id: string, content: string, metadata: string) {
 }
 
 test("the prompt carries the resolved embed, not just the link", async () => {
-	pool = new pg.Pool({ connectionString: DB_URL, max: 4 })
-	try {
-		await pool.query("SELECT 1")
-		reachable = true
-	} catch {
-		reachable = false
-	}
-	if (!reachable) return expect(true).toBe(true)
+	// Own schema: this file's TRUNCATEs cannot reach another file's rows.
+	// See ./isolated-pool.ts.
+	isolation = await tryCreateIsolatedPool("link_embed_wiring", { max: 4 })
+	if (!isolation) return expect(true).toBe(true)
+	pool = isolation.pool
+	reachable = true
 
 	const FB = "https://www.facebook.com/share/p/1HmxamFLpr/"
 	await seed(
@@ -121,12 +122,16 @@ test("the prompt carries the resolved embed, not just the link", async () => {
 	expect(seen).toContain("https://t.co/abc123")
 	expect(seen).toContain("<link_evidence>")
 
-	await pool.end()
+	await isolation?.cleanup()
 })
 
 test("a link whose preview never resolved is not judged as empty text", async () => {
-	pool = new pg.Pool({ connectionString: DB_URL, max: 4 })
-	if (!reachable) return expect(true).toBe(true)
+	// Same schema as the test above, and it was just dropped there — so this one
+	// creates its own. Isolation means the two no longer depend on that ordering.
+	isolation = await tryCreateIsolatedPool("link_embed_wiring_2", { max: 4 })
+	if (!isolation) return expect(true).toBe(true)
+	pool = isolation.pool
+	reachable = true
 
 	await seed(
 		"1402327963029999999",
@@ -151,5 +156,5 @@ test("a link whose preview never resolved is not judged as empty text", async ()
 	expect(seen).toContain("tidak ada")
 	expect(seen).toContain("https://t.co/nopreview")
 
-	await pool.end()
+	await isolation?.cleanup()
 })

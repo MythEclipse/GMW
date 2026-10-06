@@ -47,30 +47,45 @@ export default defineConfig({
 		pool: "forks",
 
 		/**
-		 * ONE worker, because 11 of the 29 files are real-Postgres integration
-		 * tests and 10 of those TRUNCATE shared tables in `beforeAll`
-		 * (worker, nsfw-channel-skip, memoryBank, kbbiWiring, conversationHistory,
-		 * autoDeleteMarker, channelContextWiring, linkEmbedWiring, verdictNotifier,
-		 * skipped-channel).
+		 * PARALLELISM IS BACK, because the coupling that forced it off is gone.
 		 *
-		 * bun ran files sequentially, so they were safe by accident of the
-		 * runner. Vitest parallelises by default, and the files then wipe each
-		 * other's rows mid-run — `worker.test.ts` passes 31/31 alone and fails
-		 * in the full suite for exactly this reason. Serialising restores the
-		 * semantics the suite was written against instead of rewriting 10 files
-		 * to use per-file schemas.
+		 * This used to read `fileParallelism: false`. Eleven files are real-Postgres
+		 * tests and ten of those TRUNCATE shared tables, so under Vitest's default
+		 * parallelism they wiped each other's rows mid-run — `worker.test.ts` passed
+		 * 31/31 alone and failed in the suite for exactly that reason. Serialising
+		 * restored the semantics the suite was written against instead of removing
+		 * the coupling, and cost ~12s on every run.
 		 *
-		 * The pure-logic files are unaffected either way; they just queue behind
-		 * the DB ones. Suite runtime is ~12s, which is the price of correctness.
+		 * Every one of those files now takes a per-file Postgres schema via
+		 * `tests-gateway/isolated-pool.ts`: a fresh `t_<label>_<random>` schema with
+		 * structural copies of the ten tables they touch, and `search_path` pinned
+		 * on the pool so the unqualified table names in the existing SQL resolve
+		 * into it. The SQL in those files is unchanged.
+		 *
+		 * Measured, not assumed. With `--fileParallelism --maxWorkers=4`:
+		 *   before — Test Files 5 failed | 27 passed, Tests 34 failed | 376 passed
+		 *   after  — Test Files 32 passed,              Tests 410 passed
+		 *
+		 * If a new DB-backed test file is added, it MUST call
+		 * `tryCreateIsolatedPool` rather than `new pg.Pool` against the shared
+		 * schema, or it will reintroduce the failure this flag was covering for.
+		 *
+		 * `pool: "forks"` above is still load-bearing and unrelated: that one is
+		 * about native modules leaking across worker threads, not the database.
 		 */
-		fileParallelism: false,
+		fileParallelism: true,
 
 		/**
-		 * The integration suite (P1b characterization tests) needs a REAL pool,
-		 * so it runs under a separate config that bypasses setup-env.ts — that
-		 * file hardcodes `postgres://localhost:6432/test` precisely so a unit
-		 * test that accidentally opens a pool fails loudly. See
-		 * vitest.integration.config.ts.
+		 * The characterization harnesses under tests/integration/ need a REAL pool
+		 * and so are NOT vitest suites — they are standalone tsx scripts run by the
+		 * `backend:test-integration` moon task, which is why they do not appear in
+		 * the counts above.
+		 *
+		 * There is no `vitest.integration.config.ts`; an earlier version of this
+		 * comment referred to one. The isolation between this suite and those
+		 * scripts is `setupFiles`: it hardcodes `postgres://localhost:6432/test`, a
+		 * dead port, so a unit test that accidentally opens a pool fails loudly
+		 * instead of touching a real database.
 		 */
 	},
 })

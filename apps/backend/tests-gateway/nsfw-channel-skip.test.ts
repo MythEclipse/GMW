@@ -16,13 +16,14 @@
  * Run: bun test tests/
  */
 
-import pg from "pg"
+import type pg from "pg"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import type {
 	LlmGateway,
 	LlmRequest,
 } from "../src/modules-gateway/ai-moderation/llmGateway.js"
 import { ModerationWorker } from "../src/modules-gateway/ai-moderation/worker.js"
+import { type IsolatedPool, tryCreateIsolatedPool } from "./isolated-pool.js"
 
 const DB_URL =
 	process.env.TEST_DATABASE_URL ??
@@ -30,6 +31,8 @@ const DB_URL =
 
 let pool: pg.Pool
 let reachable = false
+/** Drops this file's isolated schema; null when no database was reachable. */
+let isolation: IsolatedPool | null = null
 
 /** Metadata shaped exactly like what messageCapture persists. */
 function metadataFor(nsfw: boolean): string {
@@ -125,17 +128,19 @@ const verdictFor = (ids: string[], status: string, category: string) =>
 	})
 
 beforeAll(async () => {
-	pool = new pg.Pool({ connectionString: DB_URL, max: 2 })
-	try {
-		await pool.query("SELECT 1")
-		reachable = true
-	} catch {
+	// Own schema: this file's TRUNCATEs cannot reach another file's rows.
+	// See ./isolated-pool.ts.
+	isolation = await tryCreateIsolatedPool("nsfw_channel_skip", { max: 4 })
+	if (!isolation) {
 		reachable = false
+		return
 	}
+	pool = isolation.pool
+	reachable = true
 })
 
 afterAll(async () => {
-	await pool?.end()
+	await isolation?.cleanup()
 })
 
 describe("NSFW channels are never moderated", () => {

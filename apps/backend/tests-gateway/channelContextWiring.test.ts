@@ -9,7 +9,7 @@
  * captured PROMPT string, the same way `linkEmbedWiring.test.ts` does.
  */
 
-import pg from "pg"
+import type pg from "pg"
 import { expect, test } from "vitest"
 import type { LlmGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js"
 import {
@@ -19,6 +19,7 @@ import {
 } from "../src/modules-gateway/ai-moderation/policy.js"
 import { ModerationWorker } from "../src/modules-gateway/ai-moderation/worker.js"
 import { formatChannelContextForPrompt } from "../src/modules-gateway/message-capture/messageMetadata.js"
+import { type IsolatedPool, tryCreateIsolatedPool } from "./isolated-pool.js"
 
 const DB_URL =
 	process.env.TEST_DATABASE_URL ??
@@ -26,6 +27,8 @@ const DB_URL =
 
 let pool: pg.Pool
 let reachable = false
+/** Drops this file's isolated schema; null when no database was reachable. */
+let isolation: IsolatedPool | null = null
 
 interface Captured {
 	user: string
@@ -104,14 +107,12 @@ function metadataWithTopic(topic: string | null) {
 }
 
 test("the prompt carries the channel's topic, so an on-topic share is not spam", async () => {
-	pool = new pg.Pool({ connectionString: DB_URL, max: 4 })
-	try {
-		await pool.query("SELECT 1")
-		reachable = true
-	} catch {
-		reachable = false
-	}
-	if (!reachable) return expect(true).toBe(true)
+	// Own schema: this file's TRUNCATEs cannot reach another file's rows.
+	// See ./isolated-pool.ts.
+	isolation = await tryCreateIsolatedPool("channel_context_wiring", { max: 4 })
+	if (!isolation) return expect(true).toBe(true)
+	pool = isolation.pool
+	reachable = true
 
 	// The reported message, shape for shape: an invite link posted in a channel
 	// whose topic exists to collect exactly that.
@@ -137,7 +138,7 @@ test("the prompt carries the channel's topic, so an on-topic share is not spam",
 	// And the rules that tell the model how to read that attribute.
 	expect(system).toContain("KONTEKS KANAL")
 
-	await pool.end()
+	await isolation?.cleanup()
 })
 
 test("the rules explaining the attribute ship with every prompt", () => {

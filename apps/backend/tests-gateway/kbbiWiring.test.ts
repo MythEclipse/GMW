@@ -20,7 +20,7 @@
  * `channelContextWiring.test.ts` and `linkEmbedWiring.test.ts`.
  */
 
-import pg from "pg"
+import type pg from "pg"
 import { expect, test } from "vitest"
 import {
 	type DictionaryConfig,
@@ -29,6 +29,7 @@ import {
 import type { LlmGateway } from "../src/modules-gateway/ai-moderation/llmGateway.js"
 import { clearPromptCache } from "../src/modules-gateway/ai-moderation/policy.js"
 import { ModerationWorker } from "../src/modules-gateway/ai-moderation/worker.js"
+import { type IsolatedPool, tryCreateIsolatedPool } from "./isolated-pool.js"
 
 const DB_URL =
 	process.env.TEST_DATABASE_URL ??
@@ -36,6 +37,8 @@ const DB_URL =
 
 let pool: pg.Pool | null = null
 let reachable = false
+/** Drops this file's isolated schema; null when no database was reachable. */
+let isolation: IsolatedPool | null = null
 
 interface Captured {
 	user: string
@@ -151,13 +154,15 @@ async function seed(id: string, content: string): Promise<void> {
 
 async function ensureDb(): Promise<boolean> {
 	if (pool) return reachable
-	pool = new pg.Pool({ connectionString: DB_URL, max: 4 })
-	try {
-		await pool.query("SELECT 1")
-		reachable = true
-	} catch {
+	// Own schema: this file's TRUNCATEs cannot reach another file's rows.
+	// See ./isolated-pool.ts.
+	isolation = await tryCreateIsolatedPool("kbbi_wiring", { max: 4 })
+	if (!isolation) {
 		reachable = false
+		return reachable
 	}
+	pool = isolation.pool
+	reachable = true
 	return reachable
 }
 
@@ -184,7 +189,8 @@ test("the definition reaches the prompt, inside the message that used the word",
 	// And the rule that explains what to do with it.
 	expect(system).toContain("KAMUS")
 
-	await pool?.end()
+	await isolation?.cleanup()
+	isolation = null
 	pool = null
 })
 
@@ -242,7 +248,8 @@ test("a definition is scoped to its own message, never shared across the batch",
 	expect(makanBlock).toContain('word="makan"')
 	expect(makanBlock).not.toContain('word="biji"')
 
-	await pool?.end()
+	await isolation?.cleanup()
+	isolation = null
 	pool = null
 })
 
@@ -263,7 +270,8 @@ test("no dictionary configured leaves the prompt exactly as it was", async () =>
 	expect(prompt).not.toContain("<dictionary>")
 	expect(system).not.toContain("KAMUS")
 
-	await pool?.end()
+	await isolation?.cleanup()
+	isolation = null
 	pool = null
 })
 
@@ -293,7 +301,8 @@ test("a dictionary that fails costs grounding, not the verdict", async () => {
 	)
 	expect(rows[0]?.ai_status).toBe("analyzed")
 
-	await pool?.end()
+	await isolation?.cleanup()
+	isolation = null
 	pool = null
 })
 
@@ -313,7 +322,8 @@ test("a non-standard word is marked, so the model knows the sense is not the int
 
 	expect(prompt).toContain('<definition word="bokap" standard="false">')
 
-	await pool?.end()
+	await isolation?.cleanup()
+	isolation = null
 	pool = null
 })
 
@@ -373,6 +383,7 @@ test("no word is marked not_in_dictionary unless the service was actually asked"
 	// No duplicate bookkeeping: the batch was asked once about each word.
 	expect(new Set(asserted).size).toBe(asserted.length)
 
-	await pool?.end()
+	await isolation?.cleanup()
+	isolation = null
 	pool = null
 })
