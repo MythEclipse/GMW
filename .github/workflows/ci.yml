@@ -49,12 +49,6 @@ jobs:
       # rather than skipping. Without this, a missing schema silently skips every
       # assertion in those files and the suite still reports green — measured at
       # 21 files skipping against an empty database.
-      #
-      # These files need the schema applied to `gmw_test` before the test step,
-      # which this workflow does NOT yet do. Until it does, expect the test job
-      # to go red with `relation "public.messages" does not exist`; that is the
-      # gate working, not a broken test. Applying the schema safely is blocked on
-      # the missing drizzle baseline snapshot — see the Migration drift check.
       GMW_REQUIRE_TEST_DB: "1"
 
     steps:
@@ -75,6 +69,25 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      - name: Apply schema to the test database
+        # `0000_baseline.sql` IS the schema of record: one migration, the whole
+        # schema, verified to apply to an empty database (20 tables, 2 functions
+        # including `claim_messages`, which the worker's queue depends on).
+        #
+        # `psql -f` rather than `pnpm db:migrate` on purpose. The drizzle migrator
+        # loads `src/infrastructure/config`, whose zod schema validates
+        # DISCORD_TOKEN / AI_LLM_API_KEY and friends at import time — running it
+        # from CI means stubbing application config just to create tables. This
+        # step needs no application config and no build step.
+        #
+        # This also unblocks the note that used to sit under GMW_REQUIRE_TEST_DB
+        # above, which claimed the schema could not be applied safely because the
+        # drizzle baseline snapshot is missing. That blocker was about the DRIFT
+        # GATE (drizzle-kit's `generate` needs a snapshot to diff against), not
+        # about applying SQL that already exists. `db-check` below still exits 2
+        # for that reason; the tests here no longer depend on it.
+        run: psql -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -f apps/backend/drizzle/migrations/0000_baseline.sql
 
       - name: Typecheck + lint + test
         run: |

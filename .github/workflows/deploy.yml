@@ -19,6 +19,41 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # Eleven of the backend test files are real-Postgres integration tests and ten
+    # of those TRUNCATE shared tables, so the suite needs a live database. Each
+    # file takes its own schema via `tests-gateway/isolated-pool.ts`, so they no
+    # longer wipe each other's rows — but they still need a database that HAS the
+    # schema, or every one of them skips.
+    #
+    # Without this block the suite still went green: `TEST_DATABASE_URL` unset
+    # meant every DB-backed file fell back to the hardcoded dev DSN, got
+    # ECONNREFUSED, warned, and skipped its assertions. The one test that
+    # touched Postgres directly had no such guard and failed the run instead, so
+    # a missing database read as a flaky test rather than a missing service.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: gmw_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/gmw_test
+      # A DB-backed test file that cannot build its isolated schema FAILS the run
+      # rather than skipping. Without this, a missing schema silently skips every
+      # assertion in those files and the suite still reports green — measured at
+      # 21 files skipping against an empty database.
+      GMW_REQUIRE_TEST_DB: "1"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -33,6 +68,19 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+
+      - name: Apply schema to the test database
+        # `0000_baseline.sql` IS the schema of record: one migration, the whole
+        # schema, verified to apply to an empty database (20 tables, 2 functions
+        # including `claim_messages`, which the worker's queue depends on).
+        #
+        # `psql -f` rather than `pnpm db:migrate` on purpose. The drizzle
+        # migrator loads `src/infrastructure/config`, whose zod schema validates
+        # DISCORD_TOKEN / AI_LLM_API_KEY and friends at import time — so running
+        # it from CI means stubbing application config to create tables. This
+        # step needs no application config and no build step, and the ledger it
+        # would write (`__drizzle_migrations`) is read by no test in this suite.
+        run: psql -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -f apps/backend/drizzle/migrations/0000_baseline.sql
 
       - name: Install deps + test
         run: |

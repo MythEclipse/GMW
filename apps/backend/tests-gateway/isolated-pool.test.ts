@@ -123,22 +123,46 @@ test("cleanup drops the schema it created", async () => {
 	}
 })
 
+/**
+ * Is `public.messages` absent? `null` when the database is unreachable.
+ *
+ * This probe is the one place in the file that talks to Postgres directly
+ * rather than through `tryCreateIsolatedPool`, so it carries its own guard. An
+ * unreachable database is a legitimate laptop condition, not the condition this
+ * test asserts on, so it skips out loud rather than throwing `ECONNREFUSED`
+ * from a bare `pool.query`. In CI a dead database still fails the run — every
+ * other DB-backed file throws under `GMW_REQUIRE_TEST_DB=1`.
+ */
+async function publicMessagesMissing(): Promise<boolean | null> {
+	const probe = new pg.Pool({
+		connectionString: integrationDatabaseUrl,
+		max: 1,
+	})
+	try {
+		const { rows } = await probe.query<{ n: string }>(
+			"SELECT count(*)::text n FROM information_schema.tables WHERE table_schema='public' AND table_name='messages'",
+		)
+		return rows[0].n === "0"
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error)
+		console.warn(
+			`[isolated-pool.test] SKIPPED — database unreachable (${reason}); ` +
+				"this assertion did NOT run",
+		)
+		return null
+	} finally {
+		await probe.end()
+	}
+}
+
 test("strict mode turns a skipped file into a failure", async () => {
 	// The regression this guards: CI provisions an empty postgres, so every
 	// DB-backed file skips. Permissively that is a GREEN suite testing nothing.
 	// With GMW_REQUIRE_TEST_DB=1 it must throw instead.
 	process.env.GMW_REQUIRE_TEST_DB = "1"
 
-	const probe = new pg.Pool({
-		connectionString: integrationDatabaseUrl,
-		max: 1,
-	})
-	const missing = await probe
-		.query<{ n: string }>(
-			"SELECT count(*)::text n FROM information_schema.tables WHERE table_schema='public' AND table_name='messages'",
-		)
-		.then((r) => r.rows[0].n === "0")
-		.finally(() => probe.end())
+	const missing = await publicMessagesMissing()
+	if (missing === null) return
 
 	if (!missing) {
 		// The real schema is present, so there is nothing to simulate.
