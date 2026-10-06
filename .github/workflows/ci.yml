@@ -89,18 +89,25 @@ jobs:
         # for that reason; the tests here no longer depend on it.
         run: psql -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -f apps/backend/drizzle/migrations/0000_baseline.sql
 
+      # Every gate below goes through `pnpm run`, never a bare `moon`.
+      #
+      # A raw `moon` is not on PATH in the runner's bash: only `pnpm run` and
+      # `pnpm exec` prepend node_modules/.bin, so `moon run :typecheck` died with
+      # `line 1: moon: command not found` and exit 127. Routing through the root
+      # package.json also keeps CI and the local verify line as the same string
+      # (`pnpm run test; pnpm run lint; pnpm run typecheck; pnpm run build; ...`),
+      # so the two cannot drift apart.
       - name: Typecheck + lint + test
         run: |
-          moon run :typecheck
-          moon run :lint
-          moon run :test
-
+          pnpm run typecheck
+          pnpm run lint
+          pnpm run test
 
       - name: Build
-        run: moon run :build
+        run: pnpm run build
 
       - name: Design lint (frontend only)
-        run: moon run frontend:lint-design
+        run: pnpm run lint:design
 
       # Migration drift gate (skill §5).
       #
@@ -122,5 +129,8 @@ jobs:
       # below. Until then this surfaces the blocker on every run instead of
       # pretending the rule is enforced.
       - name: Migration drift check
-        run: moon run backend:db-check
+        # `pnpm exec` rather than bare `moon` for the same PATH reason as above.
+        # There is no root script wrapping this one (it is a single-project task,
+        # not an aggregated gate), so the prefix goes on the moon call itself.
+        run: pnpm exec moon run backend:db-check
         continue-on-error: true
