@@ -1,0 +1,41 @@
+$schema: 'https://moonrepo.dev/schemas/toolchains.json'
+
+# moon 2.x reads `.moon/toolchains.*` — PLURAL. The previous file was named
+# `.moon/toolchain.yml` (v1 singular), so moon 2.6 loaded NOTHING here:
+#
+#   [DEBUG] Attempting to load .moon/toolchains.{yml,yaml,...} (optional)
+#   [DEBUG] Registered plugin toolchain id="system"     <- only the system plugin
+#
+# With no javascript/node/pnpm toolchain registered, moon never put
+# node_modules/.bin on a task's PATH, so every bare-binary task died with
+# `bash: line 1: vitest: command not found` / `vite: command not found`.
+# That is why `pnpm run test|lint|typecheck|build` all failed at the moon layer
+# while the same commands run fine through pnpm directly.
+#
+# NO VERSION PINS, deliberately. The old file pinned node 24.21.0 and pnpm
+# 10.33.2, but those pins were never read by moon 2.x, so nothing depended on
+# them. Pinning them now would make proto download those exact versions on every
+# machine and CI run, and would override whatever `actions/setup-node` installed
+# (deploy.yml uses node 22, ci.yml uses 24). Declaring the toolchain without a
+# version is the documented way to enable language support while keeping the
+# environment's own node/pnpm — see moonrepo.dev/docs/guides/javascript/node-handbook:
+#
+#   "When a language is enabled, moon by default will assume that the language's
+#    binary is available within the current environment (typically on PATH)."
+javascript:
+  packageManager: 'pnpm'
+
+  # moon defaults this to true and runs `pnpm install` before EVERY task.
+  # CI already runs `pnpm install --frozen-lockfile` as its own step, and a
+  # bare `pnpm install` here is not frozen — it could rewrite the lockfile
+  # mid-run. It also failed outright on this machine: parts of node_modules are
+  # owned by the `gmw` service account, so pnpm's re-link step dies with
+  #   EPERM: operation not permitted, chmod '.../semver/bin/semver.js'
+  # Dependency installation stays where the repo already put it: an explicit
+  # step in the workflow, before moon runs.
+  installDependencies: false
+
+# Empty objects still enable the toolchain — that is the documented switch.
+node: {}
+
+pnpm: {}
