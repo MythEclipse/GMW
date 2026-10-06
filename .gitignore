@@ -1,7 +1,12 @@
 node_modules
 /recordings
 .env
-apps/backend/dist/
+# Any build output under apps/backend, not just `dist/`. `tsconfig.json` sets
+# outDir to ./dist, but an ad-hoc `tsc --outDir <other>` lands a sibling
+# directory that this exact-path rule does not match — and biome.json enables
+# `vcs.useIgnoreFile`, so that directory is then LINTED as source. One stray
+# `dist-verify/` produced 121 errors and turned `moon run :lint` red.
+apps/backend/dist*/
 apps/frontend/dist/
 public/app/
 .muxer-queue.**
