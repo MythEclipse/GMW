@@ -3,3 +3,18 @@ $schema: 'https://moonrepo.dev/schemas/workspace.json'
 projects:
   backend: 'apps/backend'
   frontend: 'apps/frontend'
+
+# moon defaults this to "master". The repository's default branch is `main`, so
+# on a CI checkout moon tried to compute a merge base against a branch that does
+# not exist and the run died before any task executed:
+#
+#   [WARN] Unable to resolve a merge base ... base="master" head="HEAD"
+#   Error: process::failed
+#     × Process git failed: exit code 128
+#     fatal: ambiguous argument 'master': unknown revision or path not in the
+#            working tree.
+#
+# It did not bite locally because a checkout on `main` never reaches the same
+# code path; actions/checkout builds a detached HEAD, which does.
+vcs:
+  defaultBranch: 'main'
