@@ -41,7 +41,6 @@
  */
 
 import { sql } from "drizzle-orm"
-import { config } from "../../config/index.js"
 import { getDatabase } from "../../database/drizzle.js"
 import { createChildLogger } from "../../logger/index.js"
 import type { EventBroadcaster } from "../event-broadcaster/eventBroadcaster.js"

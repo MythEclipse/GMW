@@ -446,7 +446,7 @@ async function describeImages(
  * split, and the caller then treats the reply as one shared description rather
  * than attributing it to the wrong image.
  */
-function splitVisionDescriptions(raw: string, count: number): string[] {
+function splitVisionDescriptions(raw: string, _count: number): string[] {
 	const trimmed = raw.trim()
 	const fenced = /```(?:json)?\s*([\s\S]*?)\s*```/.exec(trimmed)
 	const candidate = fenced?.[1] ?? trimmed

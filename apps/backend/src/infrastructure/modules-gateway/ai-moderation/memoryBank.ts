@@ -85,10 +85,7 @@
 import { HindsightClient } from "@vectorize-io/hindsight-client"
 import { config } from "../../config/index.js"
 import { createChildLogger } from "../../logger/index.js"
-import {
-	escapeMessageBody,
-	escapeXmlAttr,
-} from "../message-capture/messageMetadata.js"
+import { escapeXmlAttr } from "../message-capture/messageMetadata.js"
 
 const log = createChildLogger("ai-moderation/memory")
 
@@ -278,7 +275,7 @@ export function formatMemoryContent(m: MemoryMessage): string {
 		m.author.globalName,
 		m.author.serverName,
 		m.author.username,
-	].filter((n): n is string => Boolean(n && n.trim()))
+	].filter((n): n is string => Boolean(n?.trim()))
 	const named = names.length > 0 ? names.join(" / ") : m.author.userId
 
 	const parts: string[] = [
@@ -351,7 +348,7 @@ function describePlaces(messages: readonly MemoryMessage[]): string[] {
 		...new Set(
 			messages
 				.map((m) => m.context.threadName)
-				.filter((n): n is string => Boolean(n && n.trim())),
+				.filter((n): n is string => Boolean(n?.trim())),
 		),
 	]
 	if (threads.length > 0) return threads.slice(0, 4)
@@ -360,7 +357,7 @@ function describePlaces(messages: readonly MemoryMessage[]): string[] {
 		...new Set(
 			messages
 				.map((m) => m.context.channelName)
-				.filter((n): n is string => Boolean(n && n.trim())),
+				.filter((n): n is string => Boolean(n?.trim())),
 		),
 	]
 	if (channels.length > 0) return channels.slice(0, 4).map((c) => `#${c}`)
@@ -506,7 +503,7 @@ export class ModerationMemoryBank {
 			...new Set(
 				messages
 					.map((m) => m.context.threadId)
-					.filter((t): t is string => Boolean(t && t.trim())),
+					.filter((t): t is string => Boolean(t?.trim())),
 			),
 		]
 		const tags = [
@@ -674,21 +671,21 @@ export function buildRecallQuery(messages: MemoryMessage[]): string {
 		...new Set(
 			messages
 				.map((m) => m.context.threadName)
-				.filter((n): n is string => Boolean(n && n.trim())),
+				.filter((n): n is string => Boolean(n?.trim())),
 		),
 	].slice(0, 3)
 	const channels = [
 		...new Set(
 			messages
 				.map((m) => m.context.channelName)
-				.filter((n): n is string => Boolean(n && n.trim())),
+				.filter((n): n is string => Boolean(n?.trim())),
 		),
 	].slice(0, 3)
 	const topics = [
 		...new Set(
 			messages
 				.map((m) => m.context.topic)
-				.filter((n): n is string => Boolean(n && n.trim())),
+				.filter((n): n is string => Boolean(n?.trim())),
 		),
 	].slice(0, 2)
 	const authors = [
@@ -699,7 +696,7 @@ export function buildRecallQuery(messages: MemoryMessage[]): string {
 					m.author.serverName,
 					m.author.username,
 				])
-				.filter((n): n is string => Boolean(n && n.trim())),
+				.filter((n): n is string => Boolean(n?.trim())),
 		),
 	].slice(0, 4)
 
@@ -767,7 +764,7 @@ export function buildRecallQuery(messages: MemoryMessage[]): string {
  */
 export function formatAuthorForPrompt(author: MemoryAuthor): string {
 	const parts = [author.username, author.globalName, author.serverName].filter(
-		(n): n is string => Boolean(n && n.trim()),
+		(n): n is string => Boolean(n?.trim()),
 	)
 	// The snowflake always closes it, so an id-only author is still
 	// distinguishable and never renders as an empty attribute.
