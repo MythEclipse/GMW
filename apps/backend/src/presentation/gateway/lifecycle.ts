@@ -1,4 +1,5 @@
 import type { Client } from "discord.js-selfbot-v13"
+import type { RetentionDeps } from "../../application/gateway/retention.js"
 import { startRetentionCleanup } from "../../application/gateway/retention.js"
 import type { Logger } from "../../infrastructure/logger/index.js"
 import { startVerdictNotifier } from "../../infrastructure/modules-gateway/ai-moderation/verdictNotifier.js"
@@ -21,6 +22,8 @@ export interface GatewayLifecycleOptions {
 	eventBroadcaster: EventBroadcaster
 	commandHandler: CommandHandler
 	logger: Logger
+	/** Built by the composition root; drives the retention sweep. */
+	retention: RetentionDeps
 }
 
 /**
@@ -37,6 +40,7 @@ export function startGatewayLifecycle({
 	eventBroadcaster,
 	commandHandler,
 	logger,
+	retention,
 }: GatewayLifecycleOptions): void {
 	// 1. Inject broadcaster first so no captured event is dropped.
 	setMessageCaptureEventBroadcaster(eventBroadcaster)
@@ -68,7 +72,7 @@ export function startGatewayLifecycle({
 	// message captured after the page loaded.
 	startVerdictNotifier(eventBroadcaster)
 
-	startRetentionCleanup()
+	startRetentionCleanup(retention)
 	// Weekly moderation digest (public, automated)
 	startDigestScheduler()
 }

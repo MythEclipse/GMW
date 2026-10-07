@@ -1,4 +1,11 @@
 import { z } from "zod"
+import type {
+	MessageCreate,
+	MessageQuery,
+	MessageUpdate,
+	PipelineStatus,
+	VerdictStatus,
+} from "../../domain/messages/message-contracts.js"
 
 /**
  * Pipeline position — where a message is in the moderation queue.
@@ -88,8 +95,31 @@ export const messageUpdateSchema = z.object({
 	aiConfidence: z.number().optional(),
 })
 
-export type MessageQuery = z.infer<typeof messageQuerySchema>
-export type MessageCreate = z.infer<typeof messageCreateSchema>
-export type MessageUpdate = z.infer<typeof messageUpdateSchema>
-export type PipelineStatus = z.infer<typeof pipelineStatusSchema>
-export type VerdictStatus = z.infer<typeof verdictStatusSchema>
+export type {
+	MessageCreate,
+	MessageQuery,
+	MessageUpdate,
+	PipelineStatus,
+	VerdictStatus,
+}
+
+/**
+ * The domain owns these five shapes; the Zod schemas above must produce
+ * exactly them. `Expect<Equal<A, B>>` compiles only when the two are
+ * identical, so editing a schema without its contract — or vice versa — is a
+ * `tsc` error rather than a silent drift between the validation boundary and
+ * the repository that reads the rows.
+ */
+type Equal<A, B> =
+	(<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+		? true
+		: false
+type Expect<T extends true> = T
+
+export type MessageSchemaContracts = [
+	Expect<Equal<z.infer<typeof messageQuerySchema>, MessageQuery>>,
+	Expect<Equal<z.infer<typeof messageCreateSchema>, MessageCreate>>,
+	Expect<Equal<z.infer<typeof messageUpdateSchema>, MessageUpdate>>,
+	Expect<Equal<z.infer<typeof pipelineStatusSchema>, PipelineStatus>>,
+	Expect<Equal<z.infer<typeof verdictStatusSchema>, VerdictStatus>>,
+]

@@ -1,19 +1,28 @@
-import { config } from "../../infrastructure/config/index.js"
-import { getDatabase } from "../../infrastructure/database/drizzle.js"
 import { createChildLogger } from "../../infrastructure/logger/index.js"
-import type { AnalysisSearchQuery } from "../../infrastructure/repositories/analysis.repository.js"
-import { AnalysisRepository } from "../../infrastructure/repositories/analysis.repository.js"
+import {
+	type AnalysisRepository,
+	type AnalysisSearchQuery,
+} from "../../infrastructure/repositories/analysis.repository.js"
 
 const logger = createChildLogger("analysis.service")
 
 export type { AnalysisSearchQuery }
 
+/** The one setting this use-case needs, supplied by the composition root. */
+export interface AnalysisSettings {
+	/** Guild whose messages are in scope — see `domain/config/guildScope.ts`. */
+	monitorGuildId?: string
+}
+
 export class AnalysisService {
-	constructor(private readonly repository: AnalysisRepository) {}
+	constructor(
+		private readonly repository: AnalysisRepository,
+		private readonly settings: AnalysisSettings,
+	) {}
 
 	async search(query: AnalysisSearchQuery) {
 		const { q = "", channelId, limit = 20 } = query
-		const guildId = config.MONITOR_GUILD_ID
+		const guildId = this.settings.monitorGuildId
 
 		logger.debug({ q, channelId, limit, guildId }, "Searching analysis")
 
@@ -26,27 +35,4 @@ export class AnalysisService {
 
 		return { results: rows }
 	}
-}
-
-/**
- * Lazily constructed, not built at import time.
- *
- * `createAnalysisService()` calls `getDatabase()`, which throws until
- * `initializeDatabase()` has run. Deferring construction to first call keeps
- * importing this file free of a database, which is what lets a unit test
- * import the service and pass its own repository.
- *
- * Still one instance per process, which is what the oRPC router and the
- * gateway assume when they import `analysisService`.
- */
-let instance: AnalysisService | undefined
-
-export const createAnalysisService = () =>
-	new AnalysisService(new AnalysisRepository(getDatabase()))
-
-export const analysisService: Pick<AnalysisService, "search"> = {
-	search: (...args: Parameters<AnalysisService["search"]>) => {
-		instance ??= createAnalysisService()
-		return instance.search(...args) as ReturnType<AnalysisService["search"]>
-	},
 }

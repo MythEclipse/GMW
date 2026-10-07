@@ -1,5 +1,4 @@
 import Redis from "ioredis"
-import { broadcastEvent } from "../../presentation/ws/broadcast.js"
 import { config } from "../config/index.js"
 import { createChildLogger } from "../logger/index.js"
 import { DISCORD_CHANNEL_TO_WS_EVENT } from "../shared-barrel/index.js"
@@ -18,6 +17,20 @@ interface GatewayEnvelope {
 }
 
 let subscriber: Redis | null = null
+
+/** How a decoded event reaches connected dashboards — injected, never imported. */
+type BroadcastFn = (type: string, data: unknown) => void
+
+/**
+ * Set by `startRedisBridge`.
+ *
+ * This module variable IS the fix for the one `infrastructure → presentation`
+ * edge in the codebase: the bridge used to import `broadcastEvent` from
+ * `presentation/ws/broadcast.js` directly, pointing infrastructure at a layer
+ * above it. The caller in `presentation/http/server.ts` now hands the function
+ * in instead, and this stays a no-op until it does.
+ */
+let broadcast: BroadcastFn = () => {}
 
 function createSubscriber(): Redis {
 	return new Redis(config.REDIS_URL, { keyPrefix: "" })
@@ -44,10 +57,12 @@ function handleSubscriptionMessage(channel: string, message: string): void {
 	const data = envelope.data !== undefined ? envelope.data : envelope
 
 	logger.debug({ channel, eventType }, "Broadcasting Redis event")
-	broadcastEvent(eventType, data)
+	broadcast(eventType, data)
 }
 
-export async function startRedisBridge(): Promise<void> {
+export async function startRedisBridge(publish: BroadcastFn): Promise<void> {
+	broadcast = publish
+
 	if (!config.REDIS_URL) {
 		logger.info("Redis not configured, skipping Redis bridge")
 		return

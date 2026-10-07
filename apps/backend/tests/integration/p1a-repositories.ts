@@ -11,7 +11,7 @@
  *     ./node_modules/.bin/tsx tests/integration/p1a-repositories.ts
  */
 
-import { uiStateService } from "../../src/application/ui-state/ui-state.service.js"
+import { UiStateService } from "../../src/application/ui-state/ui-state.service.js"
 import {
 	closeDrizzleDatabase,
 	getDatabase,
@@ -27,6 +27,7 @@ import { AnalysisRepository } from "../../src/infrastructure/repositories/analys
 import { ChatbotRepository } from "../../src/infrastructure/repositories/chatbot.repository.js"
 import { HealthRepository } from "../../src/infrastructure/repositories/health.repository.js"
 import { KnowledgeRepository } from "../../src/infrastructure/repositories/knowledge.repository.js"
+import { UiStateRepository } from "../../src/infrastructure/repositories/ui-state.repository.js"
 
 let failures = 0
 
@@ -120,6 +121,9 @@ async function main() {
 	const analysisRepository = new AnalysisRepository(getDatabase())
 	const chatbotRepository = new ChatbotRepository(getDatabase())
 	const knowledgeRepository = new KnowledgeRepository(getDatabase())
+	const uiStateService = new UiStateService(
+		new UiStateRepository(getDatabase()),
+	)
 
 	console.log("\nhealth.repository")
 	const health = await healthRepository.checkDatabaseConnection()
@@ -189,7 +193,7 @@ async function main() {
 		),
 	)
 
-	console.log("\nui-state.service")
+	console.log("\nui-state")
 	// Restore the fixture value first — this check mutates it, and the harness
 	// must be re-runnable without a re-seed.
 	await uiStateService.updateState({ "p1a-verify-key": "dark" })

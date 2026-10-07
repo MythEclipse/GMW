@@ -1,56 +1,29 @@
-import { asc } from "drizzle-orm"
-import { getDatabase } from "../../infrastructure/database/drizzle.js"
-import { uiStateTable } from "../../infrastructure/database/schema.js"
 import { createChildLogger } from "../../infrastructure/logger/index.js"
+import type { UiStateRepository } from "../../infrastructure/repositories/ui-state.repository.js"
 
 const logger = createChildLogger("ui-state.service")
 
+/**
+ * Read and write the dashboard's UI preferences (theme, panel state, …).
+ *
+ * The bag is opaque by design — this layer neither validates nor interprets
+ * its keys. All persistence lives in `UiStateRepository`, injected by
+ * `presentation/composition.ts`, so importing this file needs no database.
+ */
 export class UiStateService {
-	async getState() {
-		const db = getDatabase()
+	constructor(private readonly repository: UiStateRepository) {}
+
+	async getState(): Promise<Record<string, unknown>> {
 		logger.debug("Fetching UI state")
-
-		const rows = await db
-			.select()
-			.from(uiStateTable)
-			.orderBy(asc(uiStateTable.key))
-
-		const result: Record<string, unknown> = {}
-		for (const row of rows) {
-			try {
-				result[row.key] = JSON.parse(row.value)
-			} catch {
-				result[row.key] = row.value
-			}
-		}
-
-		return result
+		return this.repository.getAll()
 	}
 
-	async updateState(updates: Record<string, unknown>) {
-		const db = getDatabase()
-		const now = Date.now()
-
+	/** Write the given keys, then return the full map so callers skip a refetch. */
+	async updateState(
+		updates: Record<string, unknown>,
+	): Promise<Record<string, unknown>> {
 		logger.debug({ keys: Object.keys(updates) }, "Updating UI state")
-
-		for (const [key, value] of Object.entries(updates)) {
-			const serialized =
-				typeof value === "string" ? value : JSON.stringify(value)
-
-			// Was Prisma's `upsert({where, create, update})`; Drizzle's equivalent is
-			// `onConflictDoUpdate`, which states the same single-statement intent
-			// rather than a read-then-write race.
-			await db
-				.insert(uiStateTable)
-				.values({ key, value: serialized, updated_at: now })
-				.onConflictDoUpdate({
-					target: uiStateTable.key,
-					set: { value: serialized, updated_at: now },
-				})
-		}
-
+		await this.repository.putAll(updates)
 		return await this.getState()
 	}
 }
-
-export const uiStateService = new UiStateService()

@@ -4,7 +4,8 @@ import { onError } from "@orpc/server"
 import { RPCHandler } from "@orpc/server/ws"
 import { WebSocketServer } from "ws"
 import { createChildLogger } from "../../infrastructure/logger/index.js"
-import { appRouter } from "./router"
+import type { UseCases } from "../composition.js"
+import { buildRouter } from "./router.js"
 
 const logger = createChildLogger("orpc.ws")
 
@@ -41,8 +42,11 @@ export function closeORPCWebSocketServer(): void {
  * other server's path. Routing the upgrade ourselves by URL keeps `/trpc`
  * and `/ws` fully isolated.
  */
-export function createORPCWebSocketServer(server: Server): WebSocketServer {
-	const handler = new RPCHandler(appRouter, {
+export function createORPCWebSocketServer(
+	server: Server,
+	useCases: UseCases,
+): WebSocketServer {
+	const handler = new RPCHandler(buildRouter(useCases), {
 		interceptors: [
 			onError((error) => logger.error({ error }, "oRPC WS error")),
 		],

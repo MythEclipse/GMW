@@ -22,6 +22,7 @@ import {
 	startMetricsServer,
 	stopMetricsServer,
 } from "../../infrastructure/modules-gateway/gateway-metrics/index.js"
+import { buildRetentionDeps } from "../composition.js"
 import { startGatewayLifecycle } from "./lifecycle.js"
 import { registerPipelineMetrics } from "./metrics-collector.js"
 
@@ -113,6 +114,7 @@ export async function initializeDiscordGateway() {
 			eventBroadcaster,
 			commandHandler,
 			logger,
+			retention: buildRetentionDeps(),
 		})
 		// Enforcement needs a live client, so it starts only once logged in. It
 		// polls the verdicts the worker wrote — capture never waits on the worker,

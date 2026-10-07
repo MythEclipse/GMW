@@ -42,8 +42,8 @@
  */
 
 import type { Server } from "node:http"
-import { createChildLogger } from "@/infrastructure/logger/index"
 import { closeDrizzleDatabase } from "./infrastructure/database/drizzle.js"
+import { createChildLogger } from "./infrastructure/logger/index.js"
 import { stopCommandBridge } from "./infrastructure/redis/index.js"
 import { stopRedisBridge as stopEventBridge } from "./infrastructure/redis/redis-bridge.js"
 import { initializeDiscordGateway } from "./presentation/gateway/bootstrap.js"

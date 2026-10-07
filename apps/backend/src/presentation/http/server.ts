@@ -4,10 +4,12 @@ import { config } from "../../infrastructure/config/index.js"
 import { initializeDatabase } from "../../infrastructure/database/drizzle.js"
 import { createChildLogger } from "../../infrastructure/logger/index.js"
 import { startRedisBridge } from "../../infrastructure/redis/redis-bridge.js"
+import { buildUseCases } from "../composition.js"
 import {
 	closeORPCWebSocketServer,
 	createORPCWebSocketServer,
 } from "../orpc/ws.js"
+import { broadcastEvent } from "../ws/broadcast.js"
 import { closeWebSocketServer, createWebSocketServer } from "../ws/server.js"
 import { createHttpApp } from "./app.js"
 
@@ -65,7 +67,11 @@ export async function startHttpServer(): Promise<Server> {
 	// so this is the only initialisation left.
 	await initializeDatabase()
 
-	const app = createHttpApp()
+	// One graph for every transport: the oRPC routes, `/api/health` and both
+	// WebSocket servers all receive THIS instance. Built here, immediately
+	// after the pool is up, because `getDatabase()` throws before that.
+	const useCases = buildUseCases()
+	const app = createHttpApp(useCases)
 	const port = config.WEBSERVER_PORT
 
 	const server = serve({ fetch: app.fetch, port }, (info) => {
@@ -73,8 +79,8 @@ export async function startHttpServer(): Promise<Server> {
 	})
 
 	// Attach WebSocket servers to the same HTTP server.
-	createWebSocketServer(server as Server) // /ws — voice PCM + gateway events
-	createORPCWebSocketServer(server as Server) // /trpc — structured data RPCs
+	createWebSocketServer(server as Server, useCases) // /ws — voice PCM + gateway events
+	createORPCWebSocketServer(server as Server, useCases) // /trpc — structured data RPCs
 
 	// `serve()` binds eagerly, where the Express version returned a promise that
 	// rejected on a listen error — so a port conflict used to abort startup with
@@ -100,7 +106,7 @@ export async function startHttpServer(): Promise<Server> {
 	// one failure worth surfacing loudly is a misconfigured REDIS_URL, and an
 	// unhandled rejection would take the process down for it — so the rejection
 	// is caught and logged here instead.
-	void startRedisBridge().catch((err) =>
+	void startRedisBridge(broadcastEvent).catch((err) =>
 		logger.error(
 			{ err },
 			"Redis bridge did not start — live events are missed, but the dashboard is up",

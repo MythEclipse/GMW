@@ -9,7 +9,7 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm"
-import type { ListUsersQuery } from "../../application/dashboard/dashboard.service.js"
+import type { ListUsersQuery } from "../../domain/dashboard/dashboard.js"
 import {
 	rawChannelName,
 	readChannelName,

@@ -1,19 +1,28 @@
 import { tools } from "../../domain/chatbot/chatbot.toolDefs.js"
-import { config } from "../../infrastructure/config/index.js"
-import { getDatabase } from "../../infrastructure/database/drizzle.js"
 import { createChildLogger } from "../../infrastructure/logger/index.js"
 import type {
 	ChatbotContext,
 	ChatbotHistoryRow,
+	ChatbotRepository,
 	SaveConversationInput,
 } from "../../infrastructure/repositories/chatbot.repository.js"
-import { ChatbotRepository } from "../../infrastructure/repositories/chatbot.repository.js"
 import { executeTool } from "../../infrastructure/repositories/chatbot.tools.js"
 
 const logger = createChildLogger("chatbot.service")
 
+/** The LLM endpoint this use-case talks to, supplied by the composition root. */
+export interface AiLlmSettings {
+	/** Absent means "no model configured" — the service falls back to canned replies. */
+	apiKey?: string
+	baseUrl: string
+	model: string
+}
+
 export class ChatbotService {
-	constructor(private readonly repository: ChatbotRepository) {}
+	constructor(
+		private readonly repository: ChatbotRepository,
+		private readonly llm: AiLlmSettings,
+	) {}
 
 	async processMessage(
 		message: string,
@@ -160,9 +169,7 @@ Gaya ngobrol:
 		userMessage: string,
 		scope: { guildId?: string; channelId?: string },
 	): Promise<string> {
-		const apiKey = config.AI_LLM_API_KEY
-		const baseUrl = config.AI_LLM_BASE_URL
-		const model = config.AI_LLM_MODEL
+		const { apiKey, baseUrl, model } = this.llm
 
 		if (!apiKey) {
 			logger.warn("AI_LLM_API_KEY not configured, using fallback response")
@@ -465,54 +472,4 @@ Gaya ngobrol:
 
 		return "Maaf, lagi ada masalah koneksi. Coba tanya lagi nanti!"
 	}
-}
-
-/**
- * Lazily constructed, not built at import time.
- *
- * `createChatbotService()` calls `getDatabase()`, which throws until
- * `initializeDatabase()` has run. Deferring construction to first call keeps
- * importing this file free of a database, which is what lets a unit test
- * import the service and pass its own repository.
- *
- * Still one instance per process, which is what the oRPC router and the
- * gateway assume when they import `chatbotService`.
- */
-let instance: ChatbotService | undefined
-
-export const createChatbotService = () =>
-	new ChatbotService(new ChatbotRepository(getDatabase()))
-
-export const chatbotService: Pick<
-	ChatbotService,
-	"processMessage" | "saveConversation" | "getChatHistory" | "clearChatHistory"
-> = {
-	processMessage: (...args: Parameters<ChatbotService["processMessage"]>) => {
-		instance ??= createChatbotService()
-		return instance.processMessage(...args) as ReturnType<
-			ChatbotService["processMessage"]
-		>
-	},
-	saveConversation: (
-		...args: Parameters<ChatbotService["saveConversation"]>
-	) => {
-		instance ??= createChatbotService()
-		return instance.saveConversation(...args) as ReturnType<
-			ChatbotService["saveConversation"]
-		>
-	},
-	getChatHistory: (...args: Parameters<ChatbotService["getChatHistory"]>) => {
-		instance ??= createChatbotService()
-		return instance.getChatHistory(...args) as ReturnType<
-			ChatbotService["getChatHistory"]
-		>
-	},
-	clearChatHistory: (
-		...args: Parameters<ChatbotService["clearChatHistory"]>
-	) => {
-		instance ??= createChatbotService()
-		return instance.clearChatHistory(...args) as ReturnType<
-			ChatbotService["clearChatHistory"]
-		>
-	},
 }

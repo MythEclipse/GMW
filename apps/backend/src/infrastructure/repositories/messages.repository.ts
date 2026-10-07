@@ -16,7 +16,7 @@ import type {
 	MessageCreate,
 	MessageQuery,
 	MessageUpdate,
-} from "../../application/messages/messages.schema.js"
+} from "../../domain/messages/message-contracts.js"
 import { readChannelName } from "../../domain/utils/channelName.js"
 import { localHour } from "../../domain/utils/localTime.js"
 import { mapMessageRow } from "../../domain/utils/messageMapper.js"

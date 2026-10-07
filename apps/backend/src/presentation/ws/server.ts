@@ -2,8 +2,8 @@ import type { IncomingMessage, Server } from "node:http"
 import type { Duplex } from "node:stream"
 import { WebSocket, WebSocketServer } from "ws"
 import type { MessageQuery } from "../../application/messages/messages.schema.js"
-import { messagesService } from "../../application/messages/messages.service.js"
 import { createChildLogger } from "../../infrastructure/logger/index.js"
+import type { UseCases } from "../composition.js"
 import { setBroadcastFunctions } from "./broadcast.js"
 
 const logger = createChildLogger("ws.server")
@@ -35,7 +35,10 @@ type MessageHandler = (
 	message: JsonMessage,
 ) => Promise<void> | void
 
-async function sendInitialStates(ws: WebSocket): Promise<void> {
+async function sendInitialStates(
+	ws: WebSocket,
+	useCases: UseCases,
+): Promise<void> {
 	// Send initial user state
 	ws.send(
 		JSON.stringify({
@@ -46,10 +49,7 @@ async function sendInitialStates(ws: WebSocket): Promise<void> {
 
 	// Send initial UI state from database
 	try {
-		const { uiStateService } = await import(
-			"../../application/ui-state/ui-state.service.js"
-		)
-		const uiState = await uiStateService.getState()
+		const uiState = await useCases.uiState.getState()
 		ws.send(
 			JSON.stringify({
 				type: "ui_state",
@@ -74,7 +74,10 @@ export function closeWebSocketServer(): void {
 	_wss = null
 }
 
-export function createWebSocketServer(server: Server): WebSocketServer {
+export function createWebSocketServer(
+	server: Server,
+	useCases: UseCases,
+): WebSocketServer {
 	const frontendClients = new Set<WebSocket>()
 
 	const wss = new WebSocketServer({ noServer: true, perMessageDeflate: true })
@@ -121,7 +124,7 @@ export function createWebSocketServer(server: Server): WebSocketServer {
 		let sent = 0
 		let nextCursor: string | null = null
 		try {
-			for await (const msg of messagesService.streamMessages(
+			for await (const msg of useCases.messages.streamMessages(
 				{
 					guildId,
 					channelId,
@@ -154,7 +157,7 @@ export function createWebSocketServer(server: Server): WebSocketServer {
 		frontendClients.add(ws)
 		logger.info(`Frontend client connected (${frontendClients.size} total)`)
 		// Send initial states (user, ui) — fire-and-forget
-		sendInitialStates(ws).catch((err) =>
+		sendInitialStates(ws, useCases).catch((err) =>
 			logger.error({ err }, "sendInitialStates failed"),
 		)
 

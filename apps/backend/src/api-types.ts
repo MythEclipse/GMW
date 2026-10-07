@@ -18,10 +18,10 @@
  */
 import type { InferClientOutputs } from "@orpc/client"
 import type { RouterClient } from "@orpc/server"
-import type { appRouter } from "./presentation/orpc/router.js"
+import type { buildRouter } from "./presentation/orpc/router.js"
 
-export type { appRouter, InferClientOutputs as InferClientOutput }
-export type AppRouter = typeof appRouter
+export type { buildRouter, InferClientOutputs as InferClientOutput }
+export type AppRouter = ReturnType<typeof buildRouter>
 
 /**
  * The typed client the frontend gets from `createORPCClient`.

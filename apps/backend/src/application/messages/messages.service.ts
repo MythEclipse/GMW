@@ -1,12 +1,11 @@
 import { NotFoundError, ValidationError } from "../../domain/errors/index.js"
-import { getDatabase } from "../../infrastructure/database/drizzle.js"
+import type { MessageQuery } from "../../domain/messages/message-contracts.js"
 import { createChildLogger } from "../../infrastructure/logger/index.js"
 import type {
 	EditPageResult,
+	MessagesRepository,
 	ReviewPageResult,
 } from "../../infrastructure/repositories/messages.repository.js"
-import { MessagesRepository } from "../../infrastructure/repositories/messages.repository.js"
-import type { MessageQuery } from "./messages.schema.js"
 
 const logger = createChildLogger("messages.service")
 
@@ -143,112 +142,4 @@ export class MessagesService {
 	): Promise<Awaited<ReturnType<MessagesRepository["listTextChannels"]>>> {
 		return this.repository.listTextChannels(guildId)
 	}
-}
-
-/**
- * Lazily constructed, not built at import time.
- *
- * `createMessagesService()` calls `getDatabase()`, which throws until
- * `initializeDatabase()` has run. Deferring construction to first call keeps
- * importing this file free of a database, which is what lets a unit test
- * import the service and pass its own repository.
- *
- * Still one instance per process, which is what the oRPC router and the
- * gateway assume when they import `messagesService`.
- */
-let instance: MessagesService | undefined
-
-export const createMessagesService = () =>
-	new MessagesService(new MessagesRepository(getDatabase()))
-
-export const messagesService: Pick<
-	MessagesService,
-	| "listMessages"
-	| "streamMessages"
-	| "getMessagesByChannel"
-	| "getMessageById"
-	| "getAttachmentsByChannel"
-	| "getImageMessages"
-	| "getReviewMessages"
-	| "getActivity"
-	| "getRecentEdits"
-	| "getGuilds"
-	| "getTextChannels"
-> = {
-	listMessages: (...args: Parameters<MessagesService["listMessages"]>) => {
-		instance ??= createMessagesService()
-		return instance.listMessages(...args) as ReturnType<
-			MessagesService["listMessages"]
-		>
-	},
-	streamMessages: (...args: Parameters<MessagesService["streamMessages"]>) => {
-		instance ??= createMessagesService()
-		return instance.streamMessages(...args) as ReturnType<
-			MessagesService["streamMessages"]
-		>
-	},
-	getMessagesByChannel: (
-		...args: Parameters<MessagesService["getMessagesByChannel"]>
-	) => {
-		instance ??= createMessagesService()
-		return instance.getMessagesByChannel(...args) as ReturnType<
-			MessagesService["getMessagesByChannel"]
-		>
-	},
-	getMessageById: (...args: Parameters<MessagesService["getMessageById"]>) => {
-		instance ??= createMessagesService()
-		return instance.getMessageById(...args) as ReturnType<
-			MessagesService["getMessageById"]
-		>
-	},
-	getAttachmentsByChannel: (
-		...args: Parameters<MessagesService["getAttachmentsByChannel"]>
-	) => {
-		instance ??= createMessagesService()
-		return instance.getAttachmentsByChannel(...args) as ReturnType<
-			MessagesService["getAttachmentsByChannel"]
-		>
-	},
-	getImageMessages: (
-		...args: Parameters<MessagesService["getImageMessages"]>
-	) => {
-		instance ??= createMessagesService()
-		return instance.getImageMessages(...args) as ReturnType<
-			MessagesService["getImageMessages"]
-		>
-	},
-	getReviewMessages: (
-		...args: Parameters<MessagesService["getReviewMessages"]>
-	) => {
-		instance ??= createMessagesService()
-		return instance.getReviewMessages(...args) as ReturnType<
-			MessagesService["getReviewMessages"]
-		>
-	},
-	getActivity: (...args: Parameters<MessagesService["getActivity"]>) => {
-		instance ??= createMessagesService()
-		return instance.getActivity(...args) as ReturnType<
-			MessagesService["getActivity"]
-		>
-	},
-	getRecentEdits: (...args: Parameters<MessagesService["getRecentEdits"]>) => {
-		instance ??= createMessagesService()
-		return instance.getRecentEdits(...args) as ReturnType<
-			MessagesService["getRecentEdits"]
-		>
-	},
-	getGuilds: (...args: Parameters<MessagesService["getGuilds"]>) => {
-		instance ??= createMessagesService()
-		return instance.getGuilds(...args) as ReturnType<
-			MessagesService["getGuilds"]
-		>
-	},
-	getTextChannels: (
-		...args: Parameters<MessagesService["getTextChannels"]>
-	) => {
-		instance ??= createMessagesService()
-		return instance.getTextChannels(...args) as ReturnType<
-			MessagesService["getTextChannels"]
-		>
-	},
 }

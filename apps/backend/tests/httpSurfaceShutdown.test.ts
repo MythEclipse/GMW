@@ -3,9 +3,20 @@ import http from "node:http"
 import type { AddressInfo } from "node:net"
 import { describe, expect, it } from "vitest"
 import { WebSocket } from "ws"
+import type { UseCases } from "../src/presentation/composition.js"
 import { stopHttpSurface } from "../src/presentation/http/server.js"
 import { createORPCWebSocketServer } from "../src/presentation/orpc/ws.js"
 import { createWebSocketServer } from "../src/presentation/ws/server.js"
+
+/**
+ * The graph only has to EXIST here.
+ *
+ * `buildRouter(useCases)` destructures it at construction, and this test never
+ * executes an RPC or a WS command — the handlers stay cold. A real graph is
+ * not an option: `buildUseCases()` calls `getDatabase()`, which throws until
+ * `initializeDatabase()` has run, and this suite is deliberately hermetic.
+ */
+const useCases = {} as unknown as UseCases
 
 /**
  * Regression for the shutdown hang that hit EVERY production restart.
@@ -27,8 +38,8 @@ import { createWebSocketServer } from "../src/presentation/ws/server.js"
 describe("stopHttpSurface", () => {
 	it("drains live WebSocket clients and an idle keep-alive socket", async () => {
 		const server = http.createServer((_req, res) => res.end("ok"))
-		createWebSocketServer(server)
-		createORPCWebSocketServer(server)
+		createWebSocketServer(server, useCases)
+		createORPCWebSocketServer(server, useCases)
 
 		await new Promise<void>((resolve) => server.listen(0, resolve))
 		const { port } = server.address() as AddressInfo

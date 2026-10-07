@@ -1,9 +1,7 @@
 import { and, desc, eq, inArray, type SQL } from "drizzle-orm"
 import type { NodePgDatabase } from "drizzle-orm/node-postgres"
-import {
-	buildCursorCondition,
-	pageResult,
-} from "../../../domain/utils/pagination.js"
+import { pageResult } from "../../../domain/utils/pagination.js"
+import { buildCursorCondition } from "../../database/cursor.js"
 import type * as schema from "../../database/schema.js"
 import { moderationActionsTable } from "../../database/schema.js"
 import { createChildLogger, type Logger } from "../../logger/index.js"

@@ -1,4 +1,17 @@
-import type { AppConfig } from "../../infrastructure/config/index.js"
+/**
+ * The slice of the process config {@link isMonitoredGuild} actually reads.
+ *
+ * Declared HERE instead of imported as `AppConfig` from
+ * `infrastructure/config`: `domain/` must not depend on `infrastructure/`, so
+ * the scope rule states the two fields it needs and `AppConfig` satisfies this
+ * structurally — every existing call site compiles unchanged.
+ */
+export interface GuildScopeConfig {
+	/** Explicit allow-list. Empty means "not configured" and matches nothing. */
+	EFFECTIVE_MONITOR_GUILD_IDS: string[]
+	/** Single-guild fallback, used only when the list above is empty. */
+	MONITOR_GUILD_ID?: string
+}
 
 /**
  * Decides whether a guild is in scope for capture.
@@ -15,7 +28,7 @@ import type { AppConfig } from "../../infrastructure/config/index.js"
  * than capturing a guild the operator did not ask for.
  */
 export function isMonitoredGuild(
-	config: AppConfig,
+	config: GuildScopeConfig,
 	guildId: string | null | undefined,
 ): boolean {
 	if (!guildId) return false

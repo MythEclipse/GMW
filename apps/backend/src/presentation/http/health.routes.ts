@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { collectDefaultMetrics, register } from "prom-client"
-import { healthService } from "../../application/health/health.service.js"
+import type { UseCases } from "../composition.js"
 
 // Initialize default Node.js runtime metrics (event loop lag, memory, GC, etc.)
 // Called once at module load, not per-request.
@@ -11,7 +11,7 @@ collectDefaultMetrics()
  * `app.use("/api", …)`; Hono mounts a sub-app with `app.route("/api", …)`, so
  * paths inside it are written without the prefix.
  */
-export function createHealthRoutes() {
+export function createHealthRoutes(useCases: UseCases) {
 	return (
 		new Hono()
 			// GET /api/health — 200 healthy / 503 degraded.
@@ -22,7 +22,7 @@ export function createHealthRoutes() {
 			.get("/health", async (c) => {
 				const verbose =
 					new URL(c.req.url).searchParams.get("verbose") === "true"
-				const result = await healthService.getHealth(verbose)
+				const result = await useCases.health.getHealth(verbose)
 				return c.json(result, result.status === "healthy" ? 200 : 503)
 			})
 			// GET /api/metrics — Prometheus scrape endpoint.

@@ -4,7 +4,8 @@ import { Hono } from "hono"
 import { HTTPException } from "hono/http-exception"
 import { secureHeaders } from "hono/secure-headers"
 import { createChildLogger } from "../../infrastructure/logger/index.js"
-import { appRouter } from "../orpc/router"
+import type { UseCases } from "../composition.js"
+import { buildRouter } from "../orpc/router.js"
 import { createHealthRoutes } from "./health-routes-barrel.js"
 
 // Auth removed — dashboard is public.
@@ -23,7 +24,7 @@ import { createHealthRoutes } from "./health-routes-barrel.js"
 
 const logger = createChildLogger("http.app")
 
-export function createHttpApp(): Hono {
+export function createHttpApp(useCases: UseCases): Hono {
 	const app = new Hono()
 
 	// Security headers. CSP stays OFF, matching the Express version verbatim:
@@ -64,16 +65,16 @@ export function createHttpApp(): Hono {
 	})
 
 	// Infra-only HTTP endpoints.
-	app.route("/api", createHealthRoutes())
+	app.route("/api", createHealthRoutes(useCases))
 
-	// oRPC over HTTP. The same appRouter the browser reaches over the /trpc
-	// WebSocket. `app.all` replaces the Express version's manual
+	// oRPC over HTTP. The same `buildRouter(useCases)` graph the browser
+	// reaches over the /trpc WebSocket. `app.all` replaces the Express version's
 	// `req.path.startsWith("/trpc")` gate AND its `matched` fallthrough: in Hono
 	// the handler either matched a route or it did not, and an unmatched /trpc
 	// path falls through to notFound below. That removes both Express-model
 	// artifacts — the `next()` dance and the `res.headersSent` guard — instead
 	// of porting them.
-	const orpcHandler = new RPCHandler(appRouter, {
+	const orpcHandler = new RPCHandler(buildRouter(useCases), {
 		interceptors: [onError((error) => logger.error({ error }, "oRPC error"))],
 	})
 
