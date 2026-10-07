@@ -439,6 +439,21 @@ test("the rules tell the model memory is context, not evidence", () => {
 	expect(rules).toContain("tempat LAIN")
 })
 
+test("memory is explicitly NOT a driver of the verdict", () => {
+	// The block carries past verdicts (status, kategori, analisis moderator)
+	// for OTHER messages, so a rule that lets memory "strengthen" a judgement
+	// turns a stale recollection into a reason to flag a message that violates
+	// nothing — the false-positive shape the 2026-10-07 rework removed.
+	const rules = MEMORY_RULES.replace(/\s+/g, " ")
+	expect(rules).toContain("Memori BUKAN pacuan")
+	expect(rules).toContain(
+		"tidak boleh mengubah status, action, score, confidence, atau flags",
+	)
+	expect(rules).toContain("bukan preseden untuk yang ini")
+	// The exact wording that made memory a driver must not come back.
+	expect(MEMORY_RULES).not.toContain("MEMPERKUAT")
+})
+
 test("the history rules forbid judging the context block", () => {
 	const rules = HISTORY_RULES.replace(/\s+/g, " ")
 	expect(rules).toContain("KONTEKS")

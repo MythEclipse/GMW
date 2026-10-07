@@ -657,6 +657,47 @@ describe("the dictionary rule covers words the dictionary lacks", () => {
 })
 
 /**
+ * 2026-10-07 rework: KBBI was framed as the ONE permitted source of meaning
+ * ("satu-satunya rujukan makna yang boleh kamu pakai") while the model's own
+ * knowledge of Indonesian was named as NOT a source. That inverts reality —
+ * the model knows the language and the dictionary is the reference consulted
+ * to pin an official sense — and it pushed the model into disclaiming words it
+ * plainly knows, while the dictionary-absence marker read as a finding. These
+ * pin both halves of the new framing: reference not driver, own knowledge
+ * allowed, invention still banned.
+ */
+describe("KBBI is a reference, not a driver (2026-10-07 rework)", () => {
+	it("frames the dictionary as reference and forbids it as a basis for deletion", () => {
+		const rules = DICTIONARY_RULES.replace(/\s+/g, " ")
+		expect(rules).toContain("Kamus itu REFERENSI, bukan pacuan penilaian")
+		expect(rules).toContain("Kamus TIDAK PERNAH jadi dasar penghapusan")
+		// Presence or absence in KBBI is not a finding in either direction —
+		// that is what turned ordinary slang into a flag.
+		expect(rules).toContain("tidak ada di KBBI bukan berarti mencurigakan")
+		// The old single-source framing must not come back.
+		expect(DICTIONARY_RULES).not.toContain("satu-satunya rujukan")
+	})
+
+	it("keeps not_in_dictionary explained and explicitly harmless", () => {
+		expect(DICTIONARY_RULES).toContain("not_in_dictionary")
+		const rules = DICTIONARY_RULES.replace(/\s+/g, " ")
+		expect(rules).toContain("BUKAN bukti pelanggaran")
+		expect(rules).toContain("BUKAN alasan untuk curiga")
+	})
+
+	it("lets the model use knowledge it actually has, and still bans invention", () => {
+		const contract = OUTPUT_CONTRACT.replace(/\s+/g, " ")
+		expect(contract).toContain("pengetahuanmu sendiri tentang bahasa Indonesia")
+		// The old rule named the model's own recall as "BUKAN sumber", which is
+		// what forced "makna tidak bisa dipastikan" onto words it knows.
+		expect(contract).not.toContain("termasuk ingatanmu tentang kata itu")
+		// Inventing a meaning is still the greater error — unchanged on purpose.
+		expect(contract).toContain("memberikannya arti")
+		expect(contract).toContain("MENGARANG arti yang tidak kamu tahu")
+	})
+})
+
+/**
  * The prod case: KBBI answered `not_found` for "Cumyami", GMW dropped the row
  * exactly as designed, and the verdict then reported the word as "berarti
  * 'cuma yang'" — an invented definition shown to a moderator as analysis.
