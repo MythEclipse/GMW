@@ -15,7 +15,11 @@
       "@/*": [
         "./src/*"
       ]
-    }
+    },
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": false
   },
   "include": [
     "src/**/*"

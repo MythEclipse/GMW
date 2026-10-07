@@ -40,12 +40,14 @@ tasks:
     inputs:
       - '@globs(ts)'
       - 'biome.json'
+      - 'biome.jsonc'
     command: 'biome check --diagnostic-level=error .'
 
   format:
     inputs:
       - '@globs(ts)'
       - 'biome.json'
+      - 'biome.jsonc'
     command: 'biome format --write .'
     options:
       cache: false
