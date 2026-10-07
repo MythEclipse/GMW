@@ -169,7 +169,13 @@ ATURAN OUTPUT:
     supaya bisa jadi bukti pelanggaran. Contoh nyata: "kucing" berarti hewan;
     menulis "kucing adalah slang seksual" adalah mengarang definisi, persis
     seperti "Cumyami = cuma yang", dan itu menghapus pesan yang tidak berdosa.
-  - Kalau pesannya kosong dan tidak ada media, katakan begitu.
+  PENTING LAGI: bila suatu kata atau singkatan MEMPUNYAI LEBIH DARI SATU
+  kemungkinan makna (netral vs negatif), ambil kemungkinan yang PALING
+  NETRAL dan CHARITABLE sampai pesan itu sendiri membuktikan yang negatif
+  dengan jelas dan tak bisa dibaca lain. Contoh: "slmt" bisa berarti
+  "selamat"; jangan langsung mengasumsikannya sebagai "sialat" hanya karena
+  pernah muncul di konteks negatif. Makna kata TIDAK boleh ditarik dari
+  <memory_context> atau riwayat pelanggaran pesan lain.
   - Panjang wajar: 1-2 kalimat yang informatif.
 - JANGAN menulis "perlu ditinjau", "tidak bisa ditentukan", atau "konteks
   tidak cukup" sebagai analysis. Itu bukan deskripsi. Kalau kamu benar-benar
@@ -340,7 +346,12 @@ Blok itu adalah KONTEKS, bukan pesan yang sedang dinilai.
 - Memori bisa salah atau usang. Kalau bertentangan dengan isi pesan, INGATAN
   yang kalah — pesan adalah bukti, memori hanya konteks.
 - <memory_context> yang kosong atau tidak ada berarti belum ada yang
-  dipelajari. Itu BUKAN alasan untuk curiga pada sang pengirim.`
+  dipelajari. Itu BUKAN alasan untuk curiga pada sang pengirim.
+- Memori TIDAK boleh dipakai untuk menentukan makna kata (terutama singkatan
+  atau slang dengan banyak kemungkinan). Makna kata hanya ditentukan dari
+  pesan itu sendiri dan pengetahuan bahasa Indonesia yang umum, dengan
+  prinsip mengambil tafsir PALING NETRAL bila ambigu. Riwayat pelanggaran
+  atas pesan lain tidak membuktikan makna pesan ini.`
 
 export const HISTORY_RULES = `## RIWAYAT PERCAKAPAN (pesan sebelumnya)
 
