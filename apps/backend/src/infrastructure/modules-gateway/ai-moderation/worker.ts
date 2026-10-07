@@ -38,12 +38,6 @@ import {
 	formatChannelContextForPrompt,
 	formatLinkEvidenceForPrompt,
 } from "../message-capture/messageMetadata.js"
-import { selectBatchDictionaryWordPlan } from "./dictionary-words.js"
-import {
-	type DictionaryEntry,
-	formatDefinitions,
-	type KbbiDictionary,
-} from "./kbbiDictionary.js"
 import type { LlmGateway } from "./llmGateway.js"
 import type { ModerationMemoryBank } from "./memoryBank.js"
 import {
@@ -184,8 +178,7 @@ export type WorkerConfig = {
 	 *
 	 * This list was declared in the config schema and read by nothing, so the
 	 * default entry (Jockie Music's user id) had no effect: every one of that
-	 * bot's embeds paid a vision call, a dictionary lookup and a moderation call
-	 * per batch, forever.
+	 * bot's embeds paid a vision call and a moderation call per batch, forever.
 	 */
 	skipUserIds?: readonly string[]
 	/** Stop after this many batches (0 = run forever). Used by tests. */
@@ -796,36 +789,6 @@ function toMemoryMessages(
 	})
 }
 
-/**
- * What one batch's dictionary lookup produced: the words the KBBI defines, and
- * the words it was asked about and does not carry.
- *
- * Both halves matter. Rendering only the hits leaves the model to infer that a
- * missing word carried no information, and it fills the gap from memory — the
- * prod case was "Cumyami", which the API answered `not_found` and the verdict
- * then reported as "berarti 'cuma yang'". An absence has to be stated to be
- * obeyed.
- */
-type DictionaryLookup = {
-	entries: Map<string, DictionaryEntry[]>
-	unknown: Map<string, string[]>
-	/**
-	 * False when the service could not be consulted at all (timeout, non-OK,
-	 * malformed body). The prompt MUST stay byte-identical then: a dictionary
-	 * outage is an infrastructure fault, and letting it inject
-	 * `<not_in_dictionary>` for every word would tell the model the KBBI denied
-	 * words it was never asked about. Only a successful reply may produce
-	 * unknowns.
-	 */
-	consulted: boolean
-}
-
-const EMPTY_DICTIONARY_LOOKUP: DictionaryLookup = {
-	entries: new Map(),
-	unknown: new Map(),
-	consulted: false,
-}
-
 export class ModerationWorker {
 	private readonly pool: Pool
 	private readonly llm: LlmGateway
@@ -841,14 +804,6 @@ export class ModerationWorker {
 	 * and a deployment without an instance must still produce verdicts.
 	 */
 	private readonly memory: ModerationMemoryBank | undefined
-	/**
-	 * KBBI, grounding the model on what Indonesian words actually mean.
-	 *
-	 * Optional for the same reason `vision` and `memory` are: tests inject a stub,
-	 * and a deployment without a dictionary must still produce verdicts. Left
-	 * undefined the prompt is byte-identical to what it was before this existed.
-	 */
-	private readonly dictionary: KbbiDictionary | undefined
 	private readonly config: WorkerConfig
 	/**
 	 * Vision descriptions already paid for, keyed on the Discord CDN URL.
@@ -872,13 +827,11 @@ export class ModerationWorker {
 		config?: Partial<WorkerConfig>,
 		vision?: LlmGateway,
 		memory?: ModerationMemoryBank,
-		dictionary?: KbbiDictionary,
 	) {
 		this.pool = pool
 		this.llm = llm
 		this.vision = vision
 		this.memory = memory
-		this.dictionary = dictionary
 		this.config = { ...DEFAULT_WORKER_CONFIG, ...config }
 		assertLeaseCoversLlmTimeout(this.config)
 		// A fresh id per process is the point: a restarted worker must not be able
@@ -888,7 +841,6 @@ export class ModerationWorker {
 			{
 				workerId: this.workerId,
 				...this.config,
-				dictionary: this.dictionary !== undefined,
 				memory: this.memory !== undefined,
 			},
 			"moderation worker constructed",
@@ -1277,39 +1229,13 @@ export class ModerationWorker {
 			this.config.contextWindow,
 		)
 
-		// KBBI definitions, resolved BEFORE the prompt is assembled for the same
-		// reason as the vision descriptions and the recall above: the block has to
-		// be interpolated, not merely computed, or the feature is inert while every
-		// formatter test still passes.
-		//
-		// The lookup is per BATCH, not per message — "biji" in five messages is one
-		// request — and the results are then indexed back per message so each
-		// <message> carries only the definitions for the words IT used. A shared
-		// block would let "biji" (seed) explain a message about something else.
-		const definitionsById = await this.lookupDefinitions(messages)
-		const dictionaryEntries = definitionsById.entries
-		const unknownWordsById = definitionsById.unknown
-		// An outage is not an absence. `lookupDefinitions` returns the empty lookup
-		// when the service never answered, so both maps are empty and the prompt
-		// stays byte-identical to a dictionary-less batch — which is exactly what
-		// kbbiWiring.test.ts asserts.
-		const dictionaryAnswered = definitionsById.consulted
-
-		// Built AFTER recall and the dictionary so `memory` and `dictionary`
-		// reflect reality. See the note at the top of this method for why the
-		// obvious earlier spot is the wrong one.
+		// Built AFTER recall and history so `memory` and `history` reflect
+		// reality. See the note at the top of this method for why the obvious
+		// earlier spot is the wrong one.
 		const system = buildSystemPrompt({
 			mode: hasMedia ? "mixed" : "text",
 			memory: memoryContext.length > 0,
 			history: historyBlock.length > 0,
-			// True when EITHER map has anything in it AND the service actually answered.
-			// A batch of pure misses renders only `<not_in_dictionary>`, and that is
-			// precisely the batch that needs DICTIONARY_RULES — keying this off the
-			// hits alone left the rule out exactly when there was nothing to define.
-			// `consulted` keeps a dictionary OUTAGE byte-identical to no dictionary:
-			// the words were never asked about, so we cannot claim the KBBI lacks
-			// them.
-			dictionary: dictionaryEntries.size > 0 || unknownWordsById.size > 0,
 		})
 
 		const body = messages
@@ -1344,17 +1270,10 @@ export class ModerationWorker {
 				// Empty string on a row captured before these existed, so the tag
 				// degrades to exactly what it was.
 				const place = formatChannelContextForPrompt(m.metadata)
-				// Official senses for the words THIS message used, and no others. The
-				// block sits inside the <message> element precisely so a definition
-				// cannot drift onto an unrelated message.
-				const defs = formatDefinitions(
-					dictionaryEntries.get(m.id) ?? [],
-					dictionaryAnswered ? (unknownWordsById.get(m.id) ?? []) : [],
-				)
 				return (
 					`<message id="${m.id}" author="${escapeXmlAttr(who)}" ` +
 					`ts="${isoFromEpoch(m.createdAt)}"${place}>\n${vision}` +
-					`${escapeMessageBody(m.content)}\n${links}${defs}\n</message>`
+					`${escapeMessageBody(m.content)}\n${links}\n</message>`
 				)
 			})
 			.join("\n")
@@ -1425,110 +1344,6 @@ export class ModerationWorker {
 		// map, and passing a fresh empty Map there silently dropped every image
 		// description from long-term recall.
 		return { result, visionById, llmMs }
-	}
-
-	/**
-	 * Resolve KBBI definitions for a batch, indexed back to each message.
-	 *
-	 * Three steps, in this order for three reasons:
-	 *
-	 * 1. Select words across the WHOLE batch with the per-message cap applied
-	 *    first. Selecting per message and concatenating would let one verbose
-	 *    message take every slot, and the messages that follow it get no grounding
-	 *    at all — which is backwards, since a long message is usually the one
-	 *    that needed the help.
-	 * 2. One `lookup` for all of them, deduplicated by the adapter.
-	 * 3. Index the returned entries back onto the messages that actually used
-	 *    each word, so a definition is never offered as an explanation of a
-	 *    message that did not contain it.
-	 *
-	 * Returns an empty map when no dictionary is configured or the lookup yields
-	 * nothing, which leaves the prompt byte-identical to its pre-dictionary form.
-	 * The whole method is inside the moderation call's own budget and bounded by
-	 * the adapter's timeout, so the lease arithmetic is untouched.
-	 */
-	private async lookupDefinitions(
-		messages: readonly ClaimedMessage[],
-	): Promise<DictionaryLookup> {
-		if (!this.dictionary) return EMPTY_DICTIONARY_LOOKUP
-		const { maxWords, maxWordsPerMessage } = this.dictionary.limits
-
-		// Phrase-first selection needs the service's phrase list once per batch.
-		// On any failure it degrades to the empty set, which makes
-		// `selectBatchDictionaryWordPlan` fall back to whole-word selection — the
-		// exact behaviour before phrases were supported.
-		const phrases = await this.dictionary.phrases()
-
-		// Only words that actually reach the batch are recorded against a message.
-		// Recording every message's candidates while the budget is full claimed the
-		// KBBI "does not know" words that were never sent, and `formatDefinitions`
-		// renders that claim as <not_in_dictionary>, which DICTIONARY_RULES tells the
-		// model to treat as an authoritative absence and forbids it from explaining
-		// at all. Six 8-word messages against a 24-word budget silently denied 24
-		// words the service was never asked about, and a real slang term sitting
-		// past the cutoff lost the grounding the feature exists to provide.
-		const { perMessage, batch } = selectBatchDictionaryWordPlan(
-			messages.map((m) => m.content),
-			maxWordsPerMessage,
-			maxWords,
-			phrases,
-		)
-		if (perMessage.size === 0 || batch.length === 0)
-			return EMPTY_DICTIONARY_LOOKUP
-
-		// The plan is keyed by index; re-key onto message ids for the prompt.
-		const wordsById = new Map<string, string[]>()
-		messages.forEach((m, index) => {
-			const words = perMessage.get(String(index))
-			if (words) wordsById.set(m.id, words)
-		})
-
-		const found = await this.dictionary.lookup(batch)
-		// Read the client's own flag, not `found.length`: an empty reply from a
-		// DOWN service and a reply saying "no such words" are both `[]`, and only
-		// the second one may render `<not_in_dictionary>`.
-		const consulted = this.dictionary.consulted
-		if (!consulted) return EMPTY_DICTIONARY_LOOKUP
-
-		const byWord = new Map(found.map((e) => [e.word, e] as const))
-
-		// Words we asked about and the dictionary does not carry. Carried alongside
-		// the hits so the prompt can name the absence: with nothing rendered for a
-		// miss, the model reads a gap and fills it from memory — which is how
-		// "Cumyami" (not_found) came back as a verdict asserting the word "berarti
-		// 'cuma yang'". `dictionary: true` in the prompt cache key now also turns on
-		// for a batch that produced ONLY misses, since that block is exactly the
-		// one that needs the rule.
-		const unknownByMessage = new Map<string, string[]>()
-		for (const [messageId, words] of wordsById) {
-			const missing = words.filter((w) => !byWord.has(w))
-			if (missing.length > 0) unknownByMessage.set(messageId, missing)
-		}
-
-		const byMessage = new Map<string, DictionaryEntry[]>()
-		for (const [messageId, words] of wordsById) {
-			const entries: DictionaryEntry[] = []
-			for (const word of words) {
-				const entry = byWord.get(word)
-				if (entry) entries.push(entry)
-			}
-			if (entries.length > 0) byMessage.set(messageId, entries)
-		}
-		log.info(
-			{
-				trace: traceId(messages[0].id),
-				requested: batch.length,
-				defined: found.length,
-				messages: byMessage.size,
-				chars: found.reduce((n, e) => n + e.definition.length, 0),
-				unknown: [...unknownByMessage.values()].reduce(
-					(n, w) => n + w.length,
-					0,
-				),
-			},
-			"kbbi definitions resolved",
-		)
-		return { entries: byMessage, unknown: unknownByMessage, consulted: true }
 	}
 
 	/**

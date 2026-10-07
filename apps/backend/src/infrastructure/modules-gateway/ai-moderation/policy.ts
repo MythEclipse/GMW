@@ -160,25 +160,15 @@ ATURAN OUTPUT:
     "tidak ada indikasi", "tidak melanggar kebijakan", "bersih",
     "tidak menunjukkan tanda-tanda", "nihil".
   - Kalau isi pesannya jelas, cukup sebut apa itu. Kalau tidak jelas
-    (slang, singkatan, kode), JELASKAN artinya dalam bahasa normal dari
-    sumber yang benar-benar ada, dalam urutan kekuatannya:
-    (1) isi pesan itu sendiri dan percakapan di sekitarnya — yang paling kuat;
-    (2) pengetahuanmu sendiri tentang bahasa Indonesia — kamu memang tahu
-        kata sehari-hari, slang, dan istilah internet; pakai arti yang kamu
-        tahu, jangan menolaknya hanya karena kamus tidak punya kata itu;
-    (3) definisi KBBI yang ikut disertakan untuk pesan itu — referensi
-        resmi untuk mengunci arti, kalau ada;
-    (4) <memory_context>, hanya untuk istilah yang memang khusus server ini.
-    Yang dilarang bukan memakai pengetahuanmu, tetapi MENGARANG arti yang
-    tidak kamu tahu. Kalau sebuah kata memang tidak kamu kenal dan tidak punya
-    definisi KBBI, katakan maknanya tidak bisa dipastikan dari pesan itu saja.
-    PENTING: kalau kata itu punya definisi dari kamus, itu arti resminya —
-    utuh. Jangan menambah makna yang tidak ada di situ, dan jangan mengganti
-    maknanya dengan yang lebih negatif supaya bisa jadi bukti pelanggaran.
-    Contoh nyata: "kucing" di KBBI adalah mamalia karnivor berukuran
-    kecil-menengah. Menulis "kucing adalah slang seksual" adalah
-    mengarang definisi, persis seperti "Cumyami = cuma yang", dan itu
-    menghapus pesan yang tidak berdosa.
+    (slang, singkatan, kode), JELASKAN artinya dalam bahasa normal — pakai
+    pengetahuanmu tentang bahasa Indonesia: kamu memang tahu kata sehari-hari,
+    slang, dan istilah internet. Yang dilarang bukan memakai pengetahuanmu,
+    tetapi MENGARANG arti yang tidak kamu tahu. Kalau sebuah kata memang tidak
+    kamu kenal, katakan maknanya tidak bisa dipastikan dari pesan itu saja.
+    PENTING: jangan mengganti makna yang netral dengan yang lebih negatif
+    supaya bisa jadi bukti pelanggaran. Contoh nyata: "kucing" berarti hewan;
+    menulis "kucing adalah slang seksual" adalah mengarang definisi, persis
+    seperti "Cumyami = cuma yang", dan itu menghapus pesan yang tidak berdosa.
   - Kalau pesannya kosong dan tidak ada media, katakan begitu.
   - Panjang wajar: 1-2 kalimat yang informatif.
 - JANGAN menulis "perlu ditinjau", "tidak bisa ditentukan", atau "konteks
@@ -371,65 +361,10 @@ Blok itu adalah KONTEKS, bukan pesan yang sedang dinilai.
 - Riwayat bisa memuat pesan yang sudah dihapus atau dilewati. Jangan jadikan
   statusnya sebagai bukti.`
 
-export const DICTIONARY_RULES = `## KAMUS (KBBI — REFERENSI, bukan bukti)
-
-Blok <dictionary> berisi definisi resmi KBBI untuk kata-kata yang muncul di
-pesan yang sedang dinilai. Muncul DI DALAM blok <message> itu sendiri, jadi
-setiap definisi milik pesan itu, bukan milik pesan lain di batch.
-
-Kamus itu REFERENSI, bukan pacuan penilaian. Kamu sudah tahu bahasa Indonesia
-— kata sehari-hari, slang, dan istilah internet sebagian besar sudah kamu
-kenal. KBBI dipakai untuk MEMASTIKAN arti resmi ketika arti sebuah kata
-menentukan penilaian; bukan sebagai satu-satunya sumber makna, dan bukan
-sebagai alasan menandai sebuah pesan melanggar.
-
-Entri bisa satu kata atau frasa banyak-kata ("kambing hitam", "rumah
-sakit"); makna frasa sering berbeda dari kata-kata penyusunnya, jadi pakai
-definisi frasa untuk seluruh span itu, bukan potongan kata per kata.
-
-ATURAN:
-- Yang dinilai adalah PENGGUNAAN kata di pesan ini, bukan keberadaan kata itu
-  dan bukan isi kamusnya. Ada di KBBI bukan berarti bermasalah; tidak ada di
-  KBBI bukan berarti mencurigakan. Kata "kontol" tetap kata benda biasa di
-  sini, dan kata yang tidak dikenal kamus adalah kata biasa sampai pesannya
-  sendiri membuktikan sebaliknya.
-- Kalau sebuah kata punya <definition>, itu arti resminya. Kalau kamu menulis
-  arti kata itu di "analysis", arti itu WAJIB sesuai dengan definisi itu.
-  Jangan mengganti arti kamus dengan makna yang lebih negatif supaya kata itu
-  bisa dipakai sebagai bukti pelanggaran. Contoh kesalahan nyata: "traktir"
-  adalah verba "mentraktir", artinya memberi barang kepada orang lain.
-  Menulis "traktir berarti menyindir secara sarkastik" bertentangan dengan
-  definisi di blok itu, dan itu membuat pesan yang biasa-biasa saja dihapus.
-- Jangan menghakimi kata karena isi kamusnya menyinggung. KBBI mencatat makna
-  vulgar, teknis, dan yang tidak nyaman didengar bersama makna biasa.
-  Yang dinilai adalah PENGGUNAANNYA di pesan ini, bukan isi kamusnya.
-- Kata yang ditandai <not_in_dictionary words="…"> sudah ditanyakan ke kamus
-  dan kamus tidak mengenalnya: biasanya kata tidak baku, slang, singkatan,
-  atau nama. Penanda itu BUKAN bukti pelanggaran dan BUKAN alasan untuk
-  curiga — ia cuma bilang "kamus tidak punya kata ini".
-- Untuk kata yang tidak ada di kamus, PENGETAHUANMU SENDIRI boleh dipakai
-  selama kamu memang tahu artinya: slang internet, istilah game, singkatan
-  yang umum. Yang dilarang adalah MENGARANG arti yang tidak kamu tahu —
-  menulis "'Cumyami' berarti 'cuma yang'" adalah mengarang bukti, bukan
-  deskripsi, dan itu kesalahan yang lebih besar daripada tidak tahu. Kalau
-  kamu memang tidak tahu artinya dan kamus juga tidak punya, katakan maknanya
-  tidak bisa dipastikan dari pesan itu saja.
-- Atribut standard="false" berarti kata itu hanya tercatat sebagai bentuk
-  tidak baku. Makna resminya BUKAN makna yang dimaksud pengirim; baca dari
-  konteks.
-- JANGAN mengulang definisi di field "analysis". Analisis menjelaskan PESAN,
-  bukan artinya.
-- Kalau definisi kamus bertentangan dengan kebiasaan pemakaian di tempat ini
-  (contoh: "bocah" di KBBI berarti anak kecil, tapi di server ini dipakai
-  untuk pemula), kebiasaan pemakaian yang menang — dan buktinya ada di konteks
-  pesan itu sendiri.
-- Kamus TIDAK PERNAH jadi dasar penghapusan. Definisi menjelaskan makna;
-  keputusan tetap dari isi pesan dan konteksnya.`
-
 /**
  * Assemble the full system prompt.
  *
- * Memoised per (mode, culture, memory, history, dictionary) because the rules
+ * Memoised per (mode, culture, memory, history) because the rules
  * block is ~4k tokens and a 25-message batch otherwise re-sends it for every
  * sub-batch. Each toggle is part of the key because the rule explaining how to
  * read that block must not appear in a prompt that has none — and, more
@@ -468,16 +403,6 @@ export type BuildPromptOptions = {
 	 * history — which would leave the rules describing a block that is not there.
 	 */
 	history?: boolean
-	/**
-	 * Whether this batch's prompt carries any `<dictionary>` block.
-	 *
-	 * A flag rather than a count, for the same reason as `memory`. Most messages
-	 * are short enough that nothing is worth a lookup, and the rule must not
-	 * describe a dictionary that is not there. In the cache key for the same
-	 * reason: a prompt cached without the rule must never be served to a batch
-	 * that has definitions.
-	 */
-	dictionary?: boolean
 }
 
 const MAX_CULTURE_CHARS = 1200
@@ -486,7 +411,7 @@ export function buildSystemPrompt(opts: BuildPromptOptions): string {
 	const culture = opts.channelCulture?.slice(0, MAX_CULTURE_CHARS).trim() ?? ""
 	const key =
 		`${opts.mode}|${culture}|${opts.memory === true}|` +
-		`${opts.history === true}|${opts.dictionary === true}`
+		`${opts.history === true}`
 	const hit = cache.get(key)
 	if (hit !== undefined) return hit
 
@@ -495,7 +420,6 @@ export function buildSystemPrompt(opts: BuildPromptOptions): string {
 	if (opts.mode === "mixed") parts.push(MEDIA_RULES)
 	if (opts.memory) parts.push(MEMORY_RULES)
 	if (opts.history) parts.push(HISTORY_RULES)
-	if (opts.dictionary) parts.push(DICTIONARY_RULES)
 
 	parts.push(EXAMPLES)
 

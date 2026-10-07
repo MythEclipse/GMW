@@ -26,7 +26,6 @@ import { getDrizzlePool } from "../../infrastructure/database/drizzle.js"
 import { runMigrations } from "../../infrastructure/database/migrate.js"
 import { createChildLogger } from "../../infrastructure/logger/index.js"
 import { ModerationWorker } from "../../infrastructure/modules-gateway/ai-moderation/index.js"
-import { KbbiDictionary } from "../../infrastructure/modules-gateway/ai-moderation/kbbiDictionary.js"
 import { createDefaultGateway } from "../../infrastructure/modules-gateway/ai-moderation/llmGateway.js"
 import { ModerationMemoryBank } from "../../infrastructure/modules-gateway/ai-moderation/memoryBank.js"
 
@@ -80,10 +79,6 @@ export async function startModerationWorker(): Promise<() => Promise<void>> {
 		// Every failure inside it degrades to an ordinary batch, so an unreachable
 		// instance costs context, not verdicts.
 		ModerationMemoryBank.fromConfig(),
-		// KBBI grounds the model on what Indonesian words actually mean, so a slang
-		// term is judged from its dictionary sense instead of the model's guess. An
-		// unreachable dictionary costs grounding, not verdicts.
-		KbbiDictionary.fromConfig(),
 	)
 
 	log.info(
@@ -92,7 +87,6 @@ export async function startModerationWorker(): Promise<() => Promise<void>> {
 			model: gateway.modelLabel,
 			memory: config.AI_MEMORY_BASE_URL,
 			bank: config.AI_MEMORY_BANK_ID,
-			dictionary: config.AI_DICTIONARY_BASE_URL,
 		},
 		"worker ready",
 	)

@@ -7,18 +7,6 @@
  */
 
 export {
-	extractSpans,
-	selectBatchDictionaryWords,
-	selectDictionaryWords,
-} from "./dictionary-words.js"
-export {
-	DEFAULT_DICTIONARY_CONFIG,
-	type DictionaryConfig,
-	type DictionaryEntry,
-	formatDefinitions,
-	KbbiDictionary,
-} from "./kbbiDictionary.js"
-export {
 	createDefaultGateway,
 	HttpLlmGateway,
 	LlmUnavailableError,
@@ -43,7 +31,6 @@ export {
 	buildSystemPrompt,
 	CHANNEL_CONTEXT_RULES,
 	clearPromptCache,
-	DICTIONARY_RULES,
 	POLICY_VERSION,
 	type PromptMode,
 } from "./policy.js"
