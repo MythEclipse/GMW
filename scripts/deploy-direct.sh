@@ -17,9 +17,9 @@ set -euo pipefail
 # Env:
 #   REMOTE_REPO       — git remote to fetch (default: https://github.com/asepharyana/GMW.git)
 #   DEPLOY_REF        — branch, tag, or sha to deploy (default: main)
-#   RESET_RUNTIME_DATA— 1 (default) wipes Postgres `dcbot` + Hindsight
-#                       `gmw-moderation` before the restart; 0 skips the wipe
-#                       for an incident deploy that must keep its rows.
+#   RESET_RUNTIME_DATA— 1 (default) wipes Postgres `dcbot` before the restart;
+#                       0 skips the wipe for an incident deploy that must keep
+#                       its rows.
 
 REMOTE_REPO="${REMOTE_REPO:-https://github.com/asepharyana/GMW.git}"
 DEPLOY_REF="${1:-${DEPLOY_REF:-main}}"
@@ -225,7 +225,7 @@ sudo chown -R gmw:gmw "$RELEASE_DIR"
 sudo chown -h gmw:gmw "$CURRENT_LINK"
 
 # ---------------------------------------------------------------------------
-# 8. Reset runtime data (Postgres + Hindsight)
+# 8. Reset runtime data (Postgres)
 # ---------------------------------------------------------------------------
 # Wipes GMW's runtime data so the service comes up against an empty schema.
 # This used to be a separate CI step between the Nix build and the restart;
@@ -236,7 +236,7 @@ sudo chown -h gmw:gmw "$CURRENT_LINK"
 # On by default. Set RESET_RUNTIME_DATA=0 for an incident deploy that must
 # not touch data (bad migration roll-back, debugging a live row).
 if [ "${RESET_RUNTIME_DATA:-1}" = "1" ]; then
-  log "Resetting runtime data (Postgres dcbot + Hindsight gmw-moderation)"
+  log "Resetting runtime data (Postgres dcbot)"
   # reset-data.sh itself STOPs the three writers before wiping and LEAVES
   # them down on success, so the wipe cannot race a live gateway. Bringing
   # them back is our job below — on both the success and the failure path,
@@ -261,7 +261,7 @@ if [ "${RESET_RUNTIME_DATA:-1}" = "1" ]; then
   done
   log "runtime data reset OK; writers active"
 else
-  log "RESET_RUNTIME_DATA=0 — skipping the Postgres/Hindsight wipe"
+  log "RESET_RUNTIME_DATA=0 — skipping the Postgres wipe"
 fi
 
 # ---------------------------------------------------------------------------

@@ -130,7 +130,7 @@ live in `ai-moderation/policy.ts`. Nothing imports `OUTPUT_CONTRACT` at runtime
 assert the *captured prompt* actually carries the evidence:
 `tests-gateway/linkEmbedEvidence.test.ts`,
 `tests-gateway/channelContextWiring.test.ts`,
-`tests-gateway/memoryBank.test.ts`.
+`tests-gateway/promptAuthorIdentity.test.ts`.
 
 When adding a new evidence source, follow the shape the link fix established:
 capture into `metadata`, add a `format*ForPrompt` helper next to the other
@@ -353,10 +353,11 @@ Do not undo these without an argument that addresses why they were introduced:
 3. **A message we cannot read is never auto-deleted**, at any confidence —
    including `SUPPRESS_EMBEDS` and a link whose preview Discord never resolved.
    The model handed a blank still emits a confident verdict.
-4. **Memory and dictionary are references, never verdict drivers.** The prompt
-   says so explicitly: past verdicts carried in the memory block cannot change
-   status, action, score, confidence or flags, and dictionary absence is not
-   suspicious. Keep the anti-invention half intact when reworking it.
+4. **The name and the history are references, never verdict drivers.** The
+   prompt says so explicitly: past verdicts carried in the conversation-history
+   block cannot change status, action, score, confidence or flags, and the
+   `author` attribute is not message content. Keep the anti-invention half
+   intact when reworking it.
 5. **Two dispositions only.** A message that should be judged again is
    rescheduled with a cap and a backoff; a message that will never be judged is
    `skipped`. There is deliberately no uncapped release — adding one back is how
@@ -364,7 +365,7 @@ Do not undo these without an argument that addresses why they were introduced:
 6. **Evidence is rendered as attributes of `<message>`, never as a sibling
    element**, and it degrades to `""` per attribute rather than to an empty
    value that asserts "this channel has no purpose".
-7. **The system prompt is built last** — after vision descriptions, memory
-   recall and dictionary lookups resolve — because every one of those flags is
-   part of the prompt cache key.
+7. **The system prompt is built last** — after vision descriptions and history
+   lookups resolve — because every one of those flags is part of the prompt
+   cache key.
 8. **`RESET_RUNTIME_DATA` stays unset.**

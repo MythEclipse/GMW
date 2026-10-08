@@ -148,30 +148,6 @@ export function logClaimed(
 	}
 }
 
-/**
- * Stage 2.5 — what Hindsight contributed to this batch's prompt.
- *
- * Separate from the LLM line because a batch that recalls nothing is a
- * different situation from a batch where recall silently returned "", and
- * "memory_context is always empty" is the failure mode that looks exactly like
- * the feature working.
- */
-export function logMemoryRecall(fields: {
-	trace: string
-	channels: number
-	chars: number
-}): void {
-	log.info(
-		{
-			trace: fields.trace,
-			stage: "memory-recall",
-			channels: fields.channels,
-			chars: fields.chars,
-		},
-		"hindsight memory attached to prompt",
-	)
-}
-
 /** Stage 3 — the model call. `content` is logged at debug because it can be large. */
 export function logLlmDone(fields: {
 	trace: string

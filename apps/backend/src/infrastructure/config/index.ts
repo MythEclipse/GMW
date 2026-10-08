@@ -230,42 +230,6 @@ export const configSchema = z
 			.positive()
 			.default(120_000),
 
-		// ── Hindsight memory (moderation context) ───────────────────────────
-		//
-		// The moderation model otherwise judges each message from that message
-		// alone. Hindsight gives it what the guild has already established — who
-		// the regular music bot is, what a channel treats as routine — as a
-		// `<memory_context>` block ahead of the messages.
-		//
-		// Always on, and every failure path returns "" so a missing instance costs
-		// context, never a verdict.
-		// The Hindsight HTTP API. NOT Hermes's memory bank: it points at the
-		// self-hosted instance on imrnes (Tailscale 100.121.180.82), which also
-		// serves Hermes's own `hermes` bank. Moderation writes untrusted Discord
-		// content into this store, so it must never share a bank with an
-		// assistant's personal memory — a message author could steer it, and a
-		// recall could pull the operator's own facts into a public prompt.
-		AI_MEMORY_BASE_URL: z.string().url().default("http://127.0.0.1:8890"),
-		AI_MEMORY_BANK_ID: z.string().default("gmw-moderation"),
-		// Token budget for one recall. Small on purpose: this is prompt context
-		// added to every batch, not a report. Measured latency at `low` is ~0.7s.
-		AI_MEMORY_RECALL_MAX_TOKENS: z.coerce
-			.number()
-			.int()
-			.positive()
-			.default(1200),
-		AI_MEMORY_RECALL_BUDGET: z.enum(["low", "mid", "high"]).default("low"),
-		// Deadline for recall. Counted against the moderation call, so it stays
-		// small: recall is an enhancement and must not eat the LLM budget.
-		AI_MEMORY_RECALL_TIMEOUT_MS: z.coerce
-			.number()
-			.int()
-			.positive()
-			.default(8000),
-		// Cap on retained items per batch, so one pathological batch cannot post
-		// an unbounded number of documents.
-		AI_MEMORY_RETAIN_BATCH_SIZE: z.coerce.number().int().positive().default(40),
-
 		// ── AI Analysis Timing ──────────────────────────────────────────────
 		// ── Moderation worker ──────────────────────────────────────────────
 		//

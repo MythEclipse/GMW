@@ -1247,6 +1247,99 @@ export function formatChannelContextForPrompt(
 	)
 }
 
+// ─── Author identity ─────────────────────────────────────────────────────────
+
+/**
+ * A message author's names, as captured in `messages.metadata`.
+ *
+ * Every field is optional because the metadata column is nullable and older
+ * rows predate some of these keys. `userId` is always known — it is the claim
+ * query's own column, not something read out of the blob.
+ */
+export type PromptAuthor = {
+	/** Snowflake. Kept for exact identification when no name was captured. */
+	userId: string
+	/** Discord's login name, unique account-wide — "budi_dev". */
+	username: string | null
+	/** The user's chosen display name — "Budi S." */
+	globalName: string | null
+	/** Per-guild display name, i.e. the nickname when one is set. */
+	serverName: string | null
+	/** Discord's legacy discriminator, when the account still has one. */
+	tag: string | null
+}
+
+/**
+ * Flatten the captured metadata blob into the author names the prompt uses.
+ *
+ * `username` is the account-wide name and `member.nickname` the server-scoped
+ * one, and both matter: the prompt's `author` attribute has to carry every name
+ * a message could be referred to by, or a moderator reading "Zul" cannot tie it
+ * to `zulfik_dev`. Kept separate from the formatters below so the mapping is
+ * testable on its own. A missing block yields nulls rather than an invented
+ * name — an author called "Budi" when the capture held only an id is worse than
+ * one that admits it knows the id.
+ */
+export function extractPromptAuthor(
+	authorId: string,
+	metadata: string | null | undefined,
+): PromptAuthor {
+	const empty: PromptAuthor = {
+		userId: authorId,
+		username: null,
+		globalName: null,
+		serverName: null,
+		tag: null,
+	}
+	if (!metadata) return empty
+
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(metadata)
+	} catch {
+		return empty
+	}
+	if (typeof parsed !== "object" || parsed === null) return empty
+
+	const root = parsed as {
+		author?: Record<string, unknown>
+		member?: Record<string, unknown> | null
+	}
+	const a = root.author ?? {}
+	const m = root.member ?? {}
+	const str = (v: unknown): string | null =>
+		typeof v === "string" && v.trim().length > 0 ? v.trim() : null
+
+	// `member.displayName` IS the nickname on a guild message, so it is the
+	// server-scoped name. `author.globalName` is the account-wide display name,
+	// which is what this library populates on the author object.
+	return {
+		userId: authorId,
+		username: str(a.username),
+		globalName: str(a.globalName),
+		serverName: str(m.nickname) ?? str(m.displayName),
+		tag: str(a.tag),
+	}
+}
+
+/**
+ * Render an author for the `<message author="…">` attribute.
+ *
+ * Carries every name the capture knows, deduplicated, because that string is
+ * the only thing tying the message in front of the model to a human being. The
+ * snowflake always closes it, so an id-only author is still distinguishable and
+ * never renders as an empty attribute.
+ *
+ * Escaped for an XML attribute — display names are user-controlled.
+ */
+export function formatAuthorForPrompt(author: PromptAuthor): string {
+	const parts = [author.username, author.globalName, author.serverName].filter(
+		(n): n is string => Boolean(n?.trim()),
+	)
+	parts.push(author.userId)
+	return escapeXmlAttr([...new Set(parts)].join(" | "))
+}
+
 /**
  * True when the sender set `SUPPRESS_EMBEDS` on the message.
  *

@@ -173,12 +173,11 @@ ATURAN OUTPUT:
   kemungkinan makna (netral vs negatif), ambil kemungkinan yang PALING
   NETRAL dan CHARITABLE sampai pesan itu sendiri membuktikan makna negatif
   dengan JELAS, TEGAS dan TIDAK BISA DIBACA DENGAN CARA LAIN. Jangan
-  gunakan <memory_context>, penilaian lama atas pesan lain, atau "pola
-  sebelumnya" untuk memutuskan makna saat ambigu. Contoh: "slmt" bisa
-  berarti "selamat"; jangan mengasumsikannya sebagai "sialat" hanya karena
-  pernah muncul dalam konteks negatif atau disebut di memori. Prinsip ini
-  berlaku mutlak: AMBIGUITAS + SINYAL NEGATIF DARI MEMORI = PILIH BACAAN
-  NETRAL, bukan menghapus pesan.
+  gunakan penilaian lama atas pesan lain atau "pola sebelumnya" untuk
+  memutuskan makna saat ambigu. Contoh: "slmt" bisa berarti "selamat"; jangan
+  mengasumsikannya sebagai "sialat" hanya karena pernah muncul dalam konteks
+  negatif. Prinsip ini berlaku mutlak: AMBIGUITAS = PILIH BACAAN NETRAL,
+  bukan menghapus pesan.
   - Panjang wajar: 1-2 kalimat yang informatif.
 - JANGAN menulis "perlu ditinjau", "tidak bisa ditentukan", atau "konteks
   tidak cukup" sebagai analysis. Itu bukan deskripsi. Kalau kamu benar-benar
@@ -193,7 +192,8 @@ ATURAN OUTPUT:
   "clean" untuk sesuatu yang jelas melanggar, itu kegagalan.
 - Jangan menebak arti yang tidak kamu tahu. Kalau makna sebuah kata tidak bisa
   disimpulkan dari isi pesan itu sendiri, dari pengetahuanmu tentang bahasa
-  itu, atau dari <memory_context>, JANGAN memberikannya arti. Menebak arti
+  itu, atau dari riwayat percakapan di atasnya, JANGAN memberikannya arti.
+  Menebak arti
   ("Cumyami berarti 'cuma yang'") adalah mengarang bukti, bukan deskripsi, dan
   itu kesalahan yang lebih besar daripada tidak tahu. Tulis apa yang
   benar-benar tertulis dan sebut maknanya tidak bisa dipastikan dari pesan
@@ -257,7 +257,7 @@ nickname. Kalimat itu BUKAN bagian dari isi pesan.
   tidak dihukum. Bedakan personalitas dari serangan.
 - **Bukti, bukan asumsi.** Nilai berdasarkan apa yang tertulis. Jangan
   menyimpulkan misconduct dari satu kata saja.
-- **Memori tidak menaikkan kecurigaan.** <memory_context> hanya untuk
+- **Riwayat tidak menaikkan kecurigaan.** Riwayat percakapan hanya untuk
   memahami konteks/register, TIDAK untuk memperkuat asumsi negatif atau
   menaikkan score/confidence demi pelanggaran. Ia tidak menambah bobot bukti.
 - **Niat terlihat.** Pesan yang bisa dibaca dua cara → ambil yang paling charitable.
@@ -321,55 +321,6 @@ OUTPUT: {"results":[{"message_id":"4","status":"deleted","action":"delete_messag
 
 export const POLICY_VERSION = "gmw-v2"
 
-export const MEMORY_RULES = `## MEMORI KANAL (dari Hindsight)
-
-Blok <memory_context> berisi fakta yang sudah dipelajari sistem dari riwayat
-moderasi: thread dan channel tempat pesan-pesan itu dibahas, topik apa yang
-sedang dibahas, istilah yang dipakai, dan penilaian-penilaian yang pernah
-dijatuhkan di sana.
-
-Blok itu adalah KONTEKS, bukan pesan yang sedang dinilai.
-
-- HIERARKI BUKTI: isi pesan (teks+media) > riwayat percakapan (<conversation_history>) > memori (<memory_context>).
-  Memori adalah sinyal TERLEMAH dan TIDAK punya bobot pembuktian untuk pelanggaran.
-- Memori adalah MASA LALU. Ia tidak menentukan vonis pesan ini. Keputusan hanya
-  berdasarkan apa yang tertulis/ditampilkan di pesan ini sekarang.
-- Memori BUKAN pacuan. Ia TIDAK BOLEH mengubah status, action, score, confidence, atau flags.
-  Memori memuat penilaian lama atas pesan LAIN — itu keputusan tentang pesan lain,
-  bukan preseden untuk yang ini. Kalau isi pesan ini sendiri tidak melanggar, pilih
-  "clean", apa pun yang tertulis di memori.
-- LOKALITAS KETAT. Setiap entri memori menyebut di mana ia terjadi. Memori
-  dari thread/channel BERBEDA dari pesan ini HARUS diabaikan untuk tujuan
-  penentuan pelanggaran. Hanya memori dari LOKASI YANG SAMA yang boleh
-  dipertimbangkan — dan itu pun hanya untuk memahami register, bukan untuk
-  menaikkan kecurigaan.
-- AMBIGUITAS HARUS DISELAMATKAN, BUKAN DIMANFAATKAN. Bila sebuah kata/singkatan
-  punya >= 2 kemungkinan makna (netral vs negatif), JANGAN gunakan memori
-  untuk memilih tafsir negatif. Ambil tafsir PALING NETRAL dan CHARITABLE.
-  Kalau memori akan mendorong kasus ambigu menjadi "deleted", kamu WAJIB
-  memilih "clean".
-- MAKNA KATA TERPISAH DARI REGISTER. Memori TIDAK BOLEH dipakai untuk
-  menentukan, menyimpulkan, atau memperkuat makna kata (terutama singkatan,
-  slang, kode). Makna kata hanya ditentukan dari pesan itu sendiri dan
-  pengetahuan bahasa Indonesia umum. Riwayat pelanggaran atas pesan LAIN
-  tidak membuktikan makna pesan INI.
-- JANGAN MENJADIKAN MEMORI SEBAGAI PEMBENARAN. Jangan menulis "pola serupa",
-  "sesuai riwayat sebelumnya", atau merujuk ke <memory_context> di "analysis"
-  sebagai alasan pelanggaran. Analisis hanya menjelaskan PESAN yang sedang
-  dinilai. Jangan mengulang isi memori di "analysis".
-- GUNAKAN UNTUK MENGERTI, BUKAN UNTUK MENYALIN. Pakai memori hanya untuk
-  menjelaskan referensi/istilah yang tidak jelas NAMUN NETRAL, atau register
-  percakapan — TIDAK untuk menaikkan kecurigaan, TIDAK untuk membuktikan
-  niat negatif.
-- BOBOT NOL UNTUK EVIDENCE. Memori tidak boleh dimasukkan ke "evidence"
-  sebagai bukti pelanggaran. Jika kamu tidak bisa menjelaskan pelanggaran
-  HANYA dari pesan ini (+ <conversation_history> yang relevan), berarti
-  tidak ada pelanggaran yang terbukti.
-- KONFLIK DIMENANGKAN PESAN. Kalau memori bertentangan dengan isi pesan,
-  PESANLAH yang menang. Memori bisa salah/usang.
-- KOSONG = TIDAK CURIGA. <memory_context> yang kosong/tidak ada BUKAN alasan
-  untuk curiga pada pengirim.`
-
 export const HISTORY_RULES = `## RIWAYAT PERCAKAPAN (pesan sebelumnya)
 
 Blok <conversation_history> berisi pesan-pesan yang muncul SEBELUM pesan yang
@@ -392,13 +343,12 @@ Blok itu adalah KONTEKS, bukan pesan yang sedang dinilai.
 /**
  * Assemble the full system prompt.
  *
- * Memoised per (mode, culture, memory, history) because the rules
- * block is ~4k tokens and a 25-message batch otherwise re-sends it for every
- * sub-batch. Each toggle is part of the key because the rule explaining how to
- * read that block must not appear in a prompt that has none — and, more
- * importantly, must appear in a prompt that does. Without it in the key a
- * cached prompt from a memory-less batch would silently keep omitting the whole
- * feature.
+ * Memoised per (mode, culture, history) because the rules block is ~4k tokens
+ * and a 25-message batch otherwise re-sends it for every sub-batch. Each toggle
+ * is part of the key because the rule explaining how to read that block must
+ * not appear in a prompt that has none — and, more importantly, must appear in
+ * a prompt that does. Without it in the key a cached history-less prompt would
+ * silently keep omitting the whole feature.
  */
 const cache = new Map<string, string>()
 
@@ -413,22 +363,14 @@ export type BuildPromptOptions = {
 	 */
 	channelCulture?: string
 	/**
-	 * Whether this batch's prompt carries a `<memory_context>` block.
-	 *
-	 * Separate from the block's own presence because the RULE explaining how to
-	 * read memory costs tokens on every batch, including the majority that recall
-	 * nothing for. It is in the cache key, so toggling it cannot serve a prompt
-	 * built for the other case.
-	 */
-	memory?: boolean
-	/**
 	 * Whether this batch's prompt carries a `<conversation_history>` block.
 	 *
-	 * Same reasoning as `memory`: the rule block costs tokens on every batch,
-	 * including the many that have no preceding message (first message of a
-	 * thread, empty channel, or `contextWindow: 0`). In the cache key, so a
-	 * prompt built for a history-less batch cannot be served to one that has
-	 * history — which would leave the rules describing a block that is not there.
+	 * Separate from the block's own presence because the RULE explaining how to
+	 * read it costs tokens on every batch, including the many that have no
+	 * preceding message (first message of a thread, empty channel, or
+	 * `contextWindow: 0`). In the cache key, so a prompt built for a
+	 * history-less batch cannot be served to one that has history — which would
+	 * leave the rules describing a block that is not there.
 	 */
 	history?: boolean
 }
@@ -437,16 +379,13 @@ const MAX_CULTURE_CHARS = 1200
 
 export function buildSystemPrompt(opts: BuildPromptOptions): string {
 	const culture = opts.channelCulture?.slice(0, MAX_CULTURE_CHARS).trim() ?? ""
-	const key =
-		`${opts.mode}|${culture}|${opts.memory === true}|` +
-		`${opts.history === true}`
+	const key = `${opts.mode}|${culture}|${opts.history === true}`
 	const hit = cache.get(key)
 	if (hit !== undefined) return hit
 
 	const parts: string[] = [SYSTEM_RULES, LINK_RULES, CHANNEL_CONTEXT_RULES]
 
 	if (opts.mode === "mixed") parts.push(MEDIA_RULES)
-	if (opts.memory) parts.push(MEMORY_RULES)
 	if (opts.history) parts.push(HISTORY_RULES)
 
 	parts.push(EXAMPLES)

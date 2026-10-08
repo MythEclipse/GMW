@@ -35,24 +35,18 @@ import {
 	escapeMessageBody,
 	escapeXmlAttr,
 	extractMessageMediaEvidence,
+	extractPromptAuthor,
+	formatAuthorForPrompt,
 	formatChannelContextForPrompt,
 	formatLinkEvidenceForPrompt,
 } from "../message-capture/messageMetadata.js"
 import type { LlmGateway } from "./llmGateway.js"
-import type { ModerationMemoryBank } from "./memoryBank.js"
-import {
-	extractMemoryAuthor,
-	extractMemoryContext,
-	formatAuthorForPrompt,
-	type MemoryMessage,
-} from "./memoryBank.js"
 import { buildSystemPrompt } from "./policy.js"
 import {
 	logBatchResult,
 	logClaimed,
 	logCycle,
 	logLlmDone,
-	logMemoryRecall,
 	logMessageRequeued,
 	logParked,
 	logVerdictWritten,
@@ -717,17 +711,14 @@ async function loadContextHistorySafely(
 /**
  * Render recent messages that PRECEDED the batch, as one closed block.
  *
- * Labelled `<conversation_history>` and deliberately distinct from
- * `<memory_context>`. They answer different questions: memory is what the guild
- * already knows about this place over weeks, history is the ten messages
- * before this one. Collapsing them would make the model unable to tell a
- * precedent from a general norm — and the history rows are the ones it must
- * NOT produce verdicts for.
+ * Labelled `<conversation_history>` and deliberately a closed region rather
+ * than a set of sibling `<message>` elements: a second block that looks
+ * judgeable invites the model to return a verdict for a row that was already
+ * judged, or to delete it twice. Every row carries `context="history"` so the
+ * policy can mark it as background rather than work.
  *
- * Every row is marked `context="history"`, so the policy can tell the model
- * that these are already judged (or not) and only the `<message>` blocks are
- * up for review. Empty string when there is no history, so the prompt is
- * exactly what it was before this feature existed.
+ * Empty string when there is no history, so the prompt is exactly what it was
+ * before this feature existed.
  */
 function formatConversationHistory(history: readonly HistoryMessage[]): string {
 	const seen = new Set<string>()
@@ -747,48 +738,6 @@ function formatConversationHistory(history: readonly HistoryMessage[]): string {
 	return `<conversation_history>\n${lines.join("\n")}\n</conversation_history>`
 }
 
-/**
- * Project claimed messages into the shape the memory bank stores.
- *
- * The identity mapping is the point: a `user_id` alone produces the memory
- * "user 1234567890 posted a jackpot link", which no semantic query about a
- * NAME will ever match. `author.username` (global), `author.globalName` and
- * `member.nickname` (server-scoped) all come from the metadata already
- * selected by the claim query.
- *
- * The conversation context rides along from the same metadata blob. Before the
- * 2026-10-01 rebuild it was dropped here, which is why every memory in the bank
- * was "who sent what" with no thread, no channel name and no topic — see the
- * module docblock in `memoryBank.ts`. `extractMemoryContext` reads exactly the
- * keys capture already wrote, so no extra query or column is needed.
- *
- * `verdicts` are absent before analysis, so recall (which runs pre-analysis)
- * passes empty strings and retain (which runs post-persist) passes the real
- * ones. The bank stores what it is given; this function only flattens.
- */
-function toMemoryMessages(
-	messages: readonly ClaimedMessage[],
-	visionById: ReadonlyMap<string, string>,
-	verdicts?: ReadonlyMap<string, ParsedVerdict>,
-): MemoryMessage[] {
-	return messages.map((m) => {
-		const v = verdicts?.get(m.id)
-		return {
-			messageId: m.id,
-			guildId: m.guildId,
-			channelId: m.channelId,
-			content: m.content,
-			createdAt: isoFromEpoch(m.createdAt),
-			author: extractMemoryAuthor(m.authorId, m.metadata),
-			context: extractMemoryContext(m.metadata),
-			analysis: v?.analysis ?? "",
-			status: v?.status ?? "pending",
-			categories: v?.categories ?? [],
-			mediaDescription: visionById.get(m.id)?.trim() || undefined,
-		}
-	})
-}
-
 export class ModerationWorker {
 	private readonly pool: Pool
 	private readonly llm: LlmGateway
@@ -798,12 +747,6 @@ export class ModerationWorker {
 	 * unchanged while tests can inject a stub instead of calling a real model.
 	 */
 	private readonly vision: LlmGateway | undefined
-	/**
-	 * Hindsight bank supplying what the guild already knows about these
-	 * channels. Optional for the same reason `vision` is: tests inject a stub,
-	 * and a deployment without an instance must still produce verdicts.
-	 */
-	private readonly memory: ModerationMemoryBank | undefined
 	private readonly config: WorkerConfig
 	/**
 	 * Vision descriptions already paid for, keyed on the Discord CDN URL.
@@ -826,12 +769,10 @@ export class ModerationWorker {
 		llm: LlmGateway,
 		config?: Partial<WorkerConfig>,
 		vision?: LlmGateway,
-		memory?: ModerationMemoryBank,
 	) {
 		this.pool = pool
 		this.llm = llm
 		this.vision = vision
-		this.memory = memory
 		this.config = { ...DEFAULT_WORKER_CONFIG, ...config }
 		assertLeaseCoversLlmTimeout(this.config)
 		// A fresh id per process is the point: a restarted worker must not be able
@@ -841,7 +782,6 @@ export class ModerationWorker {
 			{
 				workerId: this.workerId,
 				...this.config,
-				memory: this.memory !== undefined,
 			},
 			"moderation worker constructed",
 		)
@@ -863,10 +803,9 @@ export class ModerationWorker {
 		const trace = traceId(messages[0].id)
 
 		let result: ParseBatchResult
-		let visionById: Map<string, string>
 		let llmMs = 0
 		try {
-			;({ result, visionById, llmMs } = await this.analyze(messages))
+			;({ result, llmMs } = await this.analyze(messages))
 		} catch (e) {
 			// The whole LLM call failed (network, timeout, refusal). Every message
 			// in the batch takes the same action, and attempts increments so a
@@ -888,7 +827,7 @@ export class ModerationWorker {
 			return true
 		}
 
-		await this.persist(messages, result, visionById, llmMs)
+		await this.persist(messages, result, llmMs)
 		this.logCycle(before, cycleStart, trace, messages.length)
 		return true
 	}
@@ -1077,7 +1016,6 @@ export class ModerationWorker {
 
 	private async analyze(messages: ClaimedMessage[]): Promise<{
 		result: ParseBatchResult
-		visionById: Map<string, string>
 		/** Wall-clock of the moderation call, for `verdicts.duration_ms`. */
 		llmMs: number
 	}> {
@@ -1090,14 +1028,14 @@ export class ModerationWorker {
 			(m) => m.hasMedia || stickerAndEmojiUrls(m.metadata).length > 0,
 		)
 
-		// NOTE: the system prompt is built LAST, after recall. It has to be,
-		// because whether it carries the MEMORY_RULES block depends on whether
-		// recall actually produced something. Building it up here — the obvious
-		// spot — silently hard-codes `memory: false` for every batch, and the
-		// <memory_context> then arrives in the user turn with nothing in the
-		// system prompt explaining how to read it.
+		// NOTE: the system prompt is built LAST, after vision descriptions and
+		// the conversation history resolve. It has to be, because whether it
+		// carries the HISTORY_RULES block depends on whether history actually
+		// produced something. Building it up here — the obvious spot —
+		// hard-codes `history: false` for every batch, and the
+		// <conversation_history> then arrives in the user turn with nothing in
+		// the system prompt explaining how to read it.
 		//
-
 		// Descriptions are resolved BEFORE the prompt is assembled. The previous
 		// version called the vision model inside the .map() and then dropped the
 		// result on the floor — the variable was never interpolated into the
@@ -1198,28 +1136,6 @@ export class ModerationWorker {
 			}
 		}
 
-		// What the guild already knows about these channels, if anything. One
-		// recall for the whole batch, resolved BEFORE the prompt is assembled so
-		// the block is interpolated rather than dropped — the same defect the
-		// vision descriptions above were written to avoid.
-		//
-		// Awaited on purpose and bounded by `recallTimeoutMs`: a recall that hangs
-		// must not eat the lease, so the deadline lives inside the bank, not here.
-		// The lease arithmetic is unchanged because recall is bounded well below
-		// `visionTimeoutMs + llmTimeoutMs`.
-		const memoryContext = this.memory
-			? await this.memory.recallChannelContext(
-					toMemoryMessages(messages, new Map()),
-				)
-			: ""
-		if (memoryContext) {
-			logMemoryRecall({
-				trace: traceId(messages[0].id),
-				channels: [...new Set(messages.map((m) => m.channelId))].length,
-				chars: memoryContext.length,
-			})
-		}
-
 		// Recent predecessors, loaded before the prompt is built so the block can
 		// be part of it. One query for the batch; a failure here must not park the
 		// messages, so it degrades to no history rather than throwing.
@@ -1229,23 +1145,20 @@ export class ModerationWorker {
 			this.config.contextWindow,
 		)
 
-		// Built AFTER recall and history so `memory` and `history` reflect
-		// reality. See the note at the top of this method for why the obvious
-		// earlier spot is the wrong one.
+		// Built AFTER history so `history` reflects reality. See the note at the
+		// top of this method for why the obvious earlier spot is the wrong one.
 		const system = buildSystemPrompt({
 			mode: hasMedia ? "mixed" : "text",
-			memory: memoryContext.length > 0,
 			history: historyBlock.length > 0,
 		})
 
 		const body = messages
 			.map((m) => {
-				// Identity as the memory bank knows it. The prompt used to carry
-				// `username (user_id)`; that is not enough to correlate with a recall,
-				// where the same person appears as "Zulfikar", "zulfik_dev" or
-				// "Zul" depending on which name the extraction picked. Carrying all
-				// three lets the model tie a memory to the message in front of it.
-				const author = extractMemoryAuthor(m.authorId, m.metadata)
+				// Identity, in full. `username (user_id)` was not enough: the same
+				// person is "Zulfikar", "zulfik_dev" or "Zul" depending on which name
+				// is read, so carrying all of them lets the model tie the message in
+				// front of it to a human being.
+				const author = extractPromptAuthor(m.authorId, m.metadata)
 				const who = formatAuthorForPrompt(author)
 				const vision = visionById.get(m.id) ?? ""
 				// The link and its resolved preview, as ONE block. Without this the
@@ -1281,15 +1194,11 @@ export class ModerationWorker {
 		const userPrompt =
 			`Analisis ${messages.length} pesan berikut dan kembalikan JSON ` +
 			`dengan satu entri per message_id di dalam field results.\n\n` +
-			// Memory context sits ABOVE the messages so the model reads it as
-			// background, not as one more message to judge. Empty when Hindsight is
-			// off, unreachable, or has nothing — then the prompt is exactly what it
-			// was before this feature existed.
-			(memoryContext ? `${memoryContext}\n\n` : "") +
-			// History sits BELOW memory and ABOVE the batch, for the same reason: it
-			// is background, and every row in it is explicitly marked `context="history"`
-			// so the model does not return a verdict for one. Empty when the window is
-			// 0 or there is no preceding message.
+			// History sits ABOVE the batch so the model reads it as background, not
+			// as one more message to judge. Empty when the window is 0 or there is no
+			// preceding message — then the prompt is exactly what it was before this
+			// feature existed. Every row in it is explicitly marked
+			// `context="history"` so the model does not return a verdict for one.
 			(historyBlock ? `${historyBlock}\n\n` : "") +
 			`${body}`
 
@@ -1338,12 +1247,10 @@ export class ModerationWorker {
 			batchError: result.batchError,
 			durationMs: Date.now() - parseStart,
 		})
-		// The vision map travels back out with the result. It is the only record of
-		// what the images contained: the LLM call consumed the descriptions to build
-		// the prompt, but the memory bank is written after the commit from the same
-		// map, and passing a fresh empty Map there silently dropped every image
-		// description from long-term recall.
-		return { result, visionById, llmMs }
+		// The vision descriptions were consumed here and have no further reader:
+		// they existed to be interpolated into the prompt, and every message in
+		// the batch is judged before this returns.
+		return { result, llmMs }
 	}
 
 	/**
@@ -1360,7 +1267,6 @@ export class ModerationWorker {
 	private async persist(
 		messages: ClaimedMessage[],
 		result: ParseBatchResult,
-		visionById: ReadonlyMap<string, string>,
 		llmMs: number,
 	): Promise<void> {
 		const byId = new Map(messages.map((m) => [m.id, m]))
@@ -1434,23 +1340,6 @@ export class ModerationWorker {
 			throw e
 		} finally {
 			client.release()
-		}
-
-		// Store what was just judged. AFTER the commit, and NOT awaited: the
-		// verdict row is the source of truth and must not wait on a memory write
-		// that can take seconds (measured 3.3s for a 2-item sync retain — this is
-		// an LLM extraction on the Hindsight side).
-		//
-		// An error verdict is stored too. "the model could not read this message"
-		// is exactly the sort of recurring, explainable fact worth remembering, and
-		// skipping it would make the bank look cleaner than the guild is.
-		if (this.memory) {
-			const verdictsById = new Map(
-				result.verdicts.map((v) => [v.messageId, v] as const),
-			)
-			this.memory.retainBatch(
-				toMemoryMessages(messages, visionById, verdictsById),
-			)
 		}
 	}
 

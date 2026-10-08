@@ -7,38 +7,32 @@
 #                          The migration history is a single baseline, so an
 #                          empty database is the only supported starting point:
 #                          the backend applies the whole schema on next boot.
-#   * Hindsight          — the `gmw-moderation` bank ONLY, via
-#                          DELETE /v1/default/banks/{bank}/memories.
 #
 # BLAST RADIUS — read before running:
-#   The Postgres server and the Hindsight instance are BOTH SHARED. This script
-#   drops no database and deletes no bank, so these siblings are untouched:
+#   The Postgres server is SHARED. This script drops no database, so these
+#   siblings are untouched:
 #       airouter, boost, gitea, hermes, hindsight_db, hub, lidm, mcpedia,
 #       prisma_migrate_shadow_db_*, test, uploader
-#       hindsight bank `hermes-gemini` (this is my own assistant memory)
-#   Verified against prod: only the `gmw-moderation` bank is addressed, and only
-#   `dcbot` is connected to.
+#   Verified against prod: only `dcbot` is connected to.
 #
 # USAGE:
 #   reset-data.sh --dry-run    list exactly what would be wiped, change nothing
 #   reset-data.sh              perform the wipe
 #
 # Env (supplied by the gateway's env file on the VPS):
-#   DATABASE_URL, AI_MEMORY_BASE_URL, AI_MEMORY_BANK_ID
+#   DATABASE_URL
 set -euo pipefail
 
 DRY_RUN=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
 
 : "${DATABASE_URL:?DATABASE_URL is required}"
-MEM_BASE="${AI_MEMORY_BASE_URL:-http://127.0.0.1:8890}"
-MEM_BANK="${AI_MEMORY_BANK_ID:-gmw-moderation}"
 
 if [ "$DRY_RUN" = 1 ]; then
   echo "=== GMW data reset (DRY RUN — nothing will be deleted) ==="
@@ -46,7 +40,6 @@ else
   echo "=== GMW data reset (LIVE) ==="
 fi
 echo "database : $(printf '%s' "$DATABASE_URL" | sed -E 's#://[^@]*@#://***@#')"
-echo "bank     : $MEM_BANK at $MEM_BASE"
 
 # ── 0. Stop the writers ────────────────────────────────────────────────────
 # A verified requirement, not a precaution: with the gateway left running, a
@@ -152,10 +145,6 @@ done
 if [ "$DRY_RUN" = 1 ]; then
   echo
   echo "DRY RUN — nothing was deleted."
-  echo "Hindsight bank that would be emptied: $MEM_BANK"
-  curl -sS --max-time 10 "$MEM_BASE/v1/default/banks/$MEM_BANK/stats" \
-    | head -c 400 || echo "  (stats unreachable)"
-  echo
   exit 0
 fi
 
@@ -178,26 +167,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "DROP SCHEMA public CASCADE;"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "CREATE SCHEMA public;"
 echo "Postgres schema dropped (the backend rebuilds it from the baseline on next boot)"
 
-# ── 2. Hindsight ───────────────────────────────────────────────────────────
-# DELETE .../memories empties the bank's documents, nodes and links but KEEPS
-# the bank itself, its mission and its disposition. DELETE /banks/{id} would
-# remove the bank and force the gateway to recreate it; that is not wanted.
-#
-# This is the `clearBankMemories` route from @vectorize-io/hindsight-client —
-# confirmed by grepping the compiled SDK, not from memory.
-echo "--- wiping Hindsight bank $MEM_BANK ---"
-CODE=$(curl -sS --max-time 120 -o /tmp/hindsight-wipe.out -w '%{http_code}' \
-  -X DELETE "$MEM_BASE/v1/default/banks/$MEM_BANK/memories" || echo "000")
-
-if [ "$CODE" = "200" ] || [ "$CODE" = "204" ]; then
-  echo "Hindsight wipe OK (HTTP $CODE)"
-else
-  echo "WARNING: Hindsight wipe returned HTTP $CODE" >&2
-  head -c 500 /tmp/hindsight-wipe.out >&2 || true
-  echo >&2
-fi
-
-# ── 3. Verify ──────────────────────────────────────────────────────────────
+# ── 2. Verify ──────────────────────────────────────────────────────────────
 # Counts must actually be zero, not merely "the command exited 0". A wipe that
 # silently failed is worse than one that was never attempted: the ledger is
 # intact and the next deploy would re-migrate against stale data.
@@ -239,14 +209,6 @@ else
   [ -n "$NONEMPTY" ] && echo "$NONEMPTY" | while IFS='|' read -r t c; do printf '      %-26s %s\n' "$t" "$c"; done
   FAIL=1
 fi
-
-# Hindsight is asserted strictly: unlike Postgres there is no gateway writing
-# into the bank between the wipe and this check, so a non-zero count here is a
-# genuine failure, not drift.
-STATS_AFTER=$(curl -sS --max-time 15 "$MEM_BASE/v1/default/banks/$MEM_BANK/stats" || echo '{}')
-echo "  hindsight facts remaining     : $(printf '%s' "$STATS_AFTER" | sed -n 's/.*"total_nodes":\([0-9]*\).*/\1/p')"
-printf '%s' "$STATS_AFTER" | grep -q '"total_nodes":0' \
-  || { echo "  x Hindsight bank not empty" >&2; FAIL=1; }
 
 # The ledger must be GONE, not preserved: the whole schema was dropped so the
 # next boot applies the baseline from scratch. If it survived, Drizzle would see

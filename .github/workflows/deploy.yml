@@ -133,12 +133,12 @@ jobs:
         # stale one. This step shipped that exact failure (exit 127, old
         # script without the bun PATH fix).
         #
-        # NOTE: service env (DATABASE_URL, AI_MEMORY_BASE_URL, …) comes from
+        # NOTE: service env (DATABASE_URL, AI_LLM_API_KEY, …) comes from
         # the Bitwarden Secrets Manager backend via /usr/local/bin/bws-exec,
         # NOT from an EnvironmentFile — /etc/gmw/ is empty on the VPS.
         #
-        # The runtime-data reset (Postgres `dcbot` + Hindsight
-        # `gmw-moderation`) lives INSIDE the deploy script, right before the
+        # The runtime-data reset (Postgres `dcbot`) lives INSIDE the deploy script,
+        # right before the
         # restart. It used to be its own CI step between build and restart;
         # moving it in there keeps the original invariant — the build must
         # fully succeed before any data is destroyed — without a separate

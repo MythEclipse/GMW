@@ -27,7 +27,6 @@ import { runMigrations } from "../../infrastructure/database/migrate.js"
 import { createChildLogger } from "../../infrastructure/logger/index.js"
 import { ModerationWorker } from "../../infrastructure/modules-gateway/ai-moderation/index.js"
 import { createDefaultGateway } from "../../infrastructure/modules-gateway/ai-moderation/llmGateway.js"
-import { ModerationMemoryBank } from "../../infrastructure/modules-gateway/ai-moderation/memoryBank.js"
 
 const log = createChildLogger("moderation-worker")
 
@@ -44,49 +43,38 @@ export async function startModerationWorker(): Promise<() => Promise<void>> {
 	await runMigrations()
 
 	const gateway = createDefaultGateway()
-	const worker = new ModerationWorker(
-		getDrizzlePool(),
-		gateway,
-		{
-			claimBatchSize: config.AI_ANALYSIS_MAX_BATCH_SIZE,
-			leaseMs: config.AI_ANALYSIS_PROCESSING_TIMEOUT_MS,
-			llmTimeoutMs: config.AI_ANALYSIS_LLM_TIMEOUT_MS,
-			// The vision pre-pass runs before the moderation call and holds the same
-			// lease, so the lease assertion is against this + llmTimeoutMs.
-			visionTimeoutMs: config.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS,
-			idlePollMs: config.AI_ANALYSIS_POLL_INTERVAL_MS,
-			maxAttempts: config.AI_ANALYSIS_MAX_ATTEMPTS,
-			retryBackoffBaseMs: config.AI_ANALYSIS_RETRY_BACKOFF_MS,
-			// Preceding messages shown alongside each judged one, so "balasan itu"
-			// has a referent. 0 turns the block off; it is not a quality dial.
-			contextWindow: config.AI_MODERATION_CONTEXT_WINDOW,
-			// Channels deliberately outside moderation. Still captured, never judged.
-			skipChannelIds: config.AI_SKIP_ANALYSIS_CHANNEL_IDS,
-			// Same, for individual threads. Needed because a thread's messages carry
-			// the PARENT id in channel_id, so the channel list cannot name a thread.
-			skipThreadIds: config.AI_SKIP_ANALYSIS_THREAD_IDS,
-			// Same, for high-volume bots (Jockie Music's now-playing embeds). The
-			// env var was declared and read by nothing until now, so every one of
-			// those embeds paid a full analysis cycle per batch, forever.
-			skipUserIds: config.AI_SKIP_ANALYSIS_USER_IDS,
-			// Ceiling on the vision pre-pass fan-out. Uncapped, a 40-message image
-			// batch opened 40 simultaneous vision calls and the provider throttled
-			// the batch.
-			visionConcurrency: config.AI_LLM_MEDIA_MAX_CONCURRENT,
-		},
-		undefined,
-		// Hindsight supplies what the guild already knows about these channels.
-		// Every failure inside it degrades to an ordinary batch, so an unreachable
-		// instance costs context, not verdicts.
-		ModerationMemoryBank.fromConfig(),
-	)
+	const worker = new ModerationWorker(getDrizzlePool(), gateway, {
+		claimBatchSize: config.AI_ANALYSIS_MAX_BATCH_SIZE,
+		leaseMs: config.AI_ANALYSIS_PROCESSING_TIMEOUT_MS,
+		llmTimeoutMs: config.AI_ANALYSIS_LLM_TIMEOUT_MS,
+		// The vision pre-pass runs before the moderation call and holds the same
+		// lease, so the lease assertion is against this + llmTimeoutMs.
+		visionTimeoutMs: config.AI_LLM_VISION_ANALYSIS_TIMEOUT_MS,
+		idlePollMs: config.AI_ANALYSIS_POLL_INTERVAL_MS,
+		maxAttempts: config.AI_ANALYSIS_MAX_ATTEMPTS,
+		retryBackoffBaseMs: config.AI_ANALYSIS_RETRY_BACKOFF_MS,
+		// Preceding messages shown alongside each judged one, so "balasan itu"
+		// has a referent. 0 turns the block off; it is not a quality dial.
+		contextWindow: config.AI_MODERATION_CONTEXT_WINDOW,
+		// Channels deliberately outside moderation. Still captured, never judged.
+		skipChannelIds: config.AI_SKIP_ANALYSIS_CHANNEL_IDS,
+		// Same, for individual threads. Needed because a thread's messages carry
+		// the PARENT id in channel_id, so the channel list cannot name a thread.
+		skipThreadIds: config.AI_SKIP_ANALYSIS_THREAD_IDS,
+		// Same, for high-volume bots (Jockie Music's now-playing embeds). The
+		// env var was declared and read by nothing until now, so every one of
+		// those embeds paid a full analysis cycle per batch, forever.
+		skipUserIds: config.AI_SKIP_ANALYSIS_USER_IDS,
+		// Ceiling on the vision pre-pass fan-out. Uncapped, a 40-message image
+		// batch opened 40 simultaneous vision calls and the provider throttled
+		// the batch.
+		visionConcurrency: config.AI_LLM_MEDIA_MAX_CONCURRENT,
+	})
 
 	log.info(
 		{
 			workerId: worker.workerId,
 			model: gateway.modelLabel,
-			memory: config.AI_MEMORY_BASE_URL,
-			bank: config.AI_MEMORY_BANK_ID,
 		},
 		"worker ready",
 	)
