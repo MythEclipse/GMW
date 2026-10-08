@@ -20,6 +20,8 @@ set -euo pipefail
 #   RESET_RUNTIME_DATA— 1 (default) wipes Postgres `dcbot` before the restart;
 #                       0 skips the wipe for an incident deploy that must keep
 #                       its rows.
+#   KEEP_RELEASES       — how many releases to keep for rollback (default 2 =
+#                       the live one + one previous). Step 11 prunes the rest.
 
 REMOTE_REPO="${REMOTE_REPO:-https://github.com/asepharyana/GMW.git}"
 DEPLOY_REF="${1:-${DEPLOY_REF:-main}}"
@@ -116,22 +118,24 @@ cd "$RELEASE_DIR"
 log "Installing dependencies (pnpm install)"
 export HOME="${HOME:-/var/lib/gmw}"
 mkdir -p "$HOME/.local/share/pnpm"
-# Copies, not hardlinks — this is load-bearing, not a preference.
+# Hardlinks, so every release shares ONE copy of the content in the pnpm store
+# instead of paying a private ~599M copy per deploy. 28 releases at ~610M each
+# was 19G of /opt; sharing the store makes a release's marginal cost ~0.
 #
-# Step 7 runs `chown -R gmw:gmw "$RELEASE_DIR"` so the service can own its own
-# files. With pnpm's default hardlink import, a release file and a file in the
-# developer's `node_modules` AND their pnpm store are the SAME inode, because
-# prod and dev share one filesystem here and the deploy runs as the same user
-# that owns the checkout. That chown therefore escaped the release directory
-# and flipped the developer's files to `gmw`, after which their next install
-# died with:
+# The hazard is ownership, and it is real: with `import_method=hardlink` a file
+# in the release and the same file in the pnpm store are ONE inode. Step 7's
+# `chown -R gmw:gmw` therefore escapes the release and flips the STORE — and
+# the developer's own checkout, since prod and dev share a filesystem here —
+# to `gmw`, after which their next install dies with:
 #   EPERM: operation not permitted, chmod '.../node_modules/.pnpm/...'
-# It took effect on every deploy, and it silently desynchronised the store too.
 #
-# Copying keeps the chown scoped to the tree it is meant to change and leaves
-# the store untouched (it is only ever read from here). Cost is one extra
-# ~577M tree per release; note that old releases are never pruned.
-npm_config_package_import_method=copy pnpm install --frozen-lockfile
+# The fix is not to abandon hardlinks; it is to stop the chown from crossing
+# the boundary. Step 7 now chowns ONLY files with link count 1 (the ones this
+# release genuinely owns) and leaves every hardlinked inode alone, so the store
+# keeps its original owner. A dedicated store under /opt also means the
+# release tree and the store are one filesystem owned by one user, which is
+# what makes the hardlink legal in the first place.
+npm_config_package_import_method=hardlink pnpm install --frozen-lockfile
 
 log "Building backend (HTTP + capture + moderation worker)"
 (cd apps/backend && pnpm run build)
@@ -221,7 +225,25 @@ sudo /usr/sbin/nginx -t -c /etc/nginx/sites-available/gmw-proxy
 # ---------------------------------------------------------------------------
 log "Switching $CURRENT_LINK -> $RELEASE_DIR"
 sudo ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
-sudo chown -R gmw:gmw "$RELEASE_DIR"
+
+# Ownership, scoped so it cannot escape into the pnpm store.
+#
+# `chown -R` here used to be correct only because step 2 imported packages by
+# COPY, which made every file in the release a private inode. Step 2 now
+# hardlinks, so a plain `chown -R` would walk straight through node_modules and
+# rewrite the STORE's ownership too — taking the developer's own checkouts with
+# it, which is the EPERM-on-next-install failure the step-2 comment describes.
+#
+# So: chown only files this release exclusively owns (link count 1). Hardlinked
+# inodes are shared with the store and are left exactly as pnpm created them.
+# The service only ever READS node_modules, so not owning it is correct — and
+# `find ... -links 1 -exec chown` also cannot follow a symlink out of the tree.
+sudo find "$RELEASE_DIR" -xdev \( -type f -o -type d \) -links 1 \
+  -exec chown gmw:gmw {} + 2>/dev/null || true
+# Symlinks are always link-count 1 by definition, and node_modules' top-level
+# entries are all symlinks into .pnpm. Owning the symlink (not its target) is
+# what lets the service traverse node_modules at all.
+sudo find "$RELEASE_DIR" -xdev -type l -exec chown -h gmw:gmw {} + 2>/dev/null || true
 sudo chown -h gmw:gmw "$CURRENT_LINK"
 
 # ---------------------------------------------------------------------------
@@ -367,4 +389,56 @@ if ! check_surfaces; then
 fi
 
 log "All services active and answering"
+
+# ---------------------------------------------------------------------------
+# 11. Prune old releases
+# ---------------------------------------------------------------------------
+# Keep the live release plus exactly ONE rollback target. Everything older is
+# unreachable: the `current` symlink points at the live one, and a rollback is
+# `ln -sfn releases/<prev-sha> current && systemctl restart` — which needs only
+# the single previous release to still be on disk.
+#
+# This runs LAST, after the health check, and that ordering is load-bearing in
+# both directions:
+#   * after — so a deploy that fails its health check leaves every release in
+#     place. Pruning first would destroy the rollback target of the release you
+#     are trying to roll back TO, turning a failed deploy into an unrecoverable
+#     one.
+#   * after the restart — so nothing is deleted while a process is still cwd'd
+#     into it. `rm -rf` of a live release leaves the running service answering
+#     from deleted inodes until it next restarts, which reads as healthy.
+#
+# Without this, /opt/gmw/releases grew one ~610M release per deploy forever:
+# 28 of them, 19G, none of which anything could roll back to.
+log "Pruning old releases (keeping live + 1 rollback)"
+KEEP_RELEASES="${KEEP_RELEASES:-2}"
+
+# Resolve `current` to its basename so a release is never compared against its
+# own symlink path — `readlink` gives the absolute target, and a rollback to a
+# manually-restored `current` would otherwise be pruned as "not current".
+LIVE_SHA="$(basename "$(readlink -f "$CURRENT_LINK")")"
+
+# Newest first by mtime. Deploy order == mtime order here because step 1 fetches
+# into a fresh dir; sorting by name would order by sha, which is meaningless.
+mapfile -t KEEP < <(
+  ls -1dt "$RELEASES_DIR"/*/ 2>/dev/null \
+    | while read -r d; do printf '%s\t%s\n' "$(stat -c %Y "$d")" "$(basename "$d")"; done \
+    | sort -rn \
+    | head -n "$KEEP_RELEASES" \
+    | cut -f2
+)
+log "  keeping: ${KEEP[*]:-<none>}"
+
+for d in "$RELEASES_DIR"/*/; do
+  [ -d "$d" ] || continue
+  name="$(basename "$d")"
+  [ "$name" = "$LIVE_SHA" ] && continue
+  if printf '%s\n' "${KEEP[@]:-}" | grep -qx "$name"; then
+    continue
+  fi
+  log "  pruning $name ($(du -sh "$d" 2>/dev/null | cut -f1))"
+  sudo rm -rf "$d"
+done
+log "  releases now: $(ls -1 "$RELEASES_DIR" 2>/dev/null | wc -l)"
+
 log "Deployment complete: $SHORT_SHA"
