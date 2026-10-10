@@ -1,19 +1,20 @@
 version: 2
 updates:
+  # A single ROOT entry, not one per app.
+  #
+  # pnpm keeps exactly one shared `pnpm-lock.yaml` and one `pnpm-workspace.yaml`,
+  # both at the repository root. Dependabot refuses to bump a dependency from
+  # inside a workspace subdirectory: `npm_and_yarn/file_updater.rb` raises
+  # `MisconfiguredTooling` ("Updating workspaces from inside a workspace
+  # subdirectory is not supported") whenever BOTH of those files are found in a
+  # parent of the job directory, so `/apps/frontend` and `/apps/backend` entries
+  # hard-fail the whole job.
+  #
+  # From `/` the fetcher reads the root `pnpm-workspace.yaml`, resolves its
+  # `packages: ["apps/*"]` globs, and picks up every workspace `package.json` —
+  # so both apps stay covered by one entry, and there is no directory overlap.
   - package-ecosystem: "npm"
-    directory: "/apps/backend"
-    schedule:
-      interval: "daily"
-    open-pull-requests-limit: 10
-    groups:
-      production:
-        dependency-type: "production"
-        update-types: ["minor", "patch"]
-      development:
-        dependency-type: "development"
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "npm"
-    directory: "/apps/frontend"
+    directory: "/"
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
