@@ -8,3 +8,14 @@ packages:
   - "apps/*"
 allowBuilds:
   esbuild: false
+
+# Dependabot resolves and installs with its OWN bundled pnpm (11.x/12.x as of
+# 2026-10), ignoring the `packageManager: pnpm@10.33.2` pin in package.json.
+# Since pnpm 11 that version defaults `minimumReleaseAge` to 1440 minutes, so a
+# dependency released within the last day is refused outright with
+# ERR_PNPM_NO_MATURE_MATCHING_VERSION and the whole update job dies — which is
+# exactly how the vite bump failed on 2026-10-09 before the dependabot.yml fix.
+# Dependabot's own `cooldown` (see .github/dependabot.yml) keeps it from
+# proposing versions that young; this makes the install itself survive one
+# slipping through.
+minimumReleaseAge: 0
