@@ -421,14 +421,23 @@ LIVE_SHA="$(basename "$(readlink -f "$CURRENT_LINK")")"
 
 # Newest first by mtime. Deploy order == mtime order here because step 1 fetches
 # into a fresh dir; sorting by name would order by sha, which is meaningless.
+#
+# KEEP_RELEASES is the TOTAL on disk, live included. Taking the newest N first
+# and only then skipping the live release yields N+1 whenever the live release
+# is older than the N newest — which is exactly what a rollback leaves behind,
+# so the one case where retention matters most was the one that overflowed.
 mapfile -t KEEP < <(
   ls -1dt "$RELEASES_DIR"/*/ 2>/dev/null \
     | while read -r d; do printf '%s\t%s\n' "$(stat -c %Y "$d")" "$(basename "$d")"; done \
     | sort -rn \
-    | head -n "$KEEP_RELEASES" \
-    | cut -f2
+    | cut -f2 \
+    | while read -r name; do
+        [ "$name" = "$LIVE_SHA" ] && continue
+        printf '%s\n' "$name"
+      done \
+    | head -n "$((KEEP_RELEASES - 1))"
 )
-log "  keeping: ${KEEP[*]:-<none>}"
+log "  keeping: live=$LIVE_SHA + ${KEEP[*]:-<none>}"
 
 for d in "$RELEASES_DIR"/*/; do
   [ -d "$d" ] || continue
