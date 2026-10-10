@@ -20,8 +20,9 @@ set -euo pipefail
 #   RESET_RUNTIME_DATA— 1 (default) wipes Postgres `dcbot` before the restart;
 #                       0 skips the wipe for an incident deploy that must keep
 #                       its rows.
-#   KEEP_RELEASES       — how many releases to keep for rollback (default 2 =
-#                       the live one + one previous). Step 11 prunes the rest.
+#   KEEP_RELEASES       — how many releases to keep in TOTAL, live included
+#                       (default 2 = the live one + one rollback). Step 11
+#                       prunes the rest.
 
 REMOTE_REPO="${REMOTE_REPO:-https://github.com/asepharyana/GMW.git}"
 DEPLOY_REF="${1:-${DEPLOY_REF:-main}}"
