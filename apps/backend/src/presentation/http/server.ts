@@ -74,9 +74,15 @@ export async function startHttpServer(): Promise<Server> {
 	const app = createHttpApp(useCases)
 	const port = config.WEBSERVER_PORT
 
-	const server = serve({ fetch: app.fetch, port }, (info) => {
-		logger.info({ port: info.port }, "HTTP server started")
-	})
+	const server = serve(
+		{ fetch: app.fetch, port, hostname: config.WEBSERVER_HOST },
+		(info) => {
+			logger.info(
+				{ port: info.port, hostname: config.WEBSERVER_HOST },
+				"HTTP server started",
+			)
+		},
+	)
 
 	// Attach WebSocket servers to the same HTTP server.
 	createWebSocketServer(server as Server, useCases) // /ws — voice PCM + gateway events

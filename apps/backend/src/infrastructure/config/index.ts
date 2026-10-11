@@ -113,16 +113,35 @@ export const configSchema = z
 		LOG_LEVEL: z
 			.enum(["error", "warn", "info", "http", "verbose", "debug", "silly"])
 			.default("info"),
-		// The HTTP/WS surface the dashboard and oRPC clients connect to. Port 4001
-		// is what nginx proxies and what CI's health check probes.
+		// The HTTP/WS surface the dashboard and oRPC clients connect to.
+		//
+		// Port 4001 is what nginx proxies and what CI's health check probes.
+		//
+		// The HOST is load-bearing, not cosmetic. `serve()` with no hostname
+		// binds 0.0.0.0, so the backend was reachable directly on the public IP
+		// (45.127.35.244:4001) — straight past Caddy and nginx, with no TLS and
+		// no access log. Nothing in the proxy chain protected it; the proxies
+		// were bypassed, not defended-through. Loopback-only makes the proxy the
+		// only way in, which is what the rest of this config assumed all along.
+		//
+		// Overridable because CI's health check and any future container run may
+		// need a different bind, but the DEFAULT is the safe one — a public bind
+		// has to be chosen deliberately.
 		WEBSERVER_PORT: z.coerce.number().positive().default(3001),
+		WEBSERVER_HOST: z.string().default("127.0.0.1"),
 
 		// ── Write authorization ──────────────────────────────────────────────
 		// The dashboard is intentionally PUBLIC (see the note in http/app.ts):
-		// every read procedure is unauthenticated because nginx restricts the
-		// surface and there is no user model. That is defensible for reads and
-		// indefensible for writes — an unauthenticated `POST /trpc/uiState.update`
-		// lets anyone reaching the port write arbitrary keys into the database.
+		// every read procedure is unauthenticated because there is no user model.
+		// That is defensible for reads and indefensible for writes — an
+		// unauthenticated `POST /trpc/uiState.update` lets anyone reaching the
+		// port write arbitrary keys into the database.
+		//
+		// What bounds the exposure is the LOOPBACK BIND above, not a proxy: the
+		// old comment here claimed "nginx restricts the surface", which was
+		// never true. nginx sat in front on :4009 while the backend listened on
+		// 0.0.0.0:4001, so anyone who knew the port skipped it entirely. The
+		// token below is the second layer, not the first.
 		//
 		// So writes are gated on a shared secret rather than a user model, which is
 		// the smallest change that actually closes the hole. Empty means "no writes
