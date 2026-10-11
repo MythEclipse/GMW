@@ -123,8 +123,9 @@ jobs:
         # The heavy lifting lives in scripts/deploy-direct.sh, which runs ON
         # the VPS: it clones the commit, runs pnpm install,
         # tsc build per app, prunes devDeps, installs wrappers +
-        # systemd units + nginx config, switches /opt/gmw/current, restarts,
+        # systemd units, switches /opt/gmw/current, restarts,
         # and runs a stability-aware health check (systemctl + HTTP probes).
+        # No nginx: Caddy routes directly to the two services.
         #
         # The script is SCP'd from THIS checkout, not run from
         # /opt/gmw/current/scripts/. Running it from the active release would
@@ -160,12 +161,14 @@ jobs:
       - name: Verify services
         run: |
           ssh "$VPS_USER@$VPS_HOST" \
-            "for u in gmw-backend gmw-frontend gmw-proxy; do \
+            "for u in gmw-backend gmw-frontend; do \
                state=\$(sudo systemctl is-active \$u 2>/dev/null || echo inactive); \
                echo \"  \$u -> \$state\"; \
              done; \
+             echo '--- retired ---'; \
+             echo \"  gmw-proxy -> \$(sudo systemctl is-active gmw-proxy 2>/dev/null || echo 'not installed (correct)')\"; \
              echo '--- HTTP ---'; \
-             for url in http://127.0.0.1:4001/api/health http://127.0.0.1:4017/ http://127.0.0.1:4009/ http://127.0.0.1:4009/api/health; do \
+             for url in http://127.0.0.1:4001/api/health http://127.0.0.1:4017/ https://gmw.asepharyana.my.id/api/health https://gmw.asepharyana.my.id/moderation; do \
                code=\$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 \$url); \
                echo \"  \$url -> \$code\"; \
              done"

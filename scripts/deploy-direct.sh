@@ -9,7 +9,11 @@ set -euo pipefail
 #   /opt/gmw/current           — symlink to the active release
 #   /opt/gmw/bin/*             — thin wrappers that cd into current and exec node
 #   /etc/systemd/system/gmw-*.service
-#   /etc/nginx/sites-available/gmw-proxy
+#
+# There is NO proxy unit any more. nginx used to sit on :4009 in front of the
+# backend and the SPA; Caddy now does that routing directly (see the
+# imphnen/gmw block in the infra repo's Caddyfile.prod). One less process, and
+# one less way for the backend to be reached without TLS.
 #
 # Usage:
 #   bash scripts/deploy-direct.sh [branch|sha]
@@ -194,32 +198,14 @@ exec /usr/bin/node serve.mjs
 WRAPPER
 sudo chmod +x "$BIN_DIR/gmw-frontend"
 
-# proxy (nginx)
-sudo tee "$BIN_DIR/gmw-proxy" > /dev/null <<WRAPPER
-#!/usr/bin/env bash
-exec /usr/sbin/nginx -c /etc/nginx/sites-available/gmw-proxy \\
-  -p /var/lib/gmw-proxy \\
-  -g "error_log /var/lib/gmw-proxy/nginx-error.log; daemon off;"
-WRAPPER
-sudo chmod +x "$BIN_DIR/gmw-proxy"
-
 # ---------------------------------------------------------------------------
-# 6. Install systemd units + nginx config
+# 6. Install systemd units
 # ---------------------------------------------------------------------------
 log "Installing systemd units"
-for unit in gmw-backend gmw-frontend gmw-proxy; do
+for unit in gmw-backend gmw-frontend; do
   sudo cp "$RELEASE_DIR/infra/systemd/$unit.service" "/etc/systemd/system/$unit.service"
 done
 sudo systemctl daemon-reload
-
-log "Installing nginx config"
-sudo cp "$RELEASE_DIR/infra/nginx/nginx.conf" /etc/nginx/sites-available/gmw-proxy
-sudo ln -sfn /etc/nginx/sites-available/gmw-proxy /etc/nginx/sites-enabled/gmw-proxy
-sudo mkdir -p /var/lib/gmw-proxy
-sudo chown gmw:gmw /var/lib/gmw-proxy
-
-# Validate nginx config before switching
-sudo /usr/sbin/nginx -t -c /etc/nginx/sites-available/gmw-proxy
 
 # ---------------------------------------------------------------------------
 # 7. Switch current symlink
@@ -291,8 +277,13 @@ fi
 # 9. Enable + restart services
 # ---------------------------------------------------------------------------
 log "Enabling and restarting services"
-sudo systemctl enable gmw-backend gmw-frontend gmw-proxy
-sudo systemctl restart gmw-backend gmw-frontend gmw-proxy
+sudo systemctl enable gmw-backend gmw-frontend
+sudo systemctl restart gmw-backend gmw-frontend
+# Retire the nginx proxy unit. Caddy now routes straight to the two services, so
+# this must not come back on the next deploy — disable --now is idempotent and
+# exits non-zero on a host that never had it.
+sudo systemctl disable --now gmw-proxy 2>/dev/null || true
+sudo rm -f /etc/systemd/system/gmw-proxy.service
 # Stop the two units the merge retired, if a previous deploy installed them.
 # `disable --now` is idempotent: it exits non-zero when the unit is unknown,
 # which is the normal case on a fresh host.
@@ -312,7 +303,7 @@ sudo systemctl daemon-reload
 # So: require every unit to be active on CONSECUTIVE polls across a stability
 # window, AND require the HTTP surfaces to actually answer. A port that is open
 # because the process died a moment later proves nothing.
-UNITS="gmw-backend gmw-frontend gmw-proxy"
+UNITS="gmw-backend gmw-frontend"
 STABLE_POLLS=3
 
 # HTTP surfaces, not just process liveness. Defined BEFORE the stability loop
@@ -331,11 +322,19 @@ check_surfaces() {
   # replaced. The shell convention is the opposite (0 = success), so the flip
   # happens exactly once, here — returning `$http_ok` raw made every probe
   # report failure with all four surfaces at 200.
+  #
+  # The two :4009 probes are GONE with nginx. In their place the public origin
+  # is probed end-to-end, which is a STRONGER check than the old ones: it
+  # exercises Caddy -> backend and Caddy -> serve.mjs exactly as a browser does,
+  # so a routing mistake in the new Caddy block fails the deploy instead of
+  # shipping. The certificate is already trusted here (Caddy issued it for this
+  # host), so no -k is needed and a TLS failure is a real failure.
   local http_ok=1
-  check_http "backend"     "http://127.0.0.1:4001/api/health" || http_ok=0
-  check_http "frontend"    "http://127.0.0.1:4017/"           || http_ok=0
-  check_http "proxy"       "http://127.0.0.1:4009/"           || http_ok=0
-  check_http "proxy/api"   "http://127.0.0.1:4009/api/health" || http_ok=0
+  local origin="gmw.asepharyana.my.id"
+  check_http "backend"     "http://127.0.0.1:4001/api/health"                     || http_ok=0
+  check_http "frontend"    "http://127.0.0.1:4017/"                               || http_ok=0
+  check_http "public/api"  "https://$origin/api/health"                           || http_ok=0
+  check_http "public/spa"  "https://$origin/moderation"                           || http_ok=0
   return $((1 - http_ok))
 }
 
