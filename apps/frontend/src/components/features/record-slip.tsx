@@ -72,6 +72,13 @@ function SlipStatus({ verdict }: { verdict: TSlipVerdict }) {
  * never fabricates a missing field, so callers pass an explicit "—" or an
  * honest sentence rather than letting an empty cell imply the field was blank
  * on the record.
+ *
+ * The label WRAPS rather than widening the column. `.field-label` is
+ * `white-space: nowrap` with 0.12em tracking, so the longest label ("Reason
+ * given by the model") renders 198px wide — wider than any sane label column,
+ * and at a fixed 9rem it overran the value beside it. A wrapped two-line label
+ * keeps the mono-caps voice and lets the column stay narrow enough to give the
+ * value real room.
  */
 function SlipField({
 	label,
@@ -84,7 +91,9 @@ function SlipField({
 }) {
 	return (
 		<div className="grid grid-cols-[9rem_minmax(0,1fr)] gap-3 border-b border-hairline py-2 last:border-b-0">
-			<span className="field-label pt-0.5">{label}</span>
+			<span className="field-label whitespace-normal pt-0.5 leading-tight">
+				{label}
+			</span>
 			<span
 				className={cn(
 					"min-w-0 text-sm text-ink-soft",
@@ -165,8 +174,21 @@ export function RecordSlip({
 			</header>
 
 			<div className="px-4 py-3">
+				{/*
+				 * Three verdicts need three different questions, not two.
+				 *
+				 * "Why was it kept" is wrong for an UNJUDGED record: nothing was
+				 * judged, so nothing was kept — the message is still in the channel
+				 * and no rule was ever applied to it. Asking why it was kept
+				 * invites the reader to believe a decision was made that never was,
+				 * which is the exact flattening PRODUCT.md forbids.
+				 */}
 				<h3 className="text-sm font-medium tracking-wide text-ink">
-					Why this message was {removed ? "removed" : "kept"}
+					{verdict === "deleted"
+						? "Why this message was removed"
+						: verdict === "clean"
+							? "Why this message was kept"
+							: "Why this message was not judged"}
 				</h3>
 				<p
 					className={cn(
@@ -182,14 +204,30 @@ export function RecordSlip({
 				<dl className="mt-3">
 					{/*
 					 * The clause and the reason are the two fields a member needs to
-					 * challenge the call, so they come first. On an unjudged record
-					 * there IS no clause — inventing one would be the exact fiction
-					 * PRODUCT.md forbids.
+					 * challenge the call, so they come first.
+					 *
+					 * On an unjudged record neither exists: no rule was applied, and
+					 * the model that could not read the message gave no reason. Both
+					 * rows are withheld rather than filled with a placeholder — a
+					 * "—" under "Reason given by the model" asserts a reason exists,
+					 * which is what the sentence directly above says did not happen.
+					 * What the attempt DID hit is shown instead, because that is the
+					 * real, actionable fact.
 					 */}
-					{verdict !== "error" && (
-						<SlipField label="Policy clause" value={clause ?? "—"} />
+					{verdict !== "error" ? (
+						<>
+							<SlipField label="Policy clause" value={clause ?? "—"} />
+							<SlipField
+								label="Reason given by the model"
+								value={reason ?? "—"}
+							/>
+						</>
+					) : (
+						<SlipField
+							label="What stopped it"
+							value={reason ?? "The message was not read."}
+						/>
 					)}
-					<SlipField label="Reason given by the model" value={reason ?? "—"} />
 					{verdict !== "error" && confidence != null && (
 						<SlipField
 							label="Confidence"
