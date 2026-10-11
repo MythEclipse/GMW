@@ -12,6 +12,11 @@ public/app/
 .muxer-queue.**
 .claude/
 .hermes/
+# Impeccable's project scratch: live-mode session journal, injected-script
+# journal, surface briefs and generated config. PRODUCT.md at the repo root IS
+# tracked (it is durable product truth future work must inherit); everything
+# under this directory is session state that must not be committed.
+.impeccable/
 .env.test
 logs/
 .codegraph/
