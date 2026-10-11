@@ -39,117 +39,143 @@
 }
 
 /*
- * GMW — "Quiet Ops Room" design tokens
+ * GMW — "The Record Office" design tokens
  * ---------------------------------------------------------------------------
- * A precision instrument, not a sci-fi HUD. The rules that govern this file:
+ * Replaces the "Quiet Ops Room" system. Direction recorded in the surface
+ * brief `.impeccable/surface-brief.md`, seed key 743fdbb5.
  *
- *  1. COLOUR IS A SIGNAL, NEVER A TEXTURE. Brand indigo is spent only on
- *     live/active state and the single most severe item on screen. Everything
- *     else is ink or surface. There is no second accent.
- *  2. MOTION CARRIES MEANING OR IT DOES NOT EXIST. Every animation here is
+ * The metaphor: an appeal is a request for the record, so the product becomes
+ * a record office — a drawer of typed slips, each decision filed with a date
+ * stamp and an accession number the member can quote back. The rules that
+ * govern this file:
+ *
+ *  1. THE RECORD IS THE PRODUCT. Every deletion carries its captured context,
+ *     the policy clause it was judged against, and a required non-empty
+ *     reason. A surface that hides any of those is broken, not styled.
+ *  2. OXBLOOD IS A STAMP, NOT A BRAND. --color-vermilion (oxblood #7A2B24)
+ *     appears only on a deletion stamp, an executed enforcement record, and
+ *     the active destination. It is never a large fill and never a hover
+ *     state. If red spreads, the record stops being readable.
+ *  3. FILING GREEN IS ONLY `clean`. A kept message is not "good", it is
+ *     "filed without action", so green never promotes anything.
+ *  4. MOTION CARRIES MEANING OR IT DOES NOT EXIST. Every animation here is
  *     driven by real data changing. Nothing loops for decoration. Everything
  *     respects `prefers-reduced-motion` (see the block at the end).
- *  3. THE OXLINT `shadcn/*` GATE OWNS PRIMITIVE APPEARANCE. It forbids raw hex
+ *  5. THE OXLINT `shadcn/*` GATE OWNS PRIMITIVE APPEARANCE. It forbids raw hex
  *     in components, inline styles and arbitrary values, so new colour,
  *     spacing or sizing must be a token or a named class HERE rather than a
  *     utility assembled in a component.
  *
- * 2026-09-29: ~48 unreferenced effect classes (glitch-text, radar-sweep,
- * gradient-border, typing-dots, noise-overlay, game-sweep, ...) were removed.
- * They were residue from two reverted redesigns — the constellation nav
- * (reverted in eda5c752) and the GSAP treatment (GSAP removed in 611ba399).
- * `nav-rail.tsx` carries a standing instruction to keep the plain rail; this
- * system is the deliberate replacement, not a revival of those attempts.
+ * The earlier constellation nav (reverted in eda5c752) and the GSAP treatment
+ * (GSAP removed in 611ba399) remain reverted; `nav-rail.tsx` still carries its
+ * standing instruction to keep the plain rail.
  */
 
 :root {
-  /* -- Light mode: crisp, high-contrast, paper-white -- */
-  --canvas-base: #f0f2f5;
-  --canvas-subtle: #e5e8ed;
-  --panel-bg: rgba(255, 255, 255, 0.85);
-  --panel-bg-subtle: rgba(255, 255, 255, 0.6);
-  --panel-border: rgba(15, 23, 42, 0.08);
-  --panel-border-hover: rgba(94, 106, 210, 0.35);
+  /* -- Light mode: manila folder stock, warm paper ground -------------- */
+  /* The ground is warm paper (#F6F2E8), not white. A record office is lit,
+     and card stock (#D9C6A3) is the only lighter surface, so elevation reads
+     as "a slip lying on a folder" rather than as glass floating over grey. */
+  --canvas-base: #f6f2e8;
+  --canvas-subtle: #ece5d6;
+  --panel-bg: #fbf8f1;
+  --panel-bg-subtle: #f2ebdc;
+  --panel-border: rgba(35, 32, 27, 0.14);
+  --panel-border-hover: rgba(122, 43, 36, 0.42);
     /* Chart reference lines: a neutral grid needs to be visible but must
        not read as data, and must not pick up the accent hue that
        `--panel-border-hover` carries (that is the hover affordance colour,
        not a scale). */
-    --chart-grid: rgba(15, 23, 42, 0.16);
+    --chart-grid: rgba(35, 32, 27, 0.16);
 
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  /* `muted` sat at 4.24:1 and `faint` at 2.29:1 on the light canvas — both
-     below the 4.5:1 AA threshold for normal text, and both carry real content
-     (timestamps, tile hints, chart axis labels), so neither can be treated as
-     decorative. These are the LIGHTEST values that still clear 4.5:1 against
-     this canvas, which keeps a visible step between the two rather than
-     collapsing them into one grey. Measured: muted 5.11, faint 4.53. */
-  --text-muted: #5b6779;
-  --text-faint: #696f75;
+  --text-primary: #23201b;
+  --text-secondary: #4a443c;
+  /* `muted` and `faint` both carry real content (timestamps, slip labels,
+     tile hints, chart axis labels), so neither is decorative and both have
+     to clear 4.5:1 on the light canvas. Measured with the WCAG relative-
+     luminance formula: muted 5.42 canvas / 5.72 panel, faint 4.66 / 4.92.
+     Faint's first value (#7a6f60) measured 4.40 on the canvas and was
+     rejected — it is real content, not decoration, so AA applies. */
+  --text-muted: #6b6154;
+  --text-faint: #766b5c;
 
-  --accent-brand: #4f46e5;
-  /* `signal` is used as a text colour (text-signal, 3 usages) as well as a fill.
-     #6366f1 read 3.98:1 as text on the light canvas; this steps it to the brand
-     indigo, 5.61:1, which is also what --accent-brand already uses, so light
-     mode now has one brand hue instead of two near-identical violets. */
-  --accent-signal: #4f46e5;
-  --accent-signal-bg: rgba(99, 102, 241, 0.1);
-  --accent-signal-border: rgba(99, 102, 241, 0.25);
-  --accent-signal-glow: rgba(99, 102, 241, 0.25);
+  /* Oxblood — used as a STAMP and as text for a deletion, never as a fill
+     over an area. #7A2B24 reads 8.54:1 on the light canvas. */
+  --accent-brand: #7a2b24;
+  /* Foreground for text sitting ON --accent-brand. Raw per theme because the
+     two palettes need opposite answers: white on oxblood reads 9.55:1, while
+     white on the dark theme's warm rose reads only 3.28:1 and ink reads
+     5.11:1. One hardcoded foreground across both is an AA failure waiting to
+     ship. */
+  --color-on-brand-light: #ffffff;
+  /* `signal` is the active-destination and focus colour. It is a filing-green
+     step rather than a second red, so the accent family reads as stamp ink
+     and folder green rather than as an alert. */
+  --accent-signal: #2f5d3f;
+  --accent-signal-bg: rgba(47, 93, 63, 0.1);
+  --accent-signal-border: rgba(47, 93, 63, 0.26);
+  --accent-signal-glow: rgba(47, 93, 63, 0.24);
 
   /* Status colours are used as TEXT (tone.tsx maps warning/danger onto
      text-amber / text-vermilion), so in light mode they have to clear 4.5:1
-     against the canvas. The originals did not: warning 2.84, danger 4.19,
-     success 3.36. These darker steps read 4.66 / 5.60 / 4.89 and still hold
-     up as a fill behind white text (5.22 / 6.29 / 5.48). The `-bg` washes are
-     untouched — they are low-alpha backgrounds, not text. */
-  --success-base: #047857;
-  --success-wash: rgba(5, 150, 105, 0.1);
-  --color-warning: #a35a06;
-  --color-warning-bg: rgba(217, 119, 6, 0.1);
-  --color-danger: #be123c;
-  --color-danger-bg: rgba(225, 29, 72, 0.1);
+     against the canvas. Measured: warning 5.02, danger 7.09, success 5.18.
+     The `-bg` washes are low-alpha backgrounds, not text. */
+  --success-base: #2f5d3f;
+  --success-wash: rgba(47, 93, 63, 0.1);
+  --color-warning: #8a5a12;
+  --color-warning-bg: rgba(163, 106, 18, 0.12);
+  --color-danger: #7a2b24;
+  --color-danger-bg: rgba(122, 43, 36, 0.1);
 
-  --shadow-hud: 0 4px 20px -2px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(15, 23, 42, 0.05);
-  --shadow-raised: 0 2px 6px -2px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.05);
-  --shadow-floating: 0 12px 32px -8px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(15, 23, 42, 0.06);
+  /* A record office is not glass. Elevation is a hairline plus a lift in stock
+     tone, never a coloured bloom; these read as the shadow a slip casts on
+     the folder beneath it. */
+  --shadow-hud: 0 1px 2px rgba(35, 32, 27, 0.06), 0 0 0 1px rgba(35, 32, 27, 0.06);
+  --shadow-raised: 0 1px 2px rgba(35, 32, 27, 0.08), 0 0 0 1px rgba(35, 32, 27, 0.07);
+  --shadow-floating: 0 8px 24px -6px rgba(35, 32, 27, 0.18), 0 0 0 1px rgba(35, 32, 27, 0.08);
 }
 
 .dark {
-  /* -- Dark mode: near-black, low-glare, tuned for long ops sessions -- */
-  --canvas-base: #060709;
-  --canvas-subtle: #0c0e12;
-  --panel-bg: rgba(13, 16, 23, 0.75);
-  --panel-bg-subtle: rgba(255, 255, 255, 0.03);
-  --panel-border: rgba(255, 255, 255, 0.07);
-  --panel-border-hover: rgba(113, 112, 255, 0.45);
+  /* -- Dark mode: the reading room after hours ---------------------------- */
+  /* Deliberately NOT near-black. A dim archive room still has paper in it, so
+     the ground is a deep archival brown-black and card stock stays a visible
+     step above it — losing that step is what turns a record office back into
+     a generic dark dashboard. */
+  --canvas-base: #14120f;
+  --canvas-subtle: #1c1916;
+  --panel-bg: #211d19;
+  --panel-bg-subtle: #2a2520;
+  --panel-border: rgba(240, 232, 216, 0.12);
+  --panel-border-hover: rgba(198, 122, 110, 0.5);
     /* Dark counterpart of `--chart-grid`. */
-    --chart-grid: rgba(255, 255, 255, 0.16);
+    --chart-grid: rgba(240, 232, 216, 0.16);
 
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
+  --text-primary: #f2ece0;
+  --text-secondary: #d6cdbb;
+  --text-muted: #a89d8b;
   /* The old value was #475569: 2.66:1 on the dark canvas. Faint is the step
-     used for timestamps, tile hints and axis labels — real content, not
-     decoration — so it has to clear 4.5:1 like the rest. This reads 4.61:1. */
-  --text-faint: #7c8899;
+     used for timestamps, slip labels and axis labels — real content, not
+     decoration — so it has to clear 4.5:1 like the rest. This reads 4.86:1. */
+  --text-faint: #948a79;
 
-  --accent-brand: #5e6ad2;
-  --accent-signal: #7170ff;
-  --accent-signal-bg: rgba(113, 112, 255, 0.12);
-  --accent-signal-border: rgba(113, 112, 255, 0.3);
-  --accent-signal-glow: rgba(113, 112, 255, 0.35);
+  --accent-brand: #c67a6e;
+  /* Ink, not white: see --color-on-brand-light. 5.11:1 against this rose. */
+  --color-on-brand-light: var(--canvas-base);
+  --accent-signal: #8fae86;
+  --accent-signal-bg: rgba(143, 174, 134, 0.14);
+  --accent-signal-border: rgba(143, 174, 134, 0.32);
+  --accent-signal-glow: rgba(143, 174, 134, 0.3);
 
-  --success-base: #10b981;
-  --success-wash: rgba(16, 185, 129, 0.12);
-  --color-warning: #f59e0b;
-  --color-warning-bg: rgba(245, 158, 11, 0.12);
-  --color-danger: #f43f5e;
-  --color-danger-bg: rgba(244, 63, 94, 0.15);
+  --success-base: #8fae86;
+  --success-wash: rgba(143, 174, 134, 0.14);
+  --color-warning: #d9a441;
+  --color-warning-bg: rgba(217, 164, 65, 0.14);
+  --color-danger: #c96b5d;
+  --color-danger-bg: rgba(201, 107, 93, 0.15);
 
-  --shadow-hud: 0 8px 32px -4px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --shadow-raised: 0 2px 8px -2px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  --shadow-floating: 0 16px 40px -12px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --shadow-hud: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(240, 232, 216, 0.06);
+  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(240, 232, 216, 0.07);
+  --shadow-floating: 0 12px 32px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(240, 232, 216, 0.09);
 }
 
 @theme {
@@ -248,16 +274,16 @@
   --color-accent-foreground: var(--accent-brand);
 
   /* Brand. `primary-foreground` is the only foreground the system hardcodes, and
-   * it is a token so it can be contrast-checked rather than guessed. Measured
-   * with the WCAG relative-luminance formula: #ffffff reads 6.29:1 on the light
-   * brand #4f46e5 and 4.70:1 on the dark brand #5e6ad2 — both clear the 4.5:1
-   * AA threshold for normal text. The value it replaced, #f8fafc, measured
-   * 4.49:1 on the dark brand: a narrow AA failure. It is aliased to
-   * --color-on-brand rather than duplicated, so the destructive and sidebar
-   * variants cannot drift away from it. */
-  --color-primary: var(--accent-brand);
-  --color-on-brand: #ffffff;
-  --color-primary-foreground: var(--color-on-brand);
+       it is a token so it can be contrast-checked rather than guessed.
+       --color-on-brand is NOT white in both themes any more: the Record Office
+       dark brand is a warm rose (#c67a6e), and white on it measures 3.28:1 — an
+       AA failure on every dark-mode button. Ink on the same fill reads 5.11:1,
+       so the dark theme overrides this token to --canvas-base rather than the
+       system hardcoding one foreground for two palettes. Light stays white on
+       oxblood at 9.55:1. */
+    --color-primary: var(--accent-brand);
+    --color-on-brand: var(--color-on-brand-light);
+    --color-primary-foreground: var(--color-on-brand);
 
   --color-destructive: var(--color-danger);
   --color-destructive-foreground: var(--color-on-brand);
@@ -378,17 +404,18 @@
 @layer components {
   /* -- Surfaces ------------------------------------------------------------
    * Three elevation steps, used deliberately rather than one shadow on
-   * everything: `hud` for a panel that IS the page's subject, `glass` for
-   * anything overlapping content.
+   * everything: `hud-card` for a panel that IS the page's subject, `glass`
+   * for anything overlapping content.
    *
-   * The old treatment lifted EVERY card 2px on hover, which at grid density
-   * read as the whole page twitching. Hover now only changes the border. */
+   * The Record Office replaces the incumbent's backdrop blur. A blurred
+   * translucent panel is a HUD, and this system is a filing cabinet: a slip
+   * is opaque card stock, so elevation reads as paper thickness and a
+   * hairline, not as frosted glass. `backdrop-filter` is gone from both. */
   .hud-card {
     position: relative;
     background: var(--panel-bg);
     border: 1px solid var(--panel-border);
-    border-radius: 10px;
-    backdrop-filter: blur(12px);
+    border-radius: 4px;
     box-shadow: var(--shadow-hud);
     transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
@@ -400,89 +427,83 @@
   .glass {
     background: var(--panel-bg);
     border: 1px solid var(--panel-border);
-    border-radius: 10px;
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    border-radius: 4px;
     box-shadow: var(--shadow-floating);
     transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  /* Ambient canvas: three very low-alpha colour washes, GPU-composited via
-   * `transform` only. This is decorative but deliberately near-invisible — the
-   * one place the palette is allowed to be soft, because it carries no
-   * information and sits behind every panel. */
-  .ambient-blob {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(80px);
-    opacity: calc(var(--ab-alpha, 0.35) * 0.8);
-    will-change: transform;
+  /* -- Record Office --------------------------------------------------------
+   * The signature move: a consulted slip. Card stock at full opacity, a
+   * hairline rule, and a 2px filing tab on the left edge that carries the
+   * decision's colour — so a drawer of ten slips can be scanned on the tab
+   * alone without reading a word.
+   *
+   * `.record-slip` is deliberately NOT stretched to its neighbour's height.
+   * The earlier sketch forced the focal card to match the right column and
+   * paid for it with ~130px of dead paper: a reader scans down from the last
+   * field expecting more evidence and hits nothing. A slip is sized by what
+   * is filed on it. */
+  .record-slip {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-left: 2px solid var(--record-tab, var(--panel-border));
+    border-radius: 3px;
+    box-shadow: var(--shadow-raised);
   }
 
-  .ambient-blob-1 {
-    width: 50vw;
-    height: 50vw;
-    top: -10%;
-    left: 20%;
-    background: rgb(var(--ab-r, 45) var(--ab-g, 212) var(--ab-b, 191) / 0.25);
-    animation: ambient-drift-1 25s ease-in-out infinite alternate;
+  /* The consulted slip is pulled forward: it leaves the drawer's plane and
+     gains a cast shadow. Nothing else on the page gets this treatment, so
+     "what am I reading" is answered by weight before it is answered by
+     position or type. */
+  .record-slip-active {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border-hover);
+    border-left: 2px solid var(--record-tab, var(--accent-signal));
+    border-radius: 3px;
+    box-shadow: var(--shadow-floating);
   }
 
-  .ambient-blob-2 {
-    width: 40vw;
-    height: 40vw;
-    bottom: 10%;
-    right: -5%;
-    background: rgb(var(--ab-r, 45) var(--ab-g, 212) var(--ab-b, 191) / 0.18);
-    animation: ambient-drift-2 30s ease-in-out infinite alternate;
+  /* The accession number: typewriter mono, letter-spaced, small. It is the
+     one identifier a member is expected to quote back, so it is set as an
+     address rather than as a badge. */
+  .accession {
+    font-family: var(--font-mono);
+    font-size: var(--text-micro);
+    letter-spacing: 0.08em;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
   }
 
-  .ambient-blob-3 {
-    width: 35vw;
-    height: 35vw;
-    top: 40%;
-    left: -10%;
-    background: rgb(var(--ab-r, 45) var(--ab-g, 212) var(--ab-b, 191) / 0.15);
-    animation: ambient-drift-3 20s ease-in-out infinite alternate;
+  /* Field labels on a slip. Tiny uppercase mono is the record office's voice
+     for "what kind of thing this is" — never used for prose. */
+  .field-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    white-space: nowrap;
   }
 
-  @keyframes ambient-drift-1 {
-    0%   { transform: translate(0, 0) scale(1); }
-    100% { transform: translate(8vw, 5vh) scale(1.15); }
-  }
-
-  @keyframes ambient-drift-2 {
-    0%   { transform: translate(0, 0) scale(1); }
-    100% { transform: translate(-6vw, -8vh) scale(1.1); }
-  }
-
-  @keyframes ambient-drift-3 {
-    0%   { transform: translate(0, 0) scale(0.9); }
-    100% { transform: translate(5vw, 6vh) scale(1.1); }
-  }
-
-  /* Floating motes — tiny dots drifting upward */
-  .ambient-motes {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-  }
-
-  .ambient-mote {
-    position: absolute;
-    bottom: -4px;
-    width: 2px;
-    height: 2px;
-    border-radius: 50%;
-    background: rgb(var(--ab-r, 45) var(--ab-g, 212) var(--ab-b, 191) / 0.5);
-    animation: mote-rise linear infinite;
-  }
-
-  @keyframes mote-rise {
-    0%   { transform: translateY(0) translateX(0); opacity: 0; }
-    10%  { opacity: 0.6; }
-    90%  { opacity: 0.4; }
-    100% { transform: translateY(-100vh) translateX(20px); opacity: 0; }
+  /* The accession stamp: rotated oxblood, hairline box, letter-spaced caps.
+     It is a STAMP on a record, so it must not cover the clause or the reason
+     it attests — the plate-section direction's one carried risk was a seal
+     overlapping the policy text, and this is the deliberate fix. It sits in
+     the slip's header margin and is positioned in flow, not absolutely over
+     content. */
+  .accession-stamp {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.1875rem 0.5rem;
+    border: 1px solid var(--color-vermilion);
+    border-radius: 2px;
+    font-family: var(--font-mono);
+    font-size: var(--text-micro);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-vermilion);
+    white-space: nowrap;
   }
 
   /* -- Data-driven motion --------------------------------------------------
@@ -685,18 +706,6 @@
 
   .reactor-count { font-variant-numeric: tabular-nums; }
 
-  /* Ambient canvas washes (providers.tsx). Deliberately near-invisible: they
-   * carry no information and sit behind every panel. */
-  .ambient-wash {
-    background-image: radial-gradient(120% 90% at 50% 0%, oklch(0.2 0.04 70 / 0.5), oklch(0.1 0.015 70) 60%);
-  }
-  .ambient-vignette {
-    background-image: radial-gradient(ellipse at center, transparent 20%, oklch(0.08 0.01 70 / 0.7) 100%);
-  }
-
-  /* Backdrop for the ambient canvas. */
-  .ambient-bg { background-color: var(--canvas-base); }
-
   .no-scrollbar { scrollbar-width: none; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
 
@@ -754,13 +763,12 @@
 .animate-pulse-ring { animation: pulse-ring 2s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Regenerated from the classes that ACTUALLY exist above. The previous list
-   * still guarded ten classes that no longer exist, so it had drifted into
-   * being decoration rather than a real safety net. */
+  /* Regenerated from the classes that ACTUALLY exist above. The ambient blob
+   * and mote guards were dropped with the Record Office migration: those
+   * classes and their render site in shell.tsx are gone, so guarding them
+   * here was decoration pretending to be a safety net. */
   .animate-breathe,
   .animate-pulse-ring,
-  .ambient-blob,
-  .ambient-mote,
   .route-in,
   .cursor-blink::after {
     animation: none !important;

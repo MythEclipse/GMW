@@ -26,7 +26,7 @@ export const navItems: readonly INavItem[] = [
 		href: "/dashboard",
 		label: "Overview",
 		shortLabel: "Home",
-		description: "IGuild-wide moderation health, activity, and top channels",
+		description: "Guild-wide moderation health, activity, and top channels",
 		keywords: ["home", "overview", "stats", "summary", "dashboard"],
 		order: 1,
 	},

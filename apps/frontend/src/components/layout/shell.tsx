@@ -34,17 +34,15 @@ import { Topbar } from "#/components/layout/topbar"
  */
 export function Shell() {
 	return (
-		<div className="ambient-bg relative min-h-dvh">
-			<AmbientBackground />
-
+		<div className="relative min-h-dvh">
 			{/* The topbar and the ribbon are one sticky group: the ribbon reports a
-	          live failure, and a strip that scrolls out of view the moment you
-	          scroll down would defeat the point. Putting the ribbon as a sibling
-	          of the sticky header would leave it static. */}
+          live failure, and a strip that scrolls out of view the moment you
+          scroll down would defeat the point. Putting the ribbon as a sibling
+          of the sticky header would leave it static. */}
 			<div className="sticky top-0 z-30">
 				<Topbar onOpenPalette={openCommandPalette} />
 				{/* Queue ribbon (W3): a 3px strip carrying the gateway's live analysis
-	            state, on every route. */}
+		            state, on every route. */}
 				<QueueRibbon />
 			</div>
 
@@ -73,57 +71,6 @@ export function Shell() {
 			<MobileNav />
 			<Chatbot />
 			<CommandPalette />
-		</div>
-	)
-}
-
-/**
- * Ambient background: drifting colour blobs, rising motes, and a vignette.
- *
- * Pure CSS and GPU-composited via `transform` only — the animations already
- * exist in styles.css and are disabled under `prefers-reduced-motion`. This
- * is the decorative layer the old `three.js` constellation was reverted to.
- * `aria-hidden` because it carries no information.
- */
-function AmbientBackground() {
-	// A fixed set of motes with deterministic positions: randomising them per
-	// render would remount and restart the animation on every navigation.
-	const motes = [
-		{ left: 12, delay: 0, duration: 11 },
-		{ left: 27, delay: 2.4, duration: 14 },
-		{ left: 44, delay: 5.1, duration: 9 },
-		{ left: 61, delay: 1.2, duration: 12 },
-		{ left: 78, delay: 3.7, duration: 15 },
-		{ left: 91, delay: 6.3, duration: 10 },
-	]
-
-	return (
-		<div
-			className="pointer-events-none fixed inset-0 -z-10 overflow-hidden"
-			aria-hidden
-		>
-			<div className="ambient-blob ambient-blob-1" />
-			<div className="ambient-blob ambient-blob-2" />
-			<div className="ambient-blob ambient-blob-3" />
-
-			<div className="ambient-motes">
-				{motes.map((mote) => (
-					<span
-						key={mote.left}
-						className="mote ambient-mote"
-						style={
-							{
-								"--mote-left": `${mote.left}%`,
-								"--mote-delay": `${mote.delay}s`,
-								"--mote-duration": `${mote.duration}s`,
-							} as React.CSSProperties
-						}
-					/>
-				))}
-			</div>
-
-			<div className="ambient-wash absolute inset-0" />
-			<div className="ambient-vignette absolute inset-0" />
 		</div>
 	)
 }
