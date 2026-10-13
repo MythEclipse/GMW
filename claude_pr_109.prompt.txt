@@ -3,6 +3,7 @@ You are on the PR #109 branch of asepharyana/GMW: "build(deps-dev): bump the dev
 Files changed in this PR:
   - apps/backend/package.json
   - apps/frontend/package.json
+  - claude_pr_109.prompt.txt
   - package.json
   - pnpm-lock.yaml
 
