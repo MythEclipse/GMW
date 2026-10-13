@@ -1,0 +1,28 @@
+You are on the PR #109 branch of asepharyana/GMW: "build(deps-dev): bump the development group with 6 updates"
+
+Files changed in this PR:
+  - apps/backend/package.json
+  - apps/frontend/package.json
+  - package.json
+  - pnpm-lock.yaml
+
+Your working directory is the git worktree for this PR branch.
+Your task:
+1. FIRST, try to merge the base branch to resolve any stale conflicts:
+     git fetch origin main
+     git merge origin/main --no-edit
+   If there are merge conflicts, resolve them intelligently
+2. THEN improve code quality of ALL changed files:
+   - Fix naming, DRY up repeated logic, add error handling
+   - Add type hints / type annotations where missing
+   - Fix anti-patterns, improve structure, add docstrings
+3. Commit ALL changes with EXACT message:
+     git add -A && git commit --message="fix: auto-fix code quality [skip ci]"
+4. Do NOT push — a separate step pushes your commit.
+
+CRITICAL RULES:
+- ONLY modify the files listed above (plus commit/merge resolution)
+- Do NOT change program logic or add features
+- Resolve merge conflicts carefully - keep BOTH sides where needed
+- You are mytheclipsebotreview - git identity already set
+- Use EXACTLY "fix: auto-fix code quality [skip ci]" as the commit message
