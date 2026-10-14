@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/asepharyana/GMW/compare/v1.0.0...v1.0.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **ci:** cap the release body, which GitHub limits to 125,000 chars ([1de708e](https://github.com/asepharyana/GMW/commit/1de708e0797abebfbaee98bba25a19d2e561c78d))
+
 # 1.0.0 (2026-10-14)
 
 
