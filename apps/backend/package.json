@@ -47,7 +47,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@types/bun": "latest",
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.5",
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.2",
     "drizzle-kit": "^0.31.11",
