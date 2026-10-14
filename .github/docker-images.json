@@ -1,0 +1,14 @@
+{
+  "images": [
+    {
+      "package": "gmw-backend",
+      "context": ".",
+      "file": "infra/docker/Dockerfile.backend"
+    },
+    {
+      "package": "gmw-proxy",
+      "context": ".",
+      "file": "infra/docker/Dockerfile.proxy"
+    }
+  ]
+}
