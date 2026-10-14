@@ -42,7 +42,7 @@
     "sharp": "^0.35.5",
     "tiktoken": "^1.0.22",
     "ws": "^8.22.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
