@@ -77,6 +77,11 @@ jobs:
             @semantic-release/git@^10 \
             @semantic-release/npm@^12
           echo "$RUNNER_TEMP/sr/node_modules/.bin" >> "$GITHUB_PATH"
+          # @semantic-release/release-notes-generator loads the writer with
+          # `require`, so it must be CommonJS even though the generator package
+          # itself is ESM. The .cjs extension is what makes that work.
+          test -f scripts/release-notes-writer.cjs \
+            || { echo "::error::scripts/release-notes-writer.cjs is missing — the release fails on a module resolution error"; exit 1; }
 
       # successCmd in .releaserc.json runs only when a release was really
       # published, and writes the version to GITHUB_OUTPUT. The image jobs read
