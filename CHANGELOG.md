@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/asepharyana/GMW/compare/v1.0.1...v1.0.2) (2026-10-14)
+
+
+### Bug Fixes
+
+* **docker:** make both images build from the lockfile ([a9e1d38](https://github.com/asepharyana/GMW/commit/a9e1d38bb9e4f82e581db187deaf7ec58379340b))
+
 ## [1.0.1](https://github.com/asepharyana/GMW/compare/v1.0.0...v1.0.1) (2026-10-14)
 
 
