@@ -1,3 +1,11 @@
+## [1.0.14](https://github.com/asepharyana/GMW/compare/v1.0.13...v1.0.14) (2026-10-17)
+
+
+### Bug Fixes
+
+* **boot:** migrate before the HTTP surface accepts a connection ([d88bba5](https://github.com/asepharyana/GMW/commit/d88bba5a7e542763fb2f3466bc06aa9a69c36186))
+* **logging:** log errors under the key pino actually serializes ([a49d976](https://github.com/asepharyana/GMW/commit/a49d97656bc3d078966017f63c6c94195f201232))
+
 ## [1.0.13](https://github.com/asepharyana/GMW/compare/v1.0.12...v1.0.13) (2026-10-17)
 
 
