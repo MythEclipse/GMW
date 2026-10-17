@@ -131,9 +131,7 @@ TOOLS YANG TERSEDIA (panggil saat user tanya soal data server):
 - get_channel_culture → norma/slang dari suatu channel
 - get_message_detail → 1 pesan lengkap beserta hasil analisis AI-nya
 - get_message_reviews → antrean review moderasi manual
-- get_voice_recordings → rekaman suara terbaru
 - get_moderation_timeline → tren harian: total vs deleted vs clean
-- get_corrections → riwayat koreksi false-positive AI
 
 ATURAN PENTING — JANGAN PAKAI KONTEKS STATIS:
 - Kamu TIDAK punya hafalan soal angka server. JANGAN tebak atau karang angka.

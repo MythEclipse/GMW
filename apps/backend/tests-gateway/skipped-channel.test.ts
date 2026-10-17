@@ -480,20 +480,33 @@ describe("the migration baseline", () => {
 		// tables that no migration owns (probe scratch tables, ad-hoc replicas), and
 		// pinning a total would fail this suite for reasons that have nothing to do
 		// with whether the baseline is correct. What must hold is that nothing the
-		// baseline creates is MISSING.
+		// baseline creates is MISSING. The equal-length check below is what catches
+		// a table that the baseline silently stopped creating.
+		const requiredTables = [
+			"messages",
+			"verdicts",
+			"attachments",
+			"analysis_attempts",
+			"message_reviews",
+			"user_profiles",
+			"channel_cultures",
+			"term_glossary_cache",
+			"ui_state",
+			"retention_policies",
+			"chatbot_messages",
+			"moderation_actions",
+			"message_edits",
+			"message_reactions",
+		]
 		const { rows: required } = await pool.query<{ table_name: string }>(
 			`SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public'
-          AND table_name IN (
-            'messages', 'verdicts', 'attachments', 'analysis_attempts',
-            'message_reviews', 'corrected_moderations', 'voice_recordings',
-            'ai_analysis_runs', 'user_profiles', 'channel_cultures',
-            'text_analysis_cache', 'sticker_cache', 'term_glossary_cache',
-            'muxer_jobs', 'ui_state', 'retention_policies', 'chatbot_messages',
-            'moderation_actions', 'message_edits', 'message_reactions'
-          )`,
+          AND table_name = ANY($1::text[])`,
+			[requiredTables],
 		)
-		expect(required.map((r) => r.table_name).sort()).toHaveLength(20)
+		expect(required.map((r) => r.table_name).sort()).toEqual(
+			[...requiredTables].sort(),
+		)
 
 		const { rows: fn } = await pool.query<{ args: string }>(
 			`SELECT pg_get_function_arguments(oid) AS args FROM pg_proc

@@ -48,8 +48,6 @@ const { GUILD, CH_A } = FIXTURE
  * Drizzle port fixes them, so the baseline has to record the broken behaviour
  * or the fix reads as a regression:
  *
- *   - `voice_recordings` has no `transcription` column. Prisma rejected the
- *     whole select, so `get_voice_recordings` always answered "gagal".
  *   - Prisma returns `messages.created_at` as a raw `bigint`, and
  *     `JSON.stringify` throws on one — so every tool that returns a message
  *     row (get_message_detail, get_recent_activity, search_messages,
@@ -73,8 +71,6 @@ const BASELINE_NOTES: Record<string, string> = {
 		"Prisma returned created_at as bigint; JSON.stringify threw",
 	"chatbot.get_message_detail":
 		"Prisma returned created_at as bigint; JSON.stringify threw",
-	"chatbot.get_voice_recordings":
-		"transcription column does not exist; Prisma rejected the select",
 	// Surfaced by running the port rather than by reading the file: these two
 	// failed for the same bigint reason but were not in the first list, and both
 	// pass `last_analyzed_at` straight through `JSON.stringify`.
@@ -299,17 +295,9 @@ async function collect(): Promise<Record<string, unknown>> {
 			() => executeTool("get_message_reviews", { guildId: GUILD }),
 		],
 		[
-			"chatbot.get_voice_recordings",
-			() => executeTool("get_voice_recordings", { guildId: GUILD }),
-		],
-		[
 			"chatbot.get_moderation_timeline",
 			() =>
 				executeTool("get_moderation_timeline", { guildId: GUILD, days: 60 }),
-		],
-		[
-			"chatbot.get_corrections",
-			() => executeTool("get_corrections", { guildId: GUILD }),
 		],
 	]
 

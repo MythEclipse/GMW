@@ -12,12 +12,10 @@ import {
 import { getDatabase } from "../database/drizzle.js"
 import {
 	channelCulturesTable,
-	correctedModerationsTable,
 	messageReviewsTable,
 	messagesTable,
 	userProfilesTable,
 	verdictsTable,
-	voiceRecordingsTable,
 } from "../database/schema.js"
 import { createChildLogger } from "../logger/index.js"
 
@@ -99,8 +97,6 @@ export async function executeTool(
 					typeof args.status === "string" ? args.status : undefined,
 					limit,
 				)
-			case "get_voice_recordings":
-				return await voiceRecordings(userId, channelId, guildId, limit)
 			case "get_moderation_timeline":
 				return await moderationTimeline(
 					guildId,
@@ -109,8 +105,6 @@ export async function executeTool(
 						? Math.min(Math.max(1, args.days), 60)
 						: 14,
 				)
-			case "get_corrections":
-				return await corrections(guildId, limit)
 			default:
 				return `Unknown tool: ${name}`
 		}
@@ -437,36 +431,6 @@ async function messageReviews(
 	return JSON.stringify(rows)
 }
 
-async function voiceRecordings(
-	userId?: string,
-	channelId?: string,
-	guildId?: string,
-	limit = 10,
-): Promise<string> {
-	const db = getDatabase()
-	const conditions: SQL[] = []
-	if (userId) conditions.push(eq(voiceRecordingsTable.user_id, userId))
-	if (channelId) conditions.push(eq(voiceRecordingsTable.channel_id, channelId))
-	if (guildId) conditions.push(eq(voiceRecordingsTable.guild_id, guildId))
-	const rows = await db
-		.select({
-			id: voiceRecordingsTable.id,
-			username: voiceRecordingsTable.username,
-			channel_name: voiceRecordingsTable.channel_name,
-			filename: voiceRecordingsTable.filename,
-			size_bytes: voiceRecordingsTable.size_bytes,
-			upload_status: voiceRecordingsTable.upload_status,
-			created_at: voiceRecordingsTable.created_at,
-		})
-		.from(voiceRecordingsTable)
-		.where(and(...conditions))
-		.orderBy(desc(voiceRecordingsTable.created_at))
-		.limit(limit)
-	// `transcription` was selected but does not exist on this table — Prisma
-	// ignored it, so dropping it here changes nothing the chatbot could see.
-	return JSON.stringify(rows)
-}
-
 async function moderationTimeline(
 	guildId?: string,
 	channelId?: string,
@@ -513,22 +477,4 @@ async function moderationTimeline(
 			.sort(([a], [b]) => a.localeCompare(b))
 			.map(([day, v]) => ({ day, ...v })),
 	)
-}
-
-async function corrections(_guildId?: string, limit = 10): Promise<string> {
-	const db = getDatabase()
-	const rows = await db
-		.select({
-			id: correctedModerationsTable.id,
-			message_id: correctedModerationsTable.message_id,
-			original_flags: correctedModerationsTable.original_flags,
-			corrected_flags: correctedModerationsTable.corrected_flags,
-			correction_notes: correctedModerationsTable.correction_notes,
-			content_snippet: correctedModerationsTable.content_snippet,
-			created_at: correctedModerationsTable.created_at,
-		})
-		.from(correctedModerationsTable)
-		.orderBy(desc(correctedModerationsTable.created_at))
-		.limit(limit)
-	return JSON.stringify(rows)
 }

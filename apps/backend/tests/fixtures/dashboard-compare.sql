@@ -29,8 +29,8 @@
 
 BEGIN;
 
-TRUNCATE messages, verdicts, message_reactions, user_profiles, channel_cultures,
-  voice_recordings CASCADE;
+TRUNCATE messages, verdicts, message_reactions, user_profiles, channel_cultures
+  CASCADE;
 
 -- 72 messages over the last 30 days across 6 channels and 12 users.
 INSERT INTO messages (id, guild_id, channel_id, user_id, username, avatar_url, content, metadata, ai_status, created_at, deleted_at)
@@ -155,11 +155,5 @@ SELECT
   1700000000000 + i
 FROM generate_series(1, 6) i
 WHERE i % 3 = 0;
-
-INSERT INTO voice_recordings (id, user_id, username, avatar_url, guild_id, channel_id, channel_name, filename, size_bytes, download_url, upload_status, created_at)
-SELECT
-  'v' || i, 'u0' || i, 'user0' || i, NULL, 'g1', 'ch1', 'Channel 1',
-  'voice-' || i || '.ogg', 1000 + i, 'http://x/' || i, 'done', 1700000000000 + i
-FROM generate_series(1, 5) i;
 
 COMMIT;

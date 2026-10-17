@@ -235,7 +235,6 @@ export interface IDashboardStats {
 	total_retry_wait: number
 	total_dead: number
 	total_skipped: number
-	total_voice_recordings: number
 	total_profiles: number
 	today_messages: number
 	today_flagged: number

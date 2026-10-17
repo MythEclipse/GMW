@@ -21,7 +21,7 @@
 --   resulting schema was captured with `pg_dump --schema-only`. So this file is
 --   the schema the old chain actually produced, not an aspiration.
 --
---   Contents: 20 tables, 58 indexes, 2 functions, 7 check constraints,
+--   Contents: 14 tables, 57 indexes, 2 functions, 6 check constraints,
 --   0 triggers.
 --
 --   The `messages_analyzed_has_verdict` constraint trigger that 0020 created
@@ -141,21 +141,6 @@ BEGIN
 END;
 $$;
 --
--- Name: ai_analysis_runs; Type: TABLE; Schema: public; Owner: -
---
-CREATE TABLE public.ai_analysis_runs (
-    id text NOT NULL,
-    conversation_key text NOT NULL,
-    target_message_ids text NOT NULL,
-    model text NOT NULL,
-    request_tokens_estimate integer,
-    response_raw text,
-    status text DEFAULT 'pending'::text NOT NULL,
-    error text,
-    created_at bigint NOT NULL,
-    completed_at bigint
-);
---
 -- Name: analysis_attempts; Type: TABLE; Schema: public; Owner: -
 --
 CREATE TABLE public.analysis_attempts (
@@ -226,18 +211,6 @@ CREATE TABLE public.chatbot_messages (
     created_at timestamp with time zone DEFAULT now() CONSTRAINT mascot_chat_messages_created_at_not_null NOT NULL
 );
 --
--- Name: corrected_moderations; Type: TABLE; Schema: public; Owner: -
---
-CREATE TABLE public.corrected_moderations (
-    id text NOT NULL,
-    message_id text NOT NULL,
-    original_flags text NOT NULL,
-    corrected_flags text NOT NULL,
-    correction_notes text,
-    content_snippet text NOT NULL,
-    created_at bigint NOT NULL
-);
---
 -- Name: message_edits; Type: TABLE; Schema: public; Owner: -
 --
 CREATE TABLE public.message_edits (
@@ -302,19 +275,6 @@ CREATE TABLE public.moderation_actions (
     server_nick text
 );
 --
--- Name: muxer_jobs; Type: TABLE; Schema: public; Owner: -
---
-CREATE TABLE public.muxer_jobs (
-    id text NOT NULL,
-    data text NOT NULL,
-    status text DEFAULT 'pending'::text NOT NULL,
-    attempts integer DEFAULT 0 NOT NULL,
-    "maxAttempts" integer DEFAULT 3 NOT NULL,
-    "createdAt" bigint NOT NULL,
-    "updatedAt" bigint NOT NULL,
-    error text
-);
---
 -- Name: retention_policies; Type: TABLE; Schema: public; Owner: -
 --
 CREATE TABLE public.retention_policies (
@@ -329,15 +289,6 @@ CREATE TABLE public.retention_policies (
     updated_at bigint NOT NULL
 );
 --
--- Name: sticker_cache; Type: TABLE; Schema: public; Owner: -
---
-CREATE TABLE public.sticker_cache (
-    name text NOT NULL,
-    mime_type text NOT NULL,
-    fetched_at bigint NOT NULL,
-    image_url text DEFAULT ''::text NOT NULL
-);
---
 -- Name: term_glossary_cache; Type: TABLE; Schema: public; Owner: -
 --
 CREATE TABLE public.term_glossary_cache (
@@ -346,18 +297,6 @@ CREATE TABLE public.term_glossary_cache (
     source_url text DEFAULT ''::text NOT NULL,
     resolved_at bigint NOT NULL,
     hit_count integer DEFAULT 0 NOT NULL
-);
---
--- Name: text_analysis_cache; Type: TABLE; Schema: public; Owner: -
---
-CREATE TABLE public.text_analysis_cache (
-    text text NOT NULL,
-    flags text DEFAULT '[]'::text NOT NULL,
-    source text DEFAULT 'local'::text NOT NULL,
-    analyzed_at bigint NOT NULL,
-    expires_at bigint NOT NULL,
-    hit_count integer DEFAULT 0 NOT NULL,
-    model_version text DEFAULT 'v1'::text NOT NULL
 );
 --
 -- Name: ui_state; Type: TABLE; Schema: public; Owner: -
@@ -402,33 +341,9 @@ CREATE TABLE public.verdicts (
     CONSTRAINT verdicts_status_check CHECK ((status = ANY (ARRAY['clean'::text, 'deleted'::text, 'error'::text])))
 );
 --
--- Name: voice_recordings; Type: TABLE; Schema: public; Owner: -
---
-CREATE TABLE public.voice_recordings (
-    id text NOT NULL,
-    user_id text NOT NULL,
-    username text NOT NULL,
-    avatar_url text,
-    guild_id text,
-    channel_id text,
-    channel_name text,
-    filename text NOT NULL,
-    size_bytes integer NOT NULL,
-    download_url text,
-    upload_status text DEFAULT 'pending'::text NOT NULL,
-    upload_error text,
-    created_at bigint NOT NULL,
-    uploaded_at bigint
-);
---
 -- Name: analysis_attempts id; Type: DEFAULT; Schema: public; Owner: -
 --
 ALTER TABLE ONLY public.analysis_attempts ALTER COLUMN id SET DEFAULT nextval('public.analysis_attempts_id_seq'::regclass);
---
--- Name: ai_analysis_runs ai_analysis_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-ALTER TABLE ONLY public.ai_analysis_runs
-    ADD CONSTRAINT ai_analysis_runs_pkey PRIMARY KEY (id);
 --
 -- Name: analysis_attempts analysis_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
@@ -444,11 +359,6 @@ ALTER TABLE ONLY public.attachments
 --
 ALTER TABLE ONLY public.channel_cultures
     ADD CONSTRAINT channel_cultures_pkey PRIMARY KEY (channel_id);
---
--- Name: corrected_moderations corrected_moderations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-ALTER TABLE ONLY public.corrected_moderations
-    ADD CONSTRAINT corrected_moderations_pkey PRIMARY KEY (id);
 --
 -- Name: chatbot_messages mascot_chat_messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
@@ -480,30 +390,15 @@ ALTER TABLE ONLY public.messages
 ALTER TABLE ONLY public.moderation_actions
     ADD CONSTRAINT moderation_actions_pkey PRIMARY KEY (id);
 --
--- Name: muxer_jobs muxer_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-ALTER TABLE ONLY public.muxer_jobs
-    ADD CONSTRAINT muxer_jobs_pkey PRIMARY KEY (id);
---
 -- Name: retention_policies retention_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 ALTER TABLE ONLY public.retention_policies
     ADD CONSTRAINT retention_policies_pkey PRIMARY KEY (id);
 --
--- Name: sticker_cache sticker_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-ALTER TABLE ONLY public.sticker_cache
-    ADD CONSTRAINT sticker_cache_pkey PRIMARY KEY (name);
---
 -- Name: term_glossary_cache term_glossary_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 ALTER TABLE ONLY public.term_glossary_cache
     ADD CONSTRAINT term_glossary_cache_pkey PRIMARY KEY (term);
---
--- Name: text_analysis_cache text_analysis_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-ALTER TABLE ONLY public.text_analysis_cache
-    ADD CONSTRAINT text_analysis_cache_pkey PRIMARY KEY (text);
 --
 -- Name: ui_state ui_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
@@ -519,23 +414,6 @@ ALTER TABLE ONLY public.user_profiles
 --
 ALTER TABLE ONLY public.verdicts
     ADD CONSTRAINT verdicts_pkey PRIMARY KEY (message_id);
---
--- Name: voice_recordings voice_recordings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-ALTER TABLE ONLY public.voice_recordings
-    ADD CONSTRAINT voice_recordings_pkey PRIMARY KEY (id);
---
--- Name: idx_ai_analysis_runs_conversation_key; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_ai_analysis_runs_conversation_key ON public.ai_analysis_runs USING btree (conversation_key);
---
--- Name: idx_ai_analysis_runs_created_at; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_ai_analysis_runs_created_at ON public.ai_analysis_runs USING btree (created_at);
---
--- Name: idx_ai_analysis_runs_status; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_ai_analysis_runs_status ON public.ai_analysis_runs USING btree (status);
 --
 -- Name: idx_attachments_channel; Type: INDEX; Schema: public; Owner: -
 --
@@ -572,14 +450,6 @@ CREATE INDEX idx_channel_cultures_guild_id ON public.channel_cultures USING btre
 -- Name: idx_chatbot_messages_user_created; Type: INDEX; Schema: public; Owner: -
 --
 CREATE INDEX idx_chatbot_messages_user_created ON public.chatbot_messages USING btree (user_id, created_at DESC);
---
--- Name: idx_corrected_moderations_created_at; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_corrected_moderations_created_at ON public.corrected_moderations USING btree (created_at);
---
--- Name: idx_corrected_moderations_message_id; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_corrected_moderations_message_id ON public.corrected_moderations USING btree (message_id);
 --
 -- Name: idx_message_edits_edited_at; Type: INDEX; Schema: public; Owner: -
 --
@@ -681,14 +551,6 @@ CREATE INDEX idx_moderation_actions_status ON public.moderation_actions USING bt
 --
 CREATE INDEX idx_moderation_actions_user_id ON public.moderation_actions USING btree (user_id);
 --
--- Name: idx_muxer_jobs_createdAt; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX "idx_muxer_jobs_createdAt" ON public.muxer_jobs USING btree ("createdAt");
---
--- Name: idx_muxer_jobs_status; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_muxer_jobs_status ON public.muxer_jobs USING btree (status);
---
 -- Name: idx_reactions_guild_created; Type: INDEX; Schema: public; Owner: -
 --
 CREATE INDEX idx_reactions_guild_created ON public.message_reactions USING btree (guild_id, created_at);
@@ -709,29 +571,9 @@ CREATE INDEX idx_retention_policies_enabled ON public.retention_policies USING b
 --
 CREATE INDEX idx_retention_policies_guild_id ON public.retention_policies USING btree (guild_id);
 --
--- Name: idx_sticker_cache_fetched_at; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_sticker_cache_fetched_at ON public.sticker_cache USING btree (fetched_at);
---
 -- Name: idx_term_glossary_cache_resolved_at; Type: INDEX; Schema: public; Owner: -
 --
 CREATE INDEX idx_term_glossary_cache_resolved_at ON public.term_glossary_cache USING btree (resolved_at);
---
--- Name: idx_text_analysis_cache_expires_at; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_text_analysis_cache_expires_at ON public.text_analysis_cache USING btree (expires_at);
---
--- Name: idx_text_analysis_cache_model_version; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_text_analysis_cache_model_version ON public.text_analysis_cache USING btree (model_version);
---
--- Name: idx_text_analysis_cache_source; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_text_analysis_cache_source ON public.text_analysis_cache USING btree (source);
---
--- Name: idx_text_analysis_cache_source_model_version; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_text_analysis_cache_source_model_version ON public.text_analysis_cache USING btree (source, model_version);
 --
 -- Name: idx_user_profiles_guild_id; Type: INDEX; Schema: public; Owner: -
 --
@@ -744,18 +586,6 @@ CREATE INDEX idx_verdicts_auto_delete_pending ON public.verdicts USING btree (cr
 -- Name: idx_verdicts_status_created; Type: INDEX; Schema: public; Owner: -
 --
 CREATE INDEX idx_verdicts_status_created ON public.verdicts USING btree (status, created_at DESC);
---
--- Name: idx_voice_recordings_channel_id; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_voice_recordings_channel_id ON public.voice_recordings USING btree (channel_id);
---
--- Name: idx_voice_recordings_created_at; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_voice_recordings_created_at ON public.voice_recordings USING btree (created_at);
---
--- Name: idx_voice_recordings_user_id; Type: INDEX; Schema: public; Owner: -
---
-CREATE INDEX idx_voice_recordings_user_id ON public.voice_recordings USING btree (user_id);
 --
 -- Name: analysis_attempts analysis_attempts_message_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --

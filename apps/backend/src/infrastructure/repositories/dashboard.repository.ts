@@ -22,7 +22,6 @@ import {
 	reactionsTable,
 	userProfilesTable,
 	verdictsTable,
-	voiceRecordingsTable,
 } from "../database/schema.js"
 
 /**
@@ -175,11 +174,13 @@ export class DashboardRepository {
 		// is on the skip list. Never backlog, never a human's job.
 		const totalSkipped = byPipeline.skipped ?? 0
 
-		// Total voice recordings and AI user profiles
-		const [voiceCount, profileCount] = await Promise.all([
-			this.db.select({ n: count() }).from(voiceRecordingsTable),
-			this.db.select({ n: count() }).from(userProfilesTable),
-		])
+		// AI user profiles. `total_voice_recordings` used to be counted here from
+		// a second query against `voice_recordings` — a table with no writer
+		// since the voice feature was removed, so the counter was structurally
+		// pinned at 0 and the field was rendered nowhere.
+		const profileCount = await this.db
+			.select({ n: count() })
+			.from(userProfilesTable)
 
 		// Top channels by message count. The old WHERE was `metadata IS NOT NULL AND
 		// metadata != ''`, and the GROUP BY keyed on the resolved channel name, so
@@ -237,7 +238,6 @@ export class DashboardRepository {
 			total_retry_wait: byPipeline.retry_wait ?? 0,
 			total_dead: byPipeline.dead ?? 0,
 			total_skipped: totalSkipped,
-			total_voice_recordings: voiceCount[0]?.n ?? 0,
 			total_profiles: profileCount[0]?.n ?? 0,
 			today_messages: recent[0]?.n ?? 0,
 			today_flagged: recentFlagged[0]?.n ?? 0,

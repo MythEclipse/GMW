@@ -229,96 +229,6 @@ export const pgMessageReviewsTable = pgTable(
 export const messageReviewsTable = pgMessageReviewsTable
 
 // =============================================================================
-// Moderation / Corrections
-// =============================================================================
-
-/**
- * Corrected Moderations Table (PostgreSQL)
- * Stores manual corrections of AI moderation false positives
- * for few-shot injection into LLM moderation prompts.
- */
-export const pgCorrectedModerationsTable = pgTable(
-	"corrected_moderations",
-	{
-		id: pgText("id").primaryKey(),
-		message_id: pgText("message_id").notNull(),
-		original_flags: pgText("original_flags").notNull(),
-		corrected_flags: pgText("corrected_flags").notNull(),
-		correction_notes: pgText("correction_notes"),
-		content_snippet: pgText("content_snippet").notNull(),
-		created_at: pgBigint("created_at", { mode: "number" }).notNull(),
-	},
-	(table) => ({
-		createdAtIdx: pgIndex("idx_corrected_moderations_created_at").on(
-			table.created_at,
-		),
-		messageIdIdx: pgIndex("idx_corrected_moderations_message_id").on(
-			table.message_id,
-		),
-	}),
-)
-
-export const correctedModerationsTable = pgCorrectedModerationsTable
-
-// =============================================================================
-// Voice Recordings
-// =============================================================================
-
-/**
- * Voice Recordings Table (PostgreSQL)
- * Stores voice recording segment metadata and upload status
- */
-export const pgVoiceRecordingsTable = pgTable(
-	"voice_recordings",
-	{
-		id: pgText("id").primaryKey(),
-		user_id: pgText("user_id").notNull(),
-		username: pgText("username").notNull(),
-		avatar_url: pgText("avatar_url"),
-		guild_id: pgText("guild_id"),
-		channel_id: pgText("channel_id"),
-		channel_name: pgText("channel_name"),
-		filename: pgText("filename").notNull(),
-		size_bytes: pgInteger("size_bytes").notNull(),
-		download_url: pgText("download_url"),
-		upload_status: pgText("upload_status", {
-			enum: ["pending", "uploaded", "failed"],
-		})
-			.notNull()
-			.default("pending"),
-		upload_error: pgText("upload_error"),
-		created_at: pgBigint("created_at", { mode: "number" }).notNull(),
-		uploaded_at: pgBigint("uploaded_at", { mode: "number" }),
-		transcription: pgText("transcription"),
-	},
-	(table) => ({
-		userIdIdx: pgIndex("idx_voice_recordings_user_id").on(table.user_id),
-		channelIdIdx: pgIndex("idx_voice_recordings_channel_id").on(
-			table.channel_id,
-		),
-		createdIdx: pgIndex("idx_voice_recordings_created_at").on(table.created_at),
-	}),
-)
-
-export const voiceRecordingsTable = pgVoiceRecordingsTable
-
-/**
- * Voice Auto-Reconnect Table (PostgreSQL)
- * Persists the desired voice state per guild so the gateway can rejoin the
- * same channel after a restart/reboot, or after an unexpected drop (kick /
- * server move / voice server restart).
- */
-export const pgVoiceAutoReconnectTable = pgTable("voice_auto_reconnect", {
-	guild_id: pgText("guild_id").primaryKey(),
-	channel_id: pgText("channel_id").notNull(),
-	channel_name: pgText("channel_name"),
-	connected_at: pgBigint("connected_at", { mode: "number" }).notNull(),
-	updated_at: pgBigint("updated_at", { mode: "number" }).notNull(),
-})
-
-export const voiceAutoReconnectTable = pgVoiceAutoReconnectTable
-
-// =============================================================================
 // AI Analysis / Analytics
 // =============================================================================
 
@@ -394,43 +304,22 @@ export const pgAnalysisAttemptsTable = pgTable(
 export const analysisAttemptsTable = pgAnalysisAttemptsTable
 
 /**
- * AI Analysis Runs Table (PostgreSQL)
- * Tracks AI analysis batch runs for conversation-level moderation
- */
-export const pgAIAnalysisRunsTable = pgTable(
-	"ai_analysis_runs",
-	{
-		id: pgText("id").primaryKey(),
-		conversation_key: pgText("conversation_key").notNull(),
-		target_message_ids: pgText("target_message_ids").notNull(),
-		model: pgText("model").notNull(),
-		request_tokens_estimate: pgInteger("request_tokens_estimate"),
-		response_raw: pgText("response_raw"),
-		status: pgText("status", {
-			enum: ["pending", "processing", "completed", "failed"],
-		})
-			.notNull()
-			.default("pending"),
-		error: pgText("error"),
-		created_at: pgBigint("created_at", { mode: "number" }).notNull(),
-		completed_at: pgBigint("completed_at", { mode: "number" }),
-	},
-	(table) => ({
-		conversationKeyIdx: pgIndex("idx_ai_analysis_runs_conversation_key").on(
-			table.conversation_key,
-		),
-		statusIdx: pgIndex("idx_ai_analysis_runs_status").on(table.status),
-		createdAtIdx: pgIndex("idx_ai_analysis_runs_created_at").on(
-			table.created_at,
-		),
-	}),
-)
-
-export const aiAnalysisRunsTable = pgAIAnalysisRunsTable
-
-/**
  * User Profiles Table (PostgreSQL)
  * Stores AI-generated summaries of user behavior patterns.
+ *
+ * ORPHANED READ PATH — no writer exists.
+ *
+ * `userProfileLearner.ts` / `userProfileStore.ts` were deleted by 2658b0dd
+ * ("replace the moderation pipeline instead of layering onto it"), which
+ * removed the six AI-moderation learner files but left their tables, the
+ * repository reads and the dashboard panels behind. Nothing has written this
+ * table since, so `users` shows no AI summary and `get_user_profile` always
+ * returns `[]`.
+ *
+ * Kept rather than dropped because the read path is live (dashboard user
+ * detail, `get_user_profile`) and the views degrade to an explicit empty
+ * state. Rebuilding the producer is a product decision — it means choosing a
+ * schedule and paying for a per-user summarisation call — not a bug fix.
  */
 export const pgUserProfilesTable = pgTable(
 	"user_profiles",
@@ -452,6 +341,15 @@ export const userProfilesTable = pgUserProfilesTable
 /**
  * Channel Cultures Table (PostgreSQL)
  * Stores AI-generated summaries of channel norms and slang to inject as context.
+ *
+ * ORPHANED READ PATH — no writer exists. `cultureLearner.ts` and
+ * `channelCultureStore.ts` were deleted by 2658b0dd along with the rest of the
+ * v1 AI-moderation module, but the table, its reads (channels detail, the
+ * glossary page) and the dashboard panel stayed. It is empty, so every channel
+ * renders the explicit "No culture summary yet" state.
+ *
+ * Note this is NOT the channel context the moderator uses: that comes from
+ * `messages.metadata` via `formatChannelContextForPrompt`, which is live.
  */
 export const pgChannelCulturesTable = pgTable(
 	"channel_cultures",
@@ -475,59 +373,19 @@ export const channelCulturesTable = pgChannelCulturesTable
 // =============================================================================
 
 /**
- * Text Analysis Cache Table (PostgreSQL)
- * Caches per-normalized-text moderation analysis results.
- */
-export const pgTextAnalysisCacheTable = pgTable(
-	"text_analysis_cache",
-	{
-		text: pgText("text").primaryKey(),
-		flags: pgText("flags").notNull().default("[]"),
-		source: pgText("source", {
-			enum: ["local", "primary_ai", "vision_llm"],
-		})
-			.notNull()
-			.default("local"),
-		analyzed_at: pgBigint("analyzed_at", { mode: "number" }).notNull(),
-		expires_at: pgBigint("expires_at", { mode: "number" }).notNull(),
-		hit_count: pgInteger("hit_count").notNull().default(0),
-	},
-	(table) => ({
-		expiresAtIdx: pgIndex("idx_text_analysis_cache_expires_at").on(
-			table.expires_at,
-		),
-		sourceIdx: pgIndex("idx_text_analysis_cache_source").on(table.source),
-	}),
-)
-
-export const textAnalysisCacheTable = pgTextAnalysisCacheTable
-
-/**
- * Sticker Cache Table (PostgreSQL)
- * Stores uploaded sticker image URLs for vision analysis.
- */
-export const pgStickerCacheTable = pgTable(
-	"sticker_cache",
-	{
-		name: pgText("name").primaryKey(),
-		imageUrl: pgText("image_url").notNull().default(""),
-		mime_type: pgText("mime_type").notNull(),
-		fetched_at: pgBigint("fetched_at", { mode: "number" }).notNull(),
-	},
-	(table) => ({
-		fetchedAtIdx: pgIndex("idx_sticker_cache_fetched_at").on(table.fetched_at),
-	}),
-)
-
-export const stickerCacheTable = pgStickerCacheTable
-
-/**
  * Term Glossary Cache Table (PostgreSQL)
  * Permanently stores resolved term definitions (Wikipedia/SearXNG lookups).
  * Definitions rarely change, so once a term is successfully resolved it is
  * persisted here forever — Redis/LRU only act as fast read caches in front.
  * Terms with NO definition (misses) are NOT stored here; they stay ephemeral
  * in Redis with a short TTL so transient lookup failures get retried.
+ *
+ * ORPHANED READ PATH — no writer exists. `termGlossary.ts` and
+ * `termGlossaryStore.ts` (408 + 86 lines, including the SearXNG/Wikipedia
+ * lookup and its prompt) were deleted by 2658b0dd with the rest of the v1
+ * AI-moderation module. The `AI_DICTIONARY_*` env keys that drove them are
+ * still provisioned, but no code reads them. The glossary page therefore
+ * always renders an empty term list.
  */
 export const pgTermGlossaryCacheTable = pgTable(
 	"term_glossary_cache",
@@ -550,34 +408,6 @@ export const termGlossaryCacheTable = pgTermGlossaryCacheTable
 // =============================================================================
 // Meta / System
 // =============================================================================
-
-/**
- * Muxer Jobs Table (PostgreSQL)
- * Tracks audio post-processing jobs with status and retry logic
- */
-export const pgMuxerJobsTable = pgTable(
-	"muxer_jobs",
-	{
-		id: pgText("id").primaryKey(),
-		data: pgText("data").notNull(),
-		status: pgText("status", {
-			enum: ["pending", "processing", "completed", "failed"],
-		})
-			.notNull()
-			.default("pending"),
-		attempts: pgInteger("attempts").notNull().default(0),
-		maxAttempts: pgInteger("maxAttempts").notNull().default(3),
-		createdAt: pgBigint("createdAt", { mode: "number" }).notNull(),
-		updatedAt: pgBigint("updatedAt", { mode: "number" }).notNull(),
-		error: pgText("error"),
-	},
-	(table) => ({
-		statusIdx: pgIndex("idx_muxer_jobs_status").on(table.status),
-		createdAtIdx: pgIndex("idx_muxer_jobs_createdAt").on(table.createdAt),
-	}),
-)
-
-export const muxerJobsTable = pgMuxerJobsTable
 
 /**
  * UI State Table (PostgreSQL)
@@ -658,24 +488,6 @@ export type AttachmentInsert = typeof attachmentsTable.$inferInsert
 export type DbMessageReview = typeof messageReviewsTable.$inferSelect
 export type DbMessageReviewInsert = typeof messageReviewsTable.$inferInsert
 
-// Corrected Moderations
-export type CorrectedModeration = typeof correctedModerationsTable.$inferSelect
-export type CorrectedModerationInsert =
-	typeof correctedModerationsTable.$inferInsert
-
-// Voice Recordings
-export type VoiceRecording = typeof voiceRecordingsTable.$inferSelect
-export type VoiceRecordingInsert = typeof voiceRecordingsTable.$inferInsert
-
-// Voice Auto-Reconnect
-export type VoiceAutoReconnect = typeof voiceAutoReconnectTable.$inferSelect
-export type VoiceAutoReconnectInsert =
-	typeof voiceAutoReconnectTable.$inferInsert
-
-// AI Analysis Runs
-export type AIAnalysisRun = typeof aiAnalysisRunsTable.$inferSelect
-export type AIAnalysisRunInsert = typeof aiAnalysisRunsTable.$inferInsert
-
 // User Profiles
 export type UserProfile = typeof userProfilesTable.$inferSelect
 export type UserProfileInsert = typeof userProfilesTable.$inferInsert
@@ -684,21 +496,9 @@ export type UserProfileInsert = typeof userProfilesTable.$inferInsert
 export type ChannelCulture = typeof channelCulturesTable.$inferSelect
 export type ChannelCultureInsert = typeof channelCulturesTable.$inferInsert
 
-// Text Analysis Cache
-export type TextAnalysisCache = typeof textAnalysisCacheTable.$inferSelect
-export type TextAnalysisCacheInsert = typeof textAnalysisCacheTable.$inferInsert
-
-// Sticker Cache
-export type StickerCacheRecord = typeof stickerCacheTable.$inferSelect
-export type StickerCacheInsert = typeof stickerCacheTable.$inferInsert
-
 // Term Glossary Cache
 export type TermGlossaryCache = typeof termGlossaryCacheTable.$inferSelect
 export type TermGlossaryCacheInsert = typeof termGlossaryCacheTable.$inferInsert
-
-// Muxer Jobs
-export type MuxerJob = typeof muxerJobsTable.$inferSelect
-export type MuxerJobInsert = typeof muxerJobsTable.$inferInsert
 
 // UI State
 export type UIState = typeof uiStateTable.$inferSelect

@@ -71,7 +71,7 @@ jobs:
 
       - name: Apply schema to the test database
         # `0000_baseline.sql` IS the schema of record: one migration, the whole
-        # schema, verified to apply to an empty database (20 tables, 2 functions
+        # schema, verified to apply to an empty database (14 tables, 2 functions
         # including `claim_messages`, which the worker's queue depends on).
         #
         # `psql -f` rather than `pnpm db:migrate` on purpose. The drizzle

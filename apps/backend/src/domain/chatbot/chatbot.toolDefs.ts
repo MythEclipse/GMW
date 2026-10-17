@@ -216,26 +216,6 @@ export const tools: ToolDef[] = [
 	{
 		type: "function",
 		function: {
-			name: "get_voice_recordings",
-			description:
-				"Ambil rekaman suara terbaru (voice_recordings): user, channel, transkripsi, status upload. Untuk 'ada rekaman suara terbaru?' / cek transkripsi. Bisa di-scope ke user_id atau channel_id.",
-			parameters: {
-				type: "object",
-				properties: {
-					userId: { type: "string", description: "Filter user (opsional)." },
-					channelId: {
-						type: "string",
-						description: "Filter channel (opsional).",
-					},
-					guildId: { type: "string", description: "ID server (opsional)." },
-					limit: { type: "number", description: "Jumlah (default 10)." },
-				},
-			},
-		},
-	},
-	{
-		type: "function",
-		function: {
 			name: "get_moderation_timeline",
 			description:
 				"Ambil tren harian: per hari, jumlah total pesan vs yang dihapus (deleted) vs clean. Untuk 'minggu ini pelanggaran naik?' / lihat tren moderasi. guildId otomatis ter-isi.",
@@ -248,21 +228,6 @@ export const tools: ToolDef[] = [
 						type: "number",
 						description: "Jumlah hari ke belakang (default 14, max 60).",
 					},
-				},
-			},
-		},
-	},
-	{
-		type: "function",
-		function: {
-			name: "get_corrections",
-			description:
-				"Ambil riwayat koreksi false-positive AI (corrected_moderations): pesan yang awalnya di-flag tapi dikoreksi manusia, beserta alasannya. Untuk 'AI pernah salah nge-flag apa aja?' / audit akurasi moderasi.",
-			parameters: {
-				type: "object",
-				properties: {
-					guildId: { type: "string", description: "ID server (opsional)." },
-					limit: { type: "number", description: "Jumlah (default 10)." },
 				},
 			},
 		},

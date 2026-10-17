@@ -47,9 +47,7 @@ describe("chatbot tool definitions", () => {
 			"get_channel_culture",
 			"get_message_detail",
 			"get_message_reviews",
-			"get_voice_recordings",
 			"get_moderation_timeline",
-			"get_corrections",
 		]) {
 			expect(names, `missing ${required}`).toContain(required)
 		}

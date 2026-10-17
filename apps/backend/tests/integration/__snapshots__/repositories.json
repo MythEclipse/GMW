@@ -1426,8 +1426,7 @@
     "total_profiles": 2,
     "total_retry_wait": 0,
     "total_skipped": 0,
-    "total_users": 3,
-    "total_voice_recordings": 0
+    "total_users": 3
   },
   "dashboard.getActivity": {
     "daily": [],
@@ -1859,7 +1858,5 @@
     "username": "alpha"
   },
   "chatbot.get_message_reviews": [],
-  "chatbot.get_voice_recordings": [],
-  "chatbot.get_moderation_timeline": [],
-  "chatbot.get_corrections": []
+  "chatbot.get_moderation_timeline": []
 }
