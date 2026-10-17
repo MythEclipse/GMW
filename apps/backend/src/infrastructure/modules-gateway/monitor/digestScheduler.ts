@@ -30,24 +30,42 @@ export async function runWeeklyDigest(now = Date.now()): Promise<void> {
 	const since = now - WEEK_MS
 
 	try {
-		const [trends, domains, channels, coverage] = await Promise.all([
-			// Top categories
+		// `allSettled`, not `all`. These four queries are independent, and under
+		// `Promise.all` any one of them failing rejected the whole batch — which
+		// is exactly how this digest came to post NOTHING at all when the
+		// categories query hit a type error, rather than posting a digest with an
+		// empty category list. A monitoring message that silently disappears is
+		// worse than one with a gap in it, so each section now fails alone and
+		// says so.
+		const [trends, domains, channels, coverage] = await Promise.allSettled([
+			// Top categories.
+			//
+			// `categories` is TEXT holding a JSON array, not a jsonb column, so
+			// it needs the explicit cast — `jsonb_array_elements_text(text)`
+			// does not exist, and because this sat inside a `Promise.all` the
+			// type error failed the WHOLE digest, meaning it posted nothing at
+			// all rather than posting with an empty category list.
 			db.execute(sql`
-        SELECT jsonb_array_elements_text(categories)::text AS name,
-               COUNT(*)::int AS c
-        FROM moderation_actions
-        WHERE created_at >= ${since} AND categories IS NOT NULL
-        GROUP BY name ORDER BY c DESC LIMIT 5
+        SELECT t.name, COUNT(*)::int AS c
+        FROM moderation_actions a,
+             jsonb_array_elements_text(a.categories::jsonb) AS t(name)
+        WHERE a.created_at >= ${since} AND a.categories IS NOT NULL
+        GROUP BY t.name ORDER BY c DESC LIMIT 5
       `),
-			// Top flagged domains
+			// Top flagged domains.
+			//
+			// There is no `content` column on `moderation_actions`: the flagged
+			// text lives on the message, so the host scan joins `messages`.
+			// `reason` and `evidence` stay in the concatenation because the
+			// model's own citation often carries the URL.
 			db.execute(sql`
         SELECT host, COUNT(*)::int AS c
         FROM (
-          SELECT DISTINCT id,
-            (regexp_matches(COALESCE(content,'') || ' ' || COALESCE(reason,'') || ' ' || COALESCE(evidence,''), 'https?://([^/\\s?#]+)', 'g'))[1] AS host
-          FROM moderation_actions
-          WHERE created_at >= ${since}
-            AND (content IS NOT NULL OR reason IS NOT NULL OR evidence IS NOT NULL)
+          SELECT DISTINCT a.id,
+            (regexp_matches(COALESCE(m.content,'') || ' ' || COALESCE(a.reason,'') || ' ' || COALESCE(a.evidence,''), 'https?://([^/\\s?#]+)', 'g'))[1] AS host
+          FROM moderation_actions a
+          LEFT JOIN messages m ON m.id = a.message_id
+          WHERE a.created_at >= ${since}
         ) sub
         WHERE host IS NOT NULL
         GROUP BY host ORDER BY c DESC LIMIT 5
@@ -74,17 +92,32 @@ export async function runWeeklyDigest(now = Date.now()): Promise<void> {
       `),
 		])
 
-		const topCats = (trends.rows as Record<string, unknown>[]).map(
-			(r) => `${r.name} (${r.c})`,
-		)
-		const topDomains = (domains.rows as Record<string, unknown>[]).map(
-			(r) => `${r.host} (${r.c})`,
-		)
-		const topChannels = (channels.rows as Record<string, unknown>[]).map(
+		// Each section reports its own failure rather than taking the digest down.
+		const rowsOf = (r: PromiseSettledResult<{ rows: unknown[] }>) =>
+			r.status === "fulfilled"
+				? (r.value.rows as Record<string, unknown>[])
+				: []
+
+		const sectionFailed = (
+			r: PromiseSettledResult<unknown>,
+			label: string,
+		): void => {
+			if (r.status === "rejected") {
+				logger.warn({ err: r.reason, section: label }, "Digest section failed")
+			}
+		}
+		sectionFailed(trends, "top categories")
+		sectionFailed(domains, "top domains")
+		sectionFailed(channels, "top channels")
+		sectionFailed(coverage, "coverage")
+
+		const topCats = rowsOf(trends).map((r) => `${r.name} (${r.c})`)
+		const topDomains = rowsOf(domains).map((r) => `${r.host} (${r.c})`)
+		const topChannels = rowsOf(channels).map(
 			(r) => `${r.channel_name} (${r.c})`,
 		)
 		const counts: Record<string, number> = {}
-		for (const r of coverage.rows as Record<string, unknown>[]) {
+		for (const r of rowsOf(coverage)) {
 			counts[String(r.status)] = Number(r.c)
 		}
 		// One shared summariser with the dashboard, so the digest and the UI
