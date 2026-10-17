@@ -28,6 +28,7 @@ import { createChildLogger } from "../../logger/index.js"
 import { parseRichMessageMetadata } from "../message-capture/messageMetadata.js"
 import { messageStore } from "../message-capture/messageStore.js"
 import {
+	holdsExemptRole,
 	isEligibleForAutoDelete,
 	isNicknameOnlyViolation,
 	type MessageLike,
@@ -346,6 +347,31 @@ export async function attemptAutoDeleteFlaggedMessage(
 	// future writer) can put a value in that column this code has never seen.
 	const modelAction = normaliseAction(verdict?.action)
 
+	// ── Exempt roles: the account cannot enforce against these members ───
+	// Checked before ANY disposition, and before the nickname-reset branch in
+	// particular. `resetOffensiveNickname` already guards on `member.manageable`
+	// (hierarchy-aware), so these members were never actually renamed — but the
+	// refusal arrived as a Discord error, was logged as `nickname_reset_failed`,
+	// and wrote a `failed` audit row for an action the account is structurally
+	// unable to perform. Deciding it here turns a recurring fake failure into
+	// one honest skip with a named reason.
+	if (holdsExemptRole(message)) {
+		const result: AutoDeleteResult = {
+			deleted: false,
+			skipped: true,
+			reason: "exempt_role",
+		}
+		logger.info(
+			{
+				messageId: message.id,
+				userId: message.user_id,
+				reason: result.reason,
+			},
+			"Auto-delete skipped: sender holds an exempt role",
+		)
+		return result
+	}
+
 	// ── Nickname-only violation: reset the nick, keep the message ─────
 	// When the only flag is about the name, the problem is the nickname, not
 	// the content. Enforcement is removing the nickname, not deleting the text.
@@ -442,16 +468,27 @@ export async function attemptAutoDeleteFlaggedMessage(
 		// predicate changes.
 		const messageIsBeingDeleted = isEligibleForAutoDelete(message, verdict)
 
-		if (messageIsBeingDeleted) {
-			logger.info(
-				{ messageId: message.id, userId: message.user_id, modelAction },
-				"Model chose reset_nickname but the message body violates too — " +
-					"nickname reset AND message delete both applied",
-			)
-		} else if (!isNicknameResetInCooldown(message.guild_id, message.user_id)) {
-			// Computed ONCE. This is the ambiguity resolver for the check above, and
-			// asking twice invites the two answers to drift apart the moment either
-			// predicate changes.
+		// The nickname reset happens in BOTH sub-cases, and that is the fix.
+		//
+		// It used to run only in the `else` — the branch where the message was
+		// NOT being deleted — while the `if` logged that a reset had been
+		// applied. So for a member with an offensive name whose message body also
+		// violated, the message was deleted and the NAME was left alone, under a
+		// log line asserting the opposite. Production: 51 of those log lines and
+		// zero "Offensive nickname reset" lines — the claimed reset never once
+		// ran. Both violations are real, so both are now enforced.
+		//
+		// Not gated on evidence that the name is rude: `reset_nickname` is the
+		// model's named disposition and the shipped contract is that it is
+		// honoured on its own, because the only cost is a member's nickname going
+		// back to their username. The guard against a body violation is the
+		// `isNicknameOnlyViolation` check above, not this.
+		const canReset = !isNicknameResetInCooldown(
+			message.guild_id,
+			message.user_id,
+		)
+
+		if (canReset) {
 			const resetOk = await resetOffensiveNickname(
 				client,
 				message.guild_id,
@@ -464,7 +501,9 @@ export async function attemptAutoDeleteFlaggedMessage(
 					user_id: message.user_id,
 					guild_id: message.guild_id,
 					action_type: "reset_nickname",
-					reason: "model memilih action reset_nickname; pesan dibiarkan",
+					reason: messageIsBeingDeleted
+						? "nickname juga melanggar; nickname direset dan pesan dihapus"
+						: "model memilih action reset_nickname; pesan dibiarkan",
 					...verdictToActionFields(message, verdict),
 					username: message.username ?? null,
 					server_nick: resolveServerNick(message),

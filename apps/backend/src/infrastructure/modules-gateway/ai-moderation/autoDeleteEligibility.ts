@@ -141,6 +141,19 @@ export function parseModerationFlags(
 	return []
 }
 
+/**
+ * Flags that place the violation in the member's NAME rather than the message.
+ *
+ * `offensive_username` and `offensive_nickname` are one claim under two
+ * spellings, and the split deleted real messages. `policy.ts` instructs the
+ * model to emit `offensive_nickname`; this list was written before that
+ * instruction and matched only `offensive_username`, so path 1 below was
+ * unreachable for every row the current prompt produces. Production: 51
+ * verdicts flagged `offensive_nickname`, and 7 of their messages were deleted
+ * over a nickname that was never touched.
+ */
+const NICKNAME_FLAGS = new Set(["offensive_username", "offensive_nickname"])
+
 const USERNAME_ATTRIBUTABLE_FLAGS = new Set([
 	"offensive_username",
 	"offensive_nickname",
@@ -192,6 +205,12 @@ function normaliseName(value: string): string {
 	return value.toLowerCase().replace(/\s+/g, " ").trim()
 }
 
+/** Whether the message body itself carries an insult term. */
+function bodyCarriesInsult(message: MessageLike): boolean {
+	const body = normaliseName(message.content ?? "")
+	return INSULT_TERMS.some((term) => body.includes(term))
+}
+
 /**
  * Whether the member's own NICKNAME contains an insulting term, and the message
  * body does not.
@@ -225,8 +244,7 @@ function nicknameCarriesInsult(message: MessageLike): boolean {
 
 	// The message must be clean of the same terms, or this is a message-level
 	// violation that happens to accompany a rude name — not a nickname-only one.
-	const body = normaliseName(message.content ?? "")
-	return !INSULT_TERMS.some((term) => body.includes(term))
+	return !bodyCarriesInsult(message)
 }
 
 /**
@@ -274,8 +292,29 @@ export function isNicknameOnlyViolation(
 	const flags = parseModerationFlags(message, verdict)
 	if (flags.length === 0) return false
 
-	// Path 1: exactly the offensive-username flag.
-	if (flags.every((f) => f === "offensive_username")) return true
+	// Path 1: every flag names the NAME, so no flag claims the body violates.
+	//
+	// This is the path the current prompt actually produces, and it was
+	// unreachable for it: the test used to be `f === "offensive_username"`
+	// while `policy.ts` instructs the model to emit `offensive_nickname`.
+	// Production: 51 verdicts flagged `offensive_nickname`, 7 of their messages
+	// deleted over a nickname that was never touched.
+	//
+	// The body is still checked, and that half is NOT optional. Making the flag
+	// reachable would otherwise hand the model a jail card: emit
+	// `offensive_nickname` and any abusive body is spared. `policy.ts` says a
+	// body that violates in its own right must not carry the name flag, but a
+	// contract the model can break is not a guard — same reasoning as
+	// `nicknameCarriesInsult`, which requires both halves for the same reason.
+	// `identity_attack` / `name_targeting` are deliberately excluded here: they
+	// also describe a body that turns on the reader's identity, so path 2 must
+	// corroborate them from the prose.
+	if (
+		flags.every((f) => NICKNAME_FLAGS.has(f)) &&
+		!bodyCarriesInsult(message)
+	) {
+		return true
+	}
 
 	// Path 2: username-attributable flags, corroborated by the analysis text.
 	if (!flags.every((f) => USERNAME_ATTRIBUTABLE_FLAGS.has(f))) return false
@@ -287,6 +326,49 @@ export function isNicknameOnlyViolation(
 		USERNAME_ATTRIBUTION_PATTERN.test(analysis) &&
 		CONTENT_CLEAN_PATTERN.test(analysis)
 	)
+}
+
+/**
+ * True when the member holds any role the operator exempted.
+ *
+ * ## Why a role exemption and not a user exemption
+ *
+ * `AUTO_DELETE_EXCLUDED_USER_IDS` already exists, but it does not cover this
+ * case. These are the server's ADMIN roles: any nick reset or deletion against
+ * their holders cannot be performed at all, because Discord refuses
+ * (`50013 Missing Permissions`) for a target whose top role sits above the
+ * account's. Prod proof: 48 of 59 `moderation_actions` rows are
+ * `status='failed'`, `error='error'` — the account repeatedly attempting an
+ * enforcement that Discord had already refused.
+ *
+ * A role list is the right key because it survives staff turnover: a new admin
+ * is covered the moment they are given the role, with no config edit and no
+ * redeploy. Exempting today's *holders* by user id would silently start
+ * failing again the next time an admin is appointed.
+ *
+ * The roles are read from the metadata captured WITH the message, so no Discord
+ * fetch is needed and the decision is against the member's roles at send time.
+ */
+export function holdsExemptRole(message: MessageLike): boolean {
+	const exempt = parseStringList(config.AUTO_DELETE_EXEMPT_ROLE_IDS)
+	if (exempt.length === 0) return false
+
+	const raw = message.metadata
+	if (!raw) return false
+
+	let roles: unknown
+	try {
+		const parsed = typeof raw === "string" ? JSON.parse(raw) : raw
+		roles = (parsed as { member?: { roles?: unknown } } | null)?.member?.roles
+	} catch {
+		return false
+	}
+	if (!Array.isArray(roles)) return false
+
+	return roles.some((role) => {
+		const id = (role as { id?: unknown } | null)?.id
+		return typeof id === "string" && exempt.includes(id)
+	})
 }
 
 /**
@@ -303,6 +385,19 @@ export function isEligibleForAutoDelete(
 ): boolean {
 	const v = readVerdict(message, verdict)
 	const status = v.status
+
+	// Exempt roles are checked FIRST, before the decision is even consulted.
+	// This is not an evidence gate — it is a statement about what the account
+	// is ABLE to do. Enforcement against a holder of an exempt role is refused
+	// by Discord (50013) every time, so letting it through only produces failed
+	// audit rows for an action no code path can complete.
+	if (holdsExemptRole(message)) {
+		logger.debug(
+			{ messageId: message.id },
+			"Not eligible: sender holds an exempt role",
+		)
+		return false
+	}
 
 	// The decision. `status` is the only thing that authorises a deletion, and
 	// `error` is a keep by construction — "could not judge" is not evidence of a

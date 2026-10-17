@@ -319,6 +319,18 @@ export const configSchema = z
 		AUTO_DELETE_ALLOWED_CATEGORIES: z.string().default(""),
 		AUTO_DELETE_EXCLUDED_CHANNEL_IDS: z.string().default(""),
 		AUTO_DELETE_EXCLUDED_USER_IDS: z.string().default(""),
+		// Role ids whose holders are exempt from automatic enforcement.
+		//
+		// The default is populated, not empty, and that is deliberate: a new env
+		// var ships INERT until the same key exists in the secret store (the
+		// deploy builds and restarts; it never creates a variable), so a default
+		// of "" would ship an exemption that silently does nothing. These two
+		// are the server's admin roles — the account cannot change their
+		// nicknames at all (Discord answers 50013 for any role above it), so
+		// every attempt was a doomed PATCH recorded as a failed audit row.
+		AUTO_DELETE_EXEMPT_ROLE_IDS: z
+			.string()
+			.default("1504423881849442354,1206223343905148959"),
 		AUTO_DELETE_LOG_CHANNEL_ID: z.string().default(""),
 
 		// ── Nickname Reset (offensive_username enforcement) ────────────────

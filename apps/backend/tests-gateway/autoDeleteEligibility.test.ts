@@ -19,6 +19,7 @@
  */
 import { describe, expect, test } from "vitest"
 import {
+	holdsExemptRole,
 	isEligibleForAutoDelete,
 	isNicknameOnlyViolation,
 	type MessageLike,
@@ -178,6 +179,208 @@ describe("status alone decides eligibility", () => {
 
 	test("a message with no verdict and no legacy columns is not eligible", () => {
 		expect(isEligibleForAutoDelete(msg(), null)).toBe(false)
+	})
+})
+
+/**
+ * The flag-spelling defect.
+ *
+ * `policy.ts` instructs the model to emit `offensive_nickname`. The nickname
+ * classifier matched only `offensive_username`, so its flag path was
+ * unreachable for every row the shipped prompt produces, and the classifier
+ * fell through to prose-matching that prod's analysis text never satisfied.
+ *
+ * The consequence was not a missed reset — it was a DELETED MESSAGE. With
+ * `isNicknameOnlyViolation` false on a verdict whose `action` was
+ * `reset_nickname` and whose `status` was `deleted`, the manager took the
+ * "body violates too" branch and fell through to the delete path, removing the
+ * message while leaving the nickname untouched. Production: 51 such verdicts,
+ * 7 of their messages deleted, and ZERO "Offensive nickname reset" log lines.
+ */
+describe("isNicknameOnlyViolation — the offensive_nickname flag is the one the prompt emits", () => {
+	/** Verbatim prod: 51 rows carry exactly this flag. */
+	const prodPromoNickname = JSON.stringify({
+		member: {
+			nickname: "Cara sukses modal jual kelas AI",
+			displayName: "Cara sukses modal jual kelas AI",
+		},
+	})
+
+	test("offensive_nickname alone is a nickname violation", () => {
+		expect(
+			isNicknameOnlyViolation(
+				msg({ content: "Udh berapa lama ga repasta" }),
+				verdict({
+					flags: ["offensive_nickname"],
+					analysis: "Nickname mengandung promosi komersial.",
+				}),
+			),
+		).toBe(true)
+	})
+
+	test("a promo nickname with no insult term is still caught by the flag", () => {
+		// This is the row that was deleted in prod. The nickname contains no
+		// insult term, so the evidence path (`nicknameCarriesInsult`) can never
+		// see it — the FLAG is the only thing that can classify it, which is
+		// exactly why the missing spelling mattered.
+		expect(
+			isNicknameOnlyViolation(
+				msg({ content: "Ohh", metadata: prodPromoNickname }),
+				verdict({
+					flags: ["offensive_nickname"],
+					analysis:
+						"Nickname pengguna mengandung promosi komersial ('Cara sukses modal jual kelas AI'), sedangkan isi pesan 'Ohh' adalah tanggapan singkat yang bersih.",
+				}),
+			),
+		).toBe(true)
+	})
+
+	test("offensive_nickname alongside another name flag needs corroborating prose", () => {
+		// A mixed flag set is NOT decided by the flags alone, and that is the
+		// pre-existing contract: `identity_attack` also describes a BODY that
+		// turns on the reader's identity, so the prose must corroborate that the
+		// violation sits in the name. Path 1 stays deliberately narrow — the
+		// clean name-flag set — while this combination goes through path 2.
+		expect(
+			isNicknameOnlyViolation(
+				msg(),
+				verdict({ flags: ["offensive_nickname", "identity_attack"] }),
+			),
+		).toBe(false)
+
+		// Corroborated, the same flags are a name violation.
+		expect(
+			isNicknameOnlyViolation(
+				msg(),
+				verdict({
+					flags: ["offensive_nickname", "identity_attack"],
+					analysis: "nickname mengandung kata ofensif; isi pesan bersih",
+				}),
+			),
+		).toBe(true)
+	})
+
+	test("the model cannot use the flag as a jail card for a rude body", () => {
+		// `policy.ts` says a body that violates in its own right must not carry
+		// the name flag, but a contract the model can break is not a guard.
+		// Making the flag reachable without this half would spare any abusive
+		// message that also claimed a nickname problem.
+		expect(
+			isNicknameOnlyViolation(
+				msg({ content: "dasar kontol cuking" }),
+				verdict({ flags: ["offensive_nickname"] }),
+			),
+		).toBe(false)
+	})
+
+	test("an unrelated flag is not a nickname violation", () => {
+		expect(
+			isNicknameOnlyViolation(
+				msg(),
+				verdict({ flags: ["harassment", "violence"] }),
+			),
+		).toBe(false)
+	})
+})
+
+/**
+ * Exempt roles.
+ *
+ * These are the server's admin roles. Discord refuses a nickname change against
+ * a member whose top role sits above the account's (`50013 Missing
+ * Permissions`), so enforcement was attempted and rejected on every message —
+ * 48 of 59 `moderation_actions` rows in production are `failed`.
+ *
+ * Keyed on ROLE, not user: a role list covers a newly-appointed admin the
+ * moment they get the role, where a user list would silently start failing
+ * again at the next appointment.
+ */
+describe("holdsExemptRole", () => {
+	const EXEMPT = "1504423881849442354"
+	const OTHER_EXEMPT = "1206223343905148959"
+
+	const withRoles = (ids: string[]) =>
+		JSON.stringify({
+			member: {
+				nickname: "adit cuking",
+				displayName: "adit cuking",
+				roles: ids.map((id) => ({ id, name: "role", position: 84 })),
+			},
+		})
+
+	test("a holder of either configured role is exempt", () => {
+		// Both ids are the schema defaults, so this asserts the shipped config
+		// rather than a fixture-only value.
+		expect(holdsExemptRole(msg({ metadata: withRoles([EXEMPT]) }))).toBe(true)
+		expect(holdsExemptRole(msg({ metadata: withRoles([OTHER_EXEMPT]) }))).toBe(
+			true,
+		)
+	})
+
+	test("the role is found among unrelated roles", () => {
+		expect(
+			holdsExemptRole(msg({ metadata: withRoles(["1", "2", EXEMPT, "3"]) })),
+		).toBe(true)
+	})
+
+	test("an ordinary member is not exempt", () => {
+		expect(holdsExemptRole(msg({ metadata: withRoles(["12345"]) }))).toBe(false)
+	})
+
+	test("a JSON STRING is read, because that is the wire shape", () => {
+		// `messages.metadata` is a TEXT column, so the enforcer passes a string.
+		// The nickname guard shipped inert once by testing the parsed object
+		// only; the same trap applies here.
+		expect(typeof withRoles([EXEMPT])).toBe("string")
+		expect(holdsExemptRole(msg({ metadata: withRoles([EXEMPT]) }))).toBe(true)
+	})
+
+	test("a parsed object works too, for direct callers", () => {
+		expect(
+			holdsExemptRole(
+				msg({ metadata: { member: { roles: [{ id: EXEMPT }] } } }),
+			),
+		).toBe(true)
+	})
+
+	test("missing, malformed and empty metadata are all non-exempt", () => {
+		// Fail OPEN here, unlike a safety guard: an unreadable metadata means
+		// "no exempt role", and the alternative — exempting every message whose
+		// metadata failed to parse — would disable enforcement server-wide.
+		for (const metadata of [
+			null,
+			undefined,
+			"",
+			"{}",
+			"{not json",
+			JSON.stringify({ member: null }),
+			JSON.stringify({ member: {} }),
+			JSON.stringify({ member: { roles: null } }),
+			JSON.stringify({ member: { roles: "not-an-array" } }),
+			JSON.stringify({ member: { roles: [null, 42, {}] } }),
+		]) {
+			expect(holdsExemptRole(msg({ metadata }))).toBe(false)
+		}
+	})
+
+	test("an exempt role makes the message ineligible even on a deleted verdict", () => {
+		// The exemption is a statement about what the account CAN do, so it is
+		// checked before the verdict is even consulted: a doomed delete must not
+		// produce a failed audit row.
+		expect(
+			isEligibleForAutoDelete(
+				msg({ metadata: withRoles([EXEMPT]) }),
+				verdict({ status: "deleted", confidence: 0.99 }),
+			),
+		).toBe(false)
+		// The same verdict without the role is eligible, so the test is
+		// measuring the exemption and not something incidental.
+		expect(
+			isEligibleForAutoDelete(
+				msg({ metadata: withRoles(["12345"]) }),
+				verdict({ status: "deleted", confidence: 0.99 }),
+			),
+		).toBe(true)
 	})
 })
 

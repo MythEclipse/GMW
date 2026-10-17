@@ -195,6 +195,190 @@ beforeEach(() => {
 	loggerCalls.length = 0
 })
 
+/**
+ * The prod defect this suite exists to pin: the nickname reset never ran.
+ *
+ * Journal evidence from the incident: 51 lines reading "Model chose
+ * reset_nickname but the message body violates too — nickname reset AND message
+ * delete both applied", and ZERO "Offensive nickname reset to default username"
+ * lines. The `if` branch logged that a reset had been applied while never
+ * calling `resetOffensiveNickname` — it only existed in the `else`. So for a
+ * member whose name AND body both violated, the message was deleted and the
+ * name was left as it was, under a log line asserting the opposite.
+ *
+ * Two independent failures had to line up for that:
+ *   1. the flag spelling (`offensive_nickname` vs `offensive_username`) made
+ *      `isNicknameOnlyViolation` false for the rows the prompt produces, and
+ *   2. the branch for "body violates too" skipped the reset entirely.
+ */
+describe("a nickname violation is enforced even when the message is also deleted", () => {
+	/** Verbatim prod: nickname and body both carry an insult term. */
+	const BOTH_RUDE_METADATA = JSON.stringify({
+		member: { nickname: "adit cuking", displayName: "adit cuking" },
+	})
+
+	test("the nickname is reset AND the message deleted, with both audited", async () => {
+		const { client, deleted, nicknames } = fakeClient()
+
+		const result = await attemptAutoDeleteFlaggedMessage(
+			client,
+			message({
+				// The body carries an insult term, so `isNicknameOnlyViolation` is
+				// false by design — this is the mixed case, not the name-only one.
+				content: "dasar goblok",
+				metadata: BOTH_RUDE_METADATA,
+			}),
+			verdict({
+				status: "deleted",
+				action: "reset_nickname",
+				flags: ["offensive_nickname"],
+				confidence: 0.99,
+			}),
+		)
+
+		// The abusive message still goes — the `action` field is not a veto.
+		expect(result.deleted).toBe(true)
+		expect(deleted).toEqual(["1554472364094521396"])
+
+		// And the NAME is corrected, which is the half that was silently skipped.
+		expect(nicknames).toEqual([null])
+
+		// Both facts are on the record. The reset row is what proves the name was
+		// touched rather than merely logged as having been.
+		const resetRow = moderationActions.find(
+			(row) => row.action_type === "reset_nickname",
+		)
+		expect(resetRow).toBeDefined()
+		expect(resetRow?.status).toBe("executed")
+		expect(resetRow?.executed_at).not.toBeNull()
+		expect(resetRow?.reason).toContain("nickname direset")
+		expect(
+			moderationActions.some((row) => row.action_type === "delete_message"),
+		).toBe(true)
+	})
+
+	test("a clean name beside a rude body is not renamed, only deleted", async () => {
+		// The reset is not unconditional: it fires on the name-only evidence OR
+		// on the model's `reset_nickname` disposition, which this case lacks.
+		// Renaming here would be enforcement nobody asked for.
+		const { client, deleted, nicknames } = fakeClient()
+
+		const result = await attemptAutoDeleteFlaggedMessage(
+			client,
+			message({
+				content: "dasar goblok",
+				metadata: JSON.stringify({
+					member: { nickname: "rama_adityo", displayName: "rama_adityo" },
+				}),
+			}),
+			verdict({
+				status: "deleted",
+				action: "delete_message",
+				flags: ["harassment"],
+				confidence: 0.99,
+			}),
+		)
+
+		expect(result.deleted).toBe(true)
+		expect(deleted).toEqual(["1554472364094521396"])
+		expect(nicknames).toEqual([])
+		expect(
+			moderationActions.some((row) => row.action_type === "reset_nickname"),
+		).toBe(false)
+	})
+})
+
+/**
+ * Exempt roles: the account cannot enforce against these members at all.
+ *
+ * Discord answers `50013 Missing Permissions` for any nickname change against a
+ * member whose top role sits above the account's, so every attempt was a doomed
+ * PATCH. In production 48 of 59 `moderation_actions` rows are `status='failed'`
+ * for exactly that reason — the audit trail was mostly records of actions the
+ * account is structurally unable to perform.
+ */
+describe("exempt roles short-circuit enforcement", () => {
+	const EXEMPT_ROLE = "1504423881849442354"
+
+	const exemptMetadata = (nickname: string) =>
+		JSON.stringify({
+			member: {
+				nickname,
+				displayName: nickname,
+				roles: [{ id: EXEMPT_ROLE, name: "Paladin", position: 84 }],
+			},
+		})
+
+	test("a delete is skipped with a named reason and writes no failed row", async () => {
+		const { client, deleted } = fakeClient()
+
+		const result = await attemptAutoDeleteFlaggedMessage(
+			client,
+			message({
+				content: "dasar goblok",
+				metadata: exemptMetadata("rama_adityo"),
+			}),
+			verdict({ status: "deleted", confidence: 0.99 }),
+		)
+
+		expect(result.deleted).toBe(false)
+		expect(result.skipped).toBe(true)
+		expect(result.reason).toBe("exempt_role")
+		expect(deleted).toEqual([])
+		// The point of the exemption: no fake failure in the audit trail.
+		expect(moderationActions).toEqual([])
+	})
+
+	test("a nickname reset is skipped for an exempt member", async () => {
+		const { client, nicknames, deleted } = fakeClient()
+
+		const result = await attemptAutoDeleteFlaggedMessage(
+			client,
+			message({
+				content: "Nandayo",
+				metadata: exemptMetadata("adit cuking"),
+			}),
+			verdict({
+				status: "deleted",
+				action: "reset_nickname",
+				flags: ["offensive_nickname"],
+				analysis: "Nickname mengandung kata kasar; isi pesan bersih.",
+			}),
+		)
+
+		// Not even attempted: Discord would refuse the PATCH, and a refusal
+		// recorded as `failed` is the noise this exemption removes.
+		expect(nicknames).toEqual([])
+		expect(deleted).toEqual([])
+		expect(result.reason).toBe("exempt_role")
+	})
+
+	test("an ordinary member is still enforced against", async () => {
+		// The negative control: if the exemption matched everyone, the two tests
+		// above would pass while enforcement was silently dead server-wide.
+		const { client, deleted } = fakeClient()
+
+		const plain = await attemptAutoDeleteFlaggedMessage(
+			client,
+			message({
+				content: "dasar goblok",
+				// Same shape as the exempt fixture, only the role id differs.
+				metadata: JSON.stringify({
+					member: {
+						nickname: "rama_adityo",
+						roles: [{ id: "999", name: "Member", position: 3 }],
+					},
+				}),
+			}),
+			verdict({ status: "deleted", confidence: 0.99 }),
+		)
+
+		expect(plain.deleted).toBe(true)
+		expect(plain.reason).toBe("deleted")
+		expect(deleted).toEqual(["1554472364094521396"])
+	})
+})
+
 describe("the model's action chooses the outcome", () => {
 	// 1. The headline case: the model says reset_nickname, and the name-only
 	//    evidence is a rude nickname with a clean body — the exact prod row. The

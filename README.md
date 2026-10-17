@@ -106,13 +106,15 @@ Auto-delete has no dry-run and no disable switch, but it does have gates:
 
 - `AUTO_DELETE_MIN_CONFIDENCE` (default `0.5`)
 - `AUTO_DELETE_ALLOWED_CATEGORIES`, `AUTO_DELETE_EXCLUDED_CHANNEL_IDS`,
-  `AUTO_DELETE_EXCLUDED_USER_IDS`
+  `AUTO_DELETE_EXCLUDED_USER_IDS`, `AUTO_DELETE_EXEMPT_ROLE_IDS`
 - a verdict of `error` is never eligible
 - a bare-link post with no resolved preview is not judgeable and is not deleted
 - a message whose sender set `SUPPRESS_EMBEDS` carries no evidence at all and
   is never deleted, at any confidence
 - nickname violations reset the nickname instead of deleting the message when
-  the evidence supports it (`AUTO_NICKNAME_RESET_COOLDOWN_MS`)
+  the evidence supports it (`AUTO_NICKNAME_RESET_COOLDOWN_MS`); when the message
+  body violates in its own right, BOTH are enforced — the message is deleted and
+  the nickname is reset, and each is written as its own `moderation_actions` row
 
 Every attempt writes a `moderation_actions` row (`pending` / `executed` /
 `failed`) — that table, not `messages.deleted_at`, is how you tell what the
