@@ -110,11 +110,12 @@ if [ "$DRY_RUN" = 0 ]; then
 fi
 
 # ── 1. Postgres ────────────────────────────────────────────────────────────
-# Discover the table list from the catalog rather than hardcoding it. The
-# checked-in scripts/truncate-all.sql is stale: it names `user_reputations` and
-# `mascot_chat_messages`, which no longer exist (so it errors on a fresh deploy),
-# and it omits the seven tables that actually hold rows — including `verdicts`
-# and `analysis_attempts`. A hardcoded list is how that drift stayed invisible.
+# Discover the table list from the catalog rather than hardcoding it. A
+# checked-in list is how this drifted before: scripts/truncate-all.sql named
+# `user_reputations` and `mascot_chat_messages` (long gone, so it errored on a
+# fresh deploy) while omitting the tables that actually hold rows, `verdicts`
+# and `analysis_attempts` among them. That script was deleted once it was clear
+# nothing invoked it — this catalog query is the real implementation.
 #
 # Everything in `public` goes, __drizzle_migrations included — it is part of the
 # schema, not data, and keeping it would make Drizzle skip the rebuild.
