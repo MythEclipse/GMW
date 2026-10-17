@@ -1,3 +1,11 @@
+## [1.0.16](https://github.com/asepharyana/GMW/compare/v1.0.15...v1.0.16) (2026-10-17)
+
+
+### Bug Fixes
+
+* **ci:** make the migration drift gate enforce the rule it documents ([1ec3eec](https://github.com/asepharyana/GMW/commit/1ec3eec1990fc2c7d551b7e60436941f6a7dba62))
+* **moderation:** read coverage from analysis_attempts, not a table with no writer ([28184b3](https://github.com/asepharyana/GMW/commit/28184b33f87057a86f186343ac397b31f561274b))
+
 ## [1.0.15](https://github.com/asepharyana/GMW/compare/v1.0.14...v1.0.15) (2026-10-17)
 
 ## [1.0.14](https://github.com/asepharyana/GMW/compare/v1.0.13...v1.0.14) (2026-10-17)
