@@ -17,6 +17,12 @@
 /dist/
 /out/
 
+# tanstack router generator scratch space. `@tanstack/router-plugin` writes
+# temp files here on every dev/build/test run; they are not inputs. The
+# directory is mostly empty, which is why this was invisible until a test run
+# left a file behind and `git status` showed an untracked `.tanstack/`.
+/.tanstack/
+
 # production
 /build
 
