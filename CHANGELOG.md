@@ -1,3 +1,10 @@
+## [1.0.17](https://github.com/asepharyana/GMW/compare/v1.0.16...v1.0.17) (2026-10-17)
+
+
+### Bug Fixes
+
+* **moderation:** repair the two digest queries that could never run ([9febf15](https://github.com/asepharyana/GMW/commit/9febf15988f4d1159a0b00d064ea0d2e764a2deb))
+
 ## [1.0.16](https://github.com/asepharyana/GMW/compare/v1.0.15...v1.0.16) (2026-10-17)
 
 
