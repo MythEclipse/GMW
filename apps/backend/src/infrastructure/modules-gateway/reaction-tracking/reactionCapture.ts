@@ -40,21 +40,54 @@ function getEmojiIdentifier(
 
 // ─── Event Handlers ──────────────────────────────────────────────────────
 
+/**
+ * Stable row id for one (message, emoji, user) reaction event.
+ *
+ * The type is part of the key on purpose. `message_reactions.id` is the primary
+ * key and every insert uses `onConflictDoNothing()`, so if an add and a remove
+ * derived the SAME id the remove would collide with the existing add row and be
+ * dropped without a word — no `remove` row would ever exist, and every
+ * net-reaction calculation (adds minus removes) would silently over-count.
+ * Keying by type keeps the intended de-duplication (a repeated add is still one
+ * row) while letting the removal of a reaction be recorded at all.
+ */
+export function reactionRowId(
+	reaction: MessageReaction | PartialMessageReaction,
+	emojiKey: string,
+	userId: string,
+	reactionType: "add" | "remove",
+): string {
+	return `${reaction.message.id}-${emojiKey}-${userId}-${reactionType}`
+}
+
+/**
+ * `user.username` is typed `string | null` on a partial user, and
+ * `message_reactions.username` is NOT NULL. Fall back rather than pass null
+ * through: the row is a reaction audit trail, and a placeholder username is
+ * worth more than a discarded event.
+ */
+function reactionUsername(user: User | PartialUser): string {
+	return user.username ?? "unknown"
+}
+
 async function handleReactionAdd(
 	reaction: MessageReaction | PartialMessageReaction,
 	user: User | PartialUser,
 ): Promise<void> {
 	const guildId = reaction.message.guildId
+	// Narrowed before the scope check so `guild_id` below is a `string`: a DM
+	// reaction has no guild, and the insert column is NOT NULL.
+	if (!guildId) return
 	if (!isMonitoredGuild(config, guildId)) return
 	if (user.bot) return
 
 	const { emoji, emojiId, animated } = getEmojiIdentifier(reaction)
 	const now = Date.now()
-	const id = `${reaction.message.id}-${emojiId ?? emoji}-${user.id}`
+	const id = reactionRowId(reaction, emojiId ?? emoji, user.id, "add")
 
 	try {
 		const db = getDatabase()
-		await (db as any)
+		await db
 			.insert(reactionsTable)
 			.values({
 				id,
@@ -62,7 +95,7 @@ async function handleReactionAdd(
 				channel_id: reaction.message.channelId,
 				guild_id: guildId,
 				user_id: user.id,
-				username: user.username,
+				username: reactionUsername(user),
 				emoji,
 				emoji_id: emojiId,
 				animated,
@@ -88,16 +121,17 @@ async function handleReactionRemove(
 	user: User | PartialUser,
 ): Promise<void> {
 	const guildId = reaction.message.guildId
+	if (!guildId) return
 	if (!isMonitoredGuild(config, guildId)) return
 	if (user.bot) return
 
 	const { emoji, emojiId, animated } = getEmojiIdentifier(reaction)
 	const now = Date.now()
-	const id = `${reaction.message.id}-${emojiId ?? emoji}-${user.id}`
+	const id = reactionRowId(reaction, emojiId ?? emoji, user.id, "remove")
 
 	try {
 		const db = getDatabase()
-		await (db as any)
+		await db
 			.insert(reactionsTable)
 			.values({
 				id,
@@ -105,7 +139,7 @@ async function handleReactionRemove(
 				channel_id: reaction.message.channelId,
 				guild_id: guildId,
 				user_id: user.id,
-				username: user.username,
+				username: reactionUsername(user),
 				emoji,
 				emoji_id: emojiId,
 				animated,
