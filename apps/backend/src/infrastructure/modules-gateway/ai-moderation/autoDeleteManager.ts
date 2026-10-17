@@ -482,6 +482,16 @@ export async function attemptAutoDeleteFlaggedMessage(
 	// NAME was left alone, under a log line asserting the opposite. Production:
 	// 51 of those log lines and ZERO "Offensive nickname reset" lines — the
 	// claimed reset never once ran.
+	//
+	// Deliberately ABOVE the eligibility gate, and that ordering is the point:
+	// the name is objectionable on its own, so it is corrected whether or not the
+	// MESSAGE turns out to be deletable. A verdict that fails the confidence or
+	// suppressed-embed gates can still describe a member whose nickname breaks
+	// the rules — the captured name is evidence in its own right and does not
+	// become clean because the message was unreadable. Reaching this on a `clean`
+	// or `error` verdict is therefore intended, not a leak: the insult term is in
+	// the name, and the cooldown in `applyNicknameReset` bounds the correction to
+	// one PATCH per member per window.
 	if (isNameImplicated(message, verdict)) {
 		const outcome = await applyNicknameReset(
 			client,
