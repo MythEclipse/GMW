@@ -1,3 +1,10 @@
+## [1.0.9](https://github.com/asepharyana/GMW/compare/v1.0.8...v1.0.9) (2026-10-17)
+
+
+### Bug Fixes
+
+* **ci:** gate deploy on github.ref, not event_name — a dispatch can target a branch ([1a7f3ad](https://github.com/asepharyana/GMW/commit/1a7f3adedad40ae27ce155d01c76a4ba7c88cc21))
+
 ## [1.0.8](https://github.com/asepharyana/GMW/compare/v1.0.7...v1.0.8) (2026-10-16)
 
 
