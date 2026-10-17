@@ -21,6 +21,7 @@ import { describe, expect, test } from "vitest"
 import {
 	holdsExemptRole,
 	isEligibleForAutoDelete,
+	isNameImplicated,
 	isNicknameOnlyViolation,
 	type MessageLike,
 	parseStringList,
@@ -38,16 +39,33 @@ function msg(overrides: Partial<MessageLike> = {}): MessageLike {
 	}
 }
 
+/**
+ * A stored verdict row.
+ *
+ * `categories` mirrors `flags` whenever the caller overrides only one of them,
+ * because that is the shape the PARSER actually writes: `categories` falls back
+ * to `flags`, and the enforcement is derived from that effective value. A fixture
+ * that set `flags: ["offensive_nickname"]` while leaving `categories:
+ * ["harassment"]` would describe a row the worker cannot produce, and the
+ * mismatch is exactly what these predicates are meant to resolve.
+ */
 function verdict(overrides: Partial<VerdictLike> = {}): VerdictLike {
-	return {
+	const base: VerdictLike = {
 		status: "deleted",
 		confidence: 0.95,
 		score: 0.95,
 		categories: ["harassment"],
 		flags: ["harassment"],
 		analysis: "contains abusive language directed at another member",
-		...overrides,
 	}
+	const merged = { ...base, ...overrides }
+	if (overrides.flags !== undefined && overrides.categories === undefined) {
+		merged.categories = overrides.flags
+	}
+	if (overrides.categories !== undefined && overrides.flags === undefined) {
+		merged.flags = overrides.categories
+	}
+	return merged
 }
 
 describe("parseStringList", () => {
@@ -363,24 +381,108 @@ describe("holdsExemptRole", () => {
 		}
 	})
 
-	test("an exempt role makes the message ineligible even on a deleted verdict", () => {
-		// The exemption is a statement about what the account CAN do, so it is
-		// checked before the verdict is even consulted: a doomed delete must not
-		// produce a failed audit row.
+	test("an exempt role does NOT block message deletion", () => {
+		// The correction this encodes: the exemption is a statement about what
+		// the account CAN do — Discord refuses `setNickname` against a member
+		// whose highest role outranks the bot's own. It says nothing about
+		// deleting, which this account is perfectly able to do.
+		//
+		// So an exempt member's violating message still goes. Only the nickname
+		// reset is skipped, and the gate for that lives in the manager
+		// (`applyNicknameReset`), not here. Gating deletion on the role would
+		// hand every admin a licence to post anything.
 		expect(
 			isEligibleForAutoDelete(
 				msg({ metadata: withRoles([EXEMPT]) }),
 				verdict({ status: "deleted", confidence: 0.99 }),
 			),
-		).toBe(false)
-		// The same verdict without the role is eligible, so the test is
-		// measuring the exemption and not something incidental.
+		).toBe(true)
+		expect(
+			isEligibleForAutoDelete(
+				msg({ metadata: withRoles([OTHER_EXEMPT]) }),
+				verdict({ status: "deleted", confidence: 0.99 }),
+			),
+		).toBe(true)
+		// The negative control, unchanged in both directions: an ordinary
+		// member is eligible too, so this is not measuring the exemption at all.
 		expect(
 			isEligibleForAutoDelete(
 				msg({ metadata: withRoles(["12345"]) }),
 				verdict({ status: "deleted", confidence: 0.99 }),
 			),
 		).toBe(true)
+	})
+})
+
+describe("isNameImplicated", () => {
+	test("the two categories that name the NAME implicate it", () => {
+		for (const flag of ["offensive_nickname", "offensive_username"]) {
+			expect(isNameImplicated(msg(), verdict({ flags: [flag] }))).toBe(true)
+			expect(isNameImplicated(msg(), verdict({ categories: [flag] }))).toBe(
+				true,
+			)
+		}
+	})
+
+	test("a content category does not implicate the name on its own", () => {
+		// `identity_attack` and `name_targeting` also describe a body that turns
+		// on the reader's identity, so treating them as name evidence would
+		// reset the nickname of a member whose MESSAGE was the problem.
+		for (const flag of [
+			"harassment",
+			"identity_attack",
+			"name_targeting",
+			"nsfw",
+		]) {
+			expect(isNameImplicated(msg(), verdict({ flags: [flag] }))).toBe(false)
+		}
+	})
+
+	test("a category-only row is still caught, with flags left empty", () => {
+		// The shape a parser that fills `categories` and not `flags` writes, and
+		// the reason this predicate reads the EFFECTIVE categories: reading the
+		// raw `flags` array would report no name involvement for a row whose
+		// action is a nickname reset.
+		expect(
+			isNameImplicated(
+				msg(),
+				verdict({ categories: ["offensive_nickname"], flags: [] }),
+			),
+		).toBe(true)
+	})
+
+	test("a flagged promo nickname with no insult term is still caught", () => {
+		// The text cannot reveal this one — there is no rude word at all — so
+		// only the model's category can. This is why both halves of the
+		// predicate are needed.
+		const promo = msg({
+			metadata: JSON.stringify({
+				member: { nickname: "Cara sukses modal jual kelas AI" },
+			}),
+		})
+		expect(isNameImplicated(promo, verdict({ flags: [] }))).toBe(false)
+		expect(
+			isNameImplicated(promo, verdict({ flags: ["offensive_nickname"] })),
+		).toBe(true)
+	})
+
+	test("an insult term in the captured nickname implicates it without a category", () => {
+		expect(
+			isNameImplicated(msg(), verdict({ flags: [], categories: [] })),
+		).toBe(false)
+		const rude = msg({
+			metadata: JSON.stringify({ member: { nickname: "adit cuking" } }),
+		})
+		expect(isNameImplicated(rude, verdict({ flags: [], categories: [] }))).toBe(
+			true,
+		)
+	})
+
+	test("a clean verdict implicates nothing", () => {
+		expect(
+			isNameImplicated(msg(), verdict({ flags: [], categories: [] })),
+		).toBe(false)
+		expect(isNameImplicated(msg(), null)).toBe(false)
 	})
 })
 

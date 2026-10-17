@@ -1,22 +1,30 @@
 /**
- * The model's chosen `action` reaches enforcement.
+ * Enforcement follows the violation CATEGORY, and the nickname reset is real.
  *
  * ## Why this suite exists
  *
- * `verdicts.status` is two-valued, so it cannot say "the violation is in the
- * member's nickname and this message must stay". Until now the enforcer
- * recovered that intent with `isNicknameOnlyViolation`, which decided it by
- * regex-matching the model's own analysis prose — and production defeated it:
+ * Two independent defects, both of which deleted a message over a nickname:
  *
- *     user 1052035456688205854, nickname "adit cuking", body "Nandayo"
- *     verdict: flags ["harassment"], analysis "Pesan mengandung sindiran pribadi
- *               melalui nickname 'adit cuking' ..."
- *     -> MESSAGE DELETED, nickname left alone
+ *  1. `verdicts.status` is two-valued, so it cannot say "the violation is in the
+ *     member's nickname and this message must stay". The enforcer recovered that
+ *     intent by regex-matching the model's own analysis prose — and production
+ *     defeated it:
  *
- * The model now states the outcome in a named `action` field. This suite covers
- * the four decisions that field changes, and the two invariants that make it
- * safe to ship: the evidence-based guard still overrides the model, and no
- * `reset_nickname` can ever reach a delete.
+ *         user 1052035456688205854, nickname "adit cuking", body "Nandayo"
+ *         verdict: flags ["harassment"], analysis "Pesan mengandung sindiran
+ *                   pribadi melalui nickname 'adit cuking' ..."
+ *         -> MESSAGE DELETED, nickname left alone
+ *
+ *  2. The reset was never applied even in the nickname-only case. Production had
+ *     51 verdicts categorised `offensive_nickname`, 7 of their messages deleted,
+ *     ZERO successful resets, and 48 of 59 `moderation_actions` rows recorded as
+ *     `failed`.
+ *
+ * The fix is that enforcement is DERIVED from the violation category rather than
+ * chosen by the model, and that the nickname reset actually runs. This suite
+ * covers the outcomes the category produces and the invariants that keep it
+ * safe: evidence can override a miscategorised name violation, no `reset_nickname`
+ * can spare a rude body, and the exempt-role gate skips only the RESET.
  *
  * Everything is mocked at the boundary — the Discord client, the moderation
  * store, the notifier, the mod-channel logger. No database, no network, no real
@@ -127,16 +135,33 @@ function message(overrides: Partial<AutoDeleteInput> = {}): AutoDeleteInput {
 	}
 }
 
+/**
+ * A stored verdict row.
+ *
+ * `categories` mirrors `flags` when a caller overrides only one of them, because
+ * that is the shape the PARSER writes: `categories` falls back to `flags`, and
+ * the enforcement is derived from that effective value. A fixture that set
+ * `flags: ["offensive_nickname"]` while leaving `categories: ["harassment"]`
+ * would describe a row the worker cannot produce — and the mismatch is precisely
+ * what the category-driven enforcement is meant to resolve.
+ */
 function verdict(overrides: Partial<VerdictLike> = {}): VerdictLike {
-	return {
+	const base: VerdictLike = {
 		status: "deleted",
 		confidence: 0.95,
 		score: 0.62,
 		categories: ["harassment"],
 		flags: ["harassment"],
 		analysis: "contains abusive language",
-		...overrides,
 	}
+	const merged: VerdictLike = { ...base, ...overrides }
+	if (overrides.flags !== undefined && overrides.categories === undefined) {
+		merged.categories = overrides.flags
+	}
+	if (overrides.categories !== undefined && overrides.flags === undefined) {
+		merged.flags = overrides.categories
+	}
+	return merged
 }
 
 /**
@@ -297,7 +322,7 @@ describe("a nickname violation is enforced even when the message is also deleted
  * for exactly that reason — the audit trail was mostly records of actions the
  * account is structurally unable to perform.
  */
-describe("exempt roles short-circuit enforcement", () => {
+describe("exempt roles skip the RESET, never the deletion", () => {
 	const EXEMPT_ROLE = "1504423881849442354"
 
 	const exemptMetadata = (nickname: string) =>
@@ -309,7 +334,16 @@ describe("exempt roles short-circuit enforcement", () => {
 			},
 		})
 
-	test("a delete is skipped with a named reason and writes no failed row", async () => {
+	// The corrected scope of the exemption. It exists because Discord refuses
+	// `setNickname` (50013) for a member whose top role outranks the account's —
+	// it is a statement about what this account CAN do, and it says nothing
+	// about deleting, which needs `MANAGE_MESSAGES` in the channel and is
+	// checked separately below.
+	//
+	// The earlier version returned early from `isEligibleForAutoDelete`, which
+	// also blocked the deletion. That exempted the server's admins from
+	// moderation entirely — precisely the members most able to abuse it.
+	test("an exempt member's violating message is still deleted", async () => {
 		const { client, deleted } = fakeClient()
 
 		const result = await attemptAutoDeleteFlaggedMessage(
@@ -321,15 +355,12 @@ describe("exempt roles short-circuit enforcement", () => {
 			verdict({ status: "deleted", confidence: 0.99 }),
 		)
 
-		expect(result.deleted).toBe(false)
-		expect(result.skipped).toBe(true)
-		expect(result.reason).toBe("exempt_role")
-		expect(deleted).toEqual([])
-		// The point of the exemption: no fake failure in the audit trail.
-		expect(moderationActions).toEqual([])
+		expect(result.deleted).toBe(true)
+		expect(result.reason).toBe("deleted")
+		expect(deleted).toEqual(["1554472364094521396"])
 	})
 
-	test("a nickname reset is skipped for an exempt member", async () => {
+	test("a nickname reset is skipped for an exempt member, and the message stays", async () => {
 		const { client, nicknames, deleted } = fakeClient()
 
 		const result = await attemptAutoDeleteFlaggedMessage(
@@ -340,7 +371,7 @@ describe("exempt roles short-circuit enforcement", () => {
 			}),
 			verdict({
 				status: "deleted",
-				action: "reset_nickname",
+				categories: ["offensive_nickname"],
 				flags: ["offensive_nickname"],
 				analysis: "Nickname mengandung kata kasar; isi pesan bersih.",
 			}),
@@ -349,13 +380,42 @@ describe("exempt roles short-circuit enforcement", () => {
 		// Not even attempted: Discord would refuse the PATCH, and a refusal
 		// recorded as `failed` is the noise this exemption removes.
 		expect(nicknames).toEqual([])
+		// The message is kept, because a nickname violation is enforced on the
+		// name — there is nothing wrong with the body to delete.
 		expect(deleted).toEqual([])
-		expect(result.reason).toBe("exempt_role")
+		expect(result.reason).toBe("nickname_reset_exempt_role")
+	})
+
+	test("an ordinary member's nickname IS reset", async () => {
+		// The negative control: if the exemption matched everyone, the test
+		// above would pass while every reset was silently dead server-wide.
+		const { client, nicknames } = fakeClient()
+
+		await attemptAutoDeleteFlaggedMessage(
+			client,
+			message({
+				content: "Nandayo",
+				metadata: JSON.stringify({
+					member: {
+						nickname: "adit cuking",
+						roles: [{ id: "999", name: "Member", position: 3 }],
+					},
+				}),
+			}),
+			verdict({
+				status: "deleted",
+				categories: ["offensive_nickname"],
+				flags: ["offensive_nickname"],
+				analysis: PROD_ANALYSIS,
+			}),
+		)
+
+		expect(nicknames).toEqual([null])
 	})
 
 	test("an ordinary member is still enforced against", async () => {
-		// The negative control: if the exemption matched everyone, the two tests
-		// above would pass while enforcement was silently dead server-wide.
+		// The other negative control, for the deletion half: the role must not
+		// change what happens to a violating BODY either way.
 		const { client, deleted } = fakeClient()
 
 		const plain = await attemptAutoDeleteFlaggedMessage(
@@ -379,7 +439,7 @@ describe("exempt roles short-circuit enforcement", () => {
 	})
 })
 
-describe("the model's action chooses the outcome", () => {
+describe("the CATEGORY chooses the outcome", () => {
 	// 1. The headline case: the model says reset_nickname, and the name-only
 	//    evidence is a rude nickname with a clean body — the exact prod row. The
 	//    message must survive and the nickname must be reset.
@@ -407,16 +467,17 @@ describe("the model's action chooses the outcome", () => {
 		expect(lastAction()?.status).toBe("executed")
 	})
 
-	// The pure-model path: a clean nickname and clean body, but the model asks for
-	// a reset. Only the named field carries that intent now, so this must work
-	// without any evidence supporting it — and must still not delete anything.
-	test("action reset_nickname is honoured on its own, without evidence support", async () => {
+	// The pure-category path: a nickname with NO insult term in it — a promo name
+	// — where the captured text cannot reveal the violation at all. Only the
+	// model's CATEGORY can classify it, and that is the whole reason the category
+	// is what enforcement reads. The message must survive and the name reset.
+	test("a category-only name violation is enforced without textual evidence", async () => {
 		const { client, nicknames, deleted } = fakeClient()
 
 		const result = await attemptAutoDeleteFlaggedMessage(
 			client,
-			// A nickname with no insult term in it: `isNicknameOnlyViolation` is
-			// FALSE here, so only the model's action can produce this outcome.
+			// A nickname with no insult term in it: `nicknameCarriesInsult` is
+			// FALSE here, so only the model's category can produce this outcome.
 			message({
 				content: "halo semua",
 				metadata: JSON.stringify({
@@ -424,20 +485,17 @@ describe("the model's action chooses the outcome", () => {
 				}),
 			}),
 			verdict({
-				status: "clean",
-				action: "reset_nickname",
+				status: "deleted",
+				categories: ["offensive_nickname"],
 				flags: ["offensive_nickname"],
-				analysis: "Nickname mengandung kata kasar; isi pesan bersih.",
+				analysis: "Nickname melanggar aturan; isi pesan bersih.",
 			}),
 		)
 
 		expect(result.deleted).toBe(false)
-		// `nickname_only_violation` rather than `model_action_reset_nickname`:
-		// `isNicknameOnlyViolation` is consulted first and matches on the
-		// nickname's own wording, so the evidence branch reports itself and the
-		// model-only branch below is never reached. Same enforcement, same audit
-		// row — only the label differs, and the label that survives is the one
-		// backed by evidence rather than by the model's assertion.
+		// The category derives `reset_nickname`, so the name branch is taken and
+		// reports itself by its category-derived name. No `model_action_*` label
+		// exists any more: the model does not choose.
 		expect(result.reason).toBe("nickname_only_violation")
 		expect(deleted).toEqual([])
 		expect(nicknames).toEqual([null])
@@ -625,11 +683,10 @@ describe("the model's action chooses the outcome", () => {
 		expect(nicknames).toEqual([])
 	})
 
-	// A `clean` disposition beside a nickname-only violation still resets: the
-	// evidence guard is not gated on the model's disposition, only on its
-	// `status`. The model's `action` is a preference; the nickname evidence is
-	// the authority.
-	test("action clean cannot veto the nickname-only evidence guard", async () => {
+	// A model-supplied `clean` beside a nickname violation cannot veto the reset:
+	// the field is not consulted at all, so there is nothing in it to honour.
+	// Only `status` and the evidence speak.
+	test("a model-supplied clean cannot veto the nickname-only evidence guard", async () => {
 		const { client, nicknames, deleted } = fakeClient()
 
 		const result = await attemptAutoDeleteFlaggedMessage(
@@ -659,6 +716,8 @@ describe("the model's action chooses the outcome", () => {
 		)
 		expect(nicknameOnly.reason).toBe("nickname_only_violation")
 		expect(deleted).toEqual([])
+		// The reset actually ran, which the old build never did.
+		expect(nicknames).toEqual([null])
 
 		moderationActions.length = 0
 		const plainDelete = await attemptAutoDeleteFlaggedMessage(
@@ -670,10 +729,10 @@ describe("the model's action chooses the outcome", () => {
 		expect(lastAction()?.action_type).toBe("delete_message")
 	})
 
-	// The recorded verdict columns must carry the disposition, not just the
-	// action_type: an audit row that cannot say what the model asked for is how
-	// an override stays invisible.
-	test("the audit row records the model's disposition", async () => {
+	// The disposition is no longer the model's to choose, so the audit row
+	// records what the CATEGORY produced. A name category on a member with a
+	// clean body: a reset, recorded as executed, never as a pending delete.
+	test("the audit row records the category-derived disposition", async () => {
 		const { client } = fakeClient()
 
 		await attemptAutoDeleteFlaggedMessage(
@@ -684,7 +743,12 @@ describe("the model's action chooses the outcome", () => {
 					member: { nickname: "rama_adityo", displayName: "rama_adityo" },
 				}),
 			}),
-			verdict({ status: "clean", action: "reset_nickname" }),
+			verdict({
+				status: "deleted",
+				categories: ["offensive_nickname"],
+				flags: ["offensive_nickname"],
+				analysis: "Nickname melanggar aturan; isi pesan bersih.",
+			}),
 		)
 
 		const action = lastAction()
@@ -694,5 +758,32 @@ describe("the model's action chooses the outcome", () => {
 		// `reset_nickname` is recorded as executed, never as a pending delete.
 		expect(action?.status).toBe("executed")
 		expect(action?.executed_at).not.toBeNull()
+	})
+
+	// And the mirror: a content category on the same clean-body member records a
+	// DELETION, so the audit row tracks the category rather than a stale
+	// preference. Both directions matter — a single-direction test would pass
+	// even if the manager always wrote the same action_type.
+	test("a content category records a deletion, not a reset", async () => {
+		const { client } = fakeClient()
+
+		await attemptAutoDeleteFlaggedMessage(
+			client,
+			message({
+				content: "dasar goblok",
+				metadata: JSON.stringify({
+					member: { nickname: "rama_adityo", displayName: "rama_adityo" },
+				}),
+			}),
+			verdict({
+				status: "deleted",
+				categories: ["harassment"],
+				flags: ["harassment"],
+				analysis: "hinaan langsung",
+			}),
+		)
+
+		expect(lastAction()?.action_type).toBe("delete_message")
+		expect(lastAction()?.status).toBe("executed")
 	})
 })

@@ -20,6 +20,9 @@ export {
 	type PromptMode,
 } from "./policy.js"
 export {
+	actionForCategories,
+	actionForVerdict,
+	NAME_ONLY_CATEGORIES,
 	normaliseAction,
 	type ParseBatchResult,
 	type ParsedVerdict,

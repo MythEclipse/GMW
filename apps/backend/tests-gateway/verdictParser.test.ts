@@ -6,12 +6,13 @@
  */
 import { describe, expect, test } from "vitest"
 import {
+	actionForCategories,
+	actionForVerdict,
 	clampScore,
 	extractJson,
 	hasDeferralAnalysis,
 	normaliseAction,
 	parseVerdicts,
-	resolveAction,
 	VERDICT_ACTIONS,
 } from "../src/infrastructure/modules-gateway/ai-moderation/verdictParser.js"
 
@@ -351,13 +352,15 @@ describe("status is the whole decision", () => {
 	})
 })
 
-describe("action: the model chooses the disposition", () => {
-	// `status` answers "is this a violation". It cannot answer "the violation is
-	// in the member's NAME and the message should stay", because a message that
-	// stays is not a `clean` verdict either. Until now that intent was recovered
-	// by regex-matching the model's own prose, and production defeated it: user
-	// 1052035456688205854, nickname "adit cuking", body "Nandayo" -> the MESSAGE
-	// was deleted and the nickname left alone.
+describe("action: derived from the CATEGORY, never from the model", () => {
+	// Enforcement follows the violation category, not the model's opinion about
+	// it. The model is asked to name the category — that is judgement — but the
+	// action is computed from it, so the same category always produces the same
+	// enforcement.
+	//
+	// Why: prod had 51 verdicts correctly categorised `offensive_nickname` whose
+	// model-supplied action still deleted the MESSAGE and left the nickname
+	// alone. The category was reliable; the disposition was not.
 
 	function one(
 		entry: Record<string, unknown>,
@@ -365,43 +368,68 @@ describe("action: the model chooses the disposition", () => {
 		return parseVerdicts(JSON.stringify({ results: [entry] }), ["m1"], 1)
 	}
 
-	test("the three documented values are accepted verbatim", () => {
-		for (const action of ["clean", "delete_message", "reset_nickname"]) {
+	test("a name category resets the nickname", () => {
+		for (const category of ["offensive_nickname", "offensive_username"]) {
 			const out = one({
 				message_id: "m1",
-				status: action === "clean" ? "clean" : "deleted",
-				action,
+				status: "deleted",
+				action: "delete_message", // the model disagrees; it is ignored
+				categories: [category],
 				analysis: "x",
 			})
 			expect(out.batchFailed).toBe(false)
-			expect(out.verdicts[0].action).toBe(action)
+			expect(out.verdicts[0].action).toBe("reset_nickname")
 			expect(out.verdicts[0].perMessageError).toBeUndefined()
 		}
 	})
 
-	test("surrounding whitespace is tolerated", () => {
-		// Models emit " reset_nickname" often enough that a strict compare would
-		// silently drop the only disposition the column exists to carry.
+	test("a content category deletes the message", () => {
+		for (const category of ["harassment", "nsfw", "gambling", "scam"]) {
+			const out = one({
+				message_id: "m1",
+				status: "deleted",
+				action: "reset_nickname", // also ignored
+				categories: [category],
+				analysis: "x",
+			})
+			expect(out.verdicts[0].action).toBe("delete_message")
+		}
+	})
+
+	test("no categories at all is clean", () => {
+		const out = one({
+			message_id: "m1",
+			status: "clean",
+			action: "clean",
+			categories: [],
+			analysis: "x",
+		})
+		expect(out.verdicts[0].action).toBe("clean")
+	})
+
+	test("a MIXED category set is a content violation, not a name one", () => {
+		// The body violates too, so the message must go. The manager resets the
+		// name alongside it — that is `isNameImplicated`'s job, not this one's.
+		// Treating a mixed set as name-only would spare an abusive message.
 		const out = one({
 			message_id: "m1",
 			status: "deleted",
-			action: "  reset_nickname\n",
-			analysis: "x",
+			categories: ["offensive_nickname", "harassment"],
+			analysis: "nickname dan isi pesan dua-duanya menghina",
 		})
-		expect(out.verdicts[0].action).toBe("reset_nickname")
+		expect(out.verdicts[0].action).toBe("delete_message")
 	})
 
-	// The invalid case must degrade the DISPOSITION, never the verdict: one
-	// hallucinated field must not cost a judgement whose `status` was fine.
-	test("an unrecognised action falls back to the status-derived value", () => {
+	test("the model's own action value cannot change the outcome", () => {
+		// The whole point of the change. Whatever the model writes in `action`,
+		// the category decides — including the case that deleted prod messages.
 		for (const action of [
+			"delete_message",
+			"reset_nickname",
+			"clean",
+			"  reset_nickname\n",
 			"warn",
-			"review",
-			"reset",
-			"delete",
-			"resetnickname",
 			"RESET_NICKNAME",
-			"hapus nickname",
 			"",
 			123,
 			null,
@@ -413,24 +441,25 @@ describe("action: the model chooses the disposition", () => {
 				message_id: "m1",
 				status: "deleted",
 				action,
+				categories: ["offensive_nickname"],
 				analysis: "x",
 			})
+			expect(out.verdicts[0].action).toBe("reset_nickname")
 			expect(out.verdicts[0].status).toBe("deleted")
-			expect(out.verdicts[0].action).toBe("delete_message")
 		}
 	})
 
-	test("a missing action falls back to exactly the pre-action behaviour", () => {
-		// This is the upgrade path: a model that ignores the new field, and every
-		// row written before the column existed, must behave identically to before.
-		expect(
-			one({ message_id: "m1", status: "deleted", analysis: "x" }).verdicts[0]
-				.action,
-		).toBe("delete_message")
-		expect(
-			one({ message_id: "m1", status: "clean", analysis: "x" }).verdicts[0]
-				.action,
-		).toBe("clean")
+	test("flags stand in for categories when the model fills only one field", () => {
+		// The stored row uses this same fallback, so the enforcement and the
+		// recorded category cannot disagree.
+		const out = one({
+			message_id: "m1",
+			status: "deleted",
+			flags: ["offensive_nickname"],
+			analysis: "x",
+		})
+		expect(out.verdicts[0].action).toBe("reset_nickname")
+		expect(out.verdicts[0].categories).toEqual(["offensive_nickname"])
 	})
 
 	// A bad disposition is NOT a reason to throw or to error the verdict. That is
@@ -443,6 +472,7 @@ describe("action: the model chooses the disposition", () => {
 					message_id: "m2",
 					status: "deleted",
 					action: "maybe_reset",
+					categories: ["harassment"],
 					reason: "hinaan",
 					analysis: "b",
 				},
@@ -466,11 +496,21 @@ describe("action: the model chooses the disposition", () => {
 
 	test("an error verdict carries action clean, never a deletion", () => {
 		// Every error path must be inert: `status: "error"` already blocks
-		// enforcement, and an `action` of `delete_message` on the same verdict would
-		// be a second field claiming authority it cannot have.
+		// enforcement, and an action of `delete_message` on the same verdict
+		// would be a second field claiming authority it cannot have. Note this
+		// holds even when the category is a violation category — "could not
+		// judge" is not evidence, so it cannot authorise enforcement.
 		for (const status of ["warn", "flagged", "error", "maybe"]) {
 			expect(
 				one({ message_id: "m1", status, analysis: "x" }).verdicts[0].action,
+			).toBe("clean")
+			expect(
+				one({
+					message_id: "m1",
+					status,
+					categories: ["harassment"],
+					analysis: "x",
+				}).verdicts[0].action,
 			).toBe("clean")
 		}
 		// And the deferral path, which builds its own error verdict.
@@ -484,17 +524,40 @@ describe("action: the model chooses the disposition", () => {
 		expect(deferred.verdicts[0].action).toBe("clean")
 	})
 
-	// `reset_nickname` is the one disposition `status` cannot express, so it is
-	// the one that must survive a contradicting status — it deletes nothing.
-	test("reset_nickname survives a clean status", () => {
+	// The upgrade path: a row written before `categories` carried the name flag,
+	// or one whose model omitted `action` entirely, must still be enforced
+	// correctly — and `status` is what it always was.
+	test("actionForCategories is the single rule, and it takes no model input", () => {
+		// A name-only category set is name enforcement, whatever `status` says.
+		expect(actionForCategories(["offensive_nickname"], "deleted")).toBe(
+			"reset_nickname",
+		)
+		// A content category follows `status`.
+		expect(actionForCategories(["harassment"], "deleted")).toBe(
+			"delete_message",
+		)
+		expect(actionForCategories(["harassment"], "clean")).toBe("clean")
+		// No categories is inert, so a verdict with nothing flagged enforces
+		// nothing even if its status is oddly `deleted`.
+		expect(actionForCategories([], "deleted")).toBe("delete_message")
+		expect(actionForCategories(null, "clean")).toBe("clean")
+		// `error` can never authorise enforcement, categories or not.
+		expect(actionForCategories(["harassment"], "error")).toBe("clean")
+		expect(actionForCategories(["offensive_nickname"], "error")).toBe("clean")
+	})
+
+	test("a content flag beside a NAME-only status still deletes", () => {
+		// The converse of the mixed-set case, asserted directly: the model cannot
+		// switch enforcement off by attaching a name category to something that
+		// is not one.
 		const out = one({
 			message_id: "m1",
-			status: "clean",
-			action: "reset_nickname",
-			analysis: "nickname mengandung kata kasar; isi pesan bersih",
+			status: "deleted",
+			categories: ["harassment"],
+			action: "clean", // the old code honoured a contradicting clean; now it cannot
+			analysis: "hinaan langsung",
 		})
-		expect(out.verdicts[0].status).toBe("clean")
-		expect(out.verdicts[0].action).toBe("reset_nickname")
+		expect(out.verdicts[0].action).toBe("delete_message")
 	})
 
 	// The converse is forced, and the reason is the point: honouring a `clean`
@@ -527,14 +590,50 @@ describe("action: the model chooses the disposition", () => {
 		}
 	})
 
-	test("resolveAction is the single rule both fields agree on", () => {
-		expect(resolveAction(null, "deleted")).toBe("delete_message")
-		expect(resolveAction(null, "clean")).toBe("clean")
-		expect(resolveAction(null, "error")).toBe("clean")
-		expect(resolveAction("reset_nickname", "clean")).toBe("reset_nickname")
-		expect(resolveAction("reset_nickname", "deleted")).toBe("reset_nickname")
-		expect(resolveAction("clean", "deleted")).toBe("delete_message")
-		expect(resolveAction("delete_message", "clean")).toBe("clean")
+	// `actionForVerdict` is what the MANAGER runs, in a different process from
+	// the worker that wrote the row. It reads the stored row rather than the
+	// model's response, so it is asserted against row shapes here — including
+	// the legacy ones — because a stored row is the only thing it ever sees.
+	test("actionForVerdict re-derives from the stored row, flags included", () => {
+		// Categories present: they win.
+		expect(
+			actionForVerdict({
+				status: "deleted",
+				categories: ["offensive_nickname"],
+				flags: ["harassment"],
+			}),
+		).toBe("reset_nickname")
+		// Categories EMPTY (not just null): fall back to flags, or a row whose
+		// model filled only `flags` would enforce nothing.
+		expect(
+			actionForVerdict({
+				status: "deleted",
+				categories: [],
+				flags: ["offensive_nickname"],
+			}),
+		).toBe("reset_nickname")
+		expect(
+			actionForVerdict({
+				status: "deleted",
+				categories: null,
+				flags: ["harassment"],
+			}),
+		).toBe("delete_message")
+		// A legacy row with neither field: `status` alone decides.
+		expect(actionForVerdict({ status: "deleted" })).toBe("delete_message")
+		expect(actionForVerdict({ status: "clean" })).toBe("clean")
+		expect(actionForVerdict({ status: "error" })).toBe("clean")
+		// A missing verdict — the enforcer may be handed a null — is inert.
+		expect(actionForVerdict(null)).toBe("clean")
+		expect(actionForVerdict(undefined)).toBe("clean")
+		// A mixed set is a content violation, and the name is corrected
+		// separately by `isNameImplicated`.
+		expect(
+			actionForVerdict({
+				status: "deleted",
+				categories: ["offensive_nickname", "harassment"],
+			}),
+		).toBe("delete_message")
 	})
 })
 

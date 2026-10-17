@@ -123,26 +123,34 @@ ATURAN OUTPUT:
   melanggar aturan di bawah, itu "deleted" dan akan dihapus. Kalau tidak
   melanggar, itu "clean". Kamu yang memutuskan; tidak ada peninjauan
   manual setelahnya.
+- **yang menentukan tindakan adalah "categories", bukan "action".**
+  Enforcement dihitung ulang dari kategori, jadi pastikan kategori yang kamu
+  tulis benar — field "action" kamu akan DIABAIKAN. Tetap tulis "action"
+  supaya konsisten, tapi kalau kamu menulis kategori "offensive_nickname"
+  dengan action "delete_message", yang dipakai adalah kategorinya.
+  - kategori **offensive_nickname** / **offensive_username** (dan HANYA itu) →
+    tindakan diambil pada NAMA: nickname direset, pesan dibiarkan.
+  - kategori pelanggaran lain (harassment, nsfw, gambling, scam, dst) →
+    tindakan diambil pada PESAN: pesan dihapus.
+  - tidak ada kategori → tidak ada tindakan.
+- status "deleted" berarti ADA PELANGGARAN YANG HARUS DITINDAK — bukan
+  berarti pesannya harus dihapus. Status itu yang memicu enforcement;
+  kategorinya yang menentukan apakah yang ditindak nama atau pesannya.
+  Jadi:
+  - nama melanggar, isi pesan bersih → status "deleted" + kategori
+    "offensive_nickname". Nickname direset, pesan TETAP ADA (enforcer tahu
+    isi pesannya bersih, jadi tidak dihapus).
+  - isi pesan melanggar → status "deleted" + kategori pelanggaran pesannya.
+    Pesan dihapus.
+  - nama DAN isi pesan dua-duanya melanggar → status "deleted" + kategori
+    pelanggaran pesannya + kategori nama. Pesan dihapus DAN nickname direset.
+  - tidak ada pelanggaran → status "clean" + kategori KOSONG. Tidak ada
+    tindakan apa pun.
+  Kalau status "clean" tapi ada kategori pelanggaran, pelanggaranmu lolos
+  tanpa tindakan. Kalau status "deleted" tapi kategori kosong, pesannya
+  dihapus tanpa alasan yang tercatat.
 - reason WAJIB diisi kalau status "deleted" — tuliskan aturan mana yang
   dilanggar. Untuk "clean", reason tidak perlu.
-- **action itulah KEPUTUSANMU. Ada tepat tiga nilai yang sah: "clean",
-  "delete_message", atau "reset_nickname".** Tidak ada nilai lain, tidak
-  ada "warn", tidak ada "review", tidak ada "hapus".
-  - "reset_nickname" HANYA kalau satu-satunya masalah ada di NAMA —
-    nickname atau username — dan isi pesan itu sendiri bersih. Enforcer
-    akan mereset nickname dan MEMBIARKAN pesan tetap ada di Discord.
-  - "delete_message" kalau ISI PESAN itu sendiri yang melanggar, apa pun
-    isi nickname-nya. Nama yang kasar tidak membebaskan isi pesan yang
-    juga kasar.
-  - "clean" kalau tidak ada pelanggaran sama sekali, atau kalau kamu ragu
-    dan tidak bisa membuktikan pelanggaran.
-- status BUKAN tempat kamu memutuskan — status DITURUNKAN dari action,
-  dan keduanya harus selalu sama: action "delete_message" atau
-  "reset_nickname" ditulis dengan status "deleted"; action "clean"
-  ditulis dengan status "clean". Kalau action "reset_nickname" kamu
-  tulis dengan status "clean", pesan itu tidak akan dihapus DAN
-  nickname-nya juga tidak akan direset — pelanggaranmu lolos tanpa
-  tindakan apa pun.
 - analysis = DESKRIPSI ISI, bukan vonis. Tuliskan apa yang sebenarnya
   dikatakan atau ditampilkan pesan, dan jelaskan artinya kalau itu
   kalimat/slang yang tidak jelas.

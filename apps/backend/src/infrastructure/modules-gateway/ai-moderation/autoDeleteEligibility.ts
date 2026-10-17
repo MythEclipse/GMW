@@ -41,15 +41,15 @@ const logger = createChildLogger("auto-delete-eligibility")
 export interface VerdictLike {
 	status: string
 	/**
-	 * The model's disposition, as `verdicts.action` stores it: `clean`,
-	 * `delete_message`, or `reset_nickname`.
+	 * The enforcement recorded in `verdicts.action`: `clean`, `delete_message`,
+	 * or `reset_nickname`. DERIVED from `categories` by `actionForVerdict`, not
+	 * supplied by the model.
 	 *
 	 * Optional and nullable because the column is new, so every row written
 	 * before it reads NULL — and because `readVerdict`'s legacy `messages.ai_*`
 	 * fallback has no equivalent at all. That is the degraded path, not the
-	 * normal one: the enforcer derives the disposition from `status` when it is
-	 * absent, which is exactly the behaviour that shipped before the column
-	 * existed.
+	 * normal one: nothing here reads this field, because the enforcer re-derives
+	 * the disposition from the category and `status`.
 	 */
 	action?: string | null
 	confidence?: number | null
@@ -139,6 +139,29 @@ export function parseModerationFlags(
 	const v = readVerdict(message, verdict)
 	if (v.flags && v.flags.length > 0) return v.flags
 	return []
+}
+
+/**
+ * The category list a row effectively carries, with `flags` as the fallback.
+ *
+ * This mirrors `actionForVerdict` in `verdictParser.ts` exactly, and it must: the
+ * ACTION is derived from that value, so a predicate here reading only one of the
+ * two fields would disagree with the enforcement it is supposed to describe — a
+ * row with `categories: ["offensive_nickname"], flags: []` would be enforced on
+ * the NAME while a flags-only reader reported no name involvement at all.
+ *
+ * The model routinely fills one field and not the other, and the fallback fires
+ * on an EMPTY array rather than only on null, because `[]` is what an unfilled
+ * array field arrives as.
+ */
+export function effectiveCategories(
+	message: MessageLike,
+	verdict?: VerdictLike | null,
+): string[] {
+	const v = readVerdict(message, verdict)
+	const categories = (v.categories ?? []).filter((c): c is string => Boolean(c))
+	if (categories.length > 0) return categories
+	return (v.flags ?? []).filter((f): f is string => Boolean(f))
 }
 
 /**
@@ -289,7 +312,13 @@ export function isNicknameOnlyViolation(
 	// be defeated by how the model chose to phrase its summary.
 	if (nicknameCarriesInsult(message)) return true
 
-	const flags = parseModerationFlags(message, verdict)
+	// The EFFECTIVE categories, not the raw `flags` array. The parser stores
+	// both and derives the action from `categories ?? flags`, so a category-only
+	// row (`categories: ["offensive_nickname"], flags: []`) is enforced on the
+	// name — and reading only `flags` here would return false for it and fall
+	// through to the delete path. That is the original bug with the field names
+	// swapped, so both readers use the same helper.
+	const flags = effectiveCategories(message, verdict)
 	if (flags.length === 0) return false
 
 	// Path 1: every flag names the NAME, so no flag claims the body violates.
@@ -329,22 +358,70 @@ export function isNicknameOnlyViolation(
 }
 
 /**
- * True when the member holds any role the operator exempted.
+ * Whether the member's NAME is implicated in the violation.
  *
- * ## Why a role exemption and not a user exemption
+ * The counterpart to `isNicknameOnlyViolation` for the case where a CONTENT
+ * violation also exists: there the message must still go, but the name needs
+ * correcting too. The manager uses this to decide whether to attempt a reset
+ * alongside a deletion.
  *
- * `AUTO_DELETE_EXCLUDED_USER_IDS` already exists, but it does not cover this
- * case. These are the server's ADMIN roles: any nick reset or deletion against
- * their holders cannot be performed at all, because Discord refuses
- * (`50013 Missing Permissions`) for a target whose top role sits above the
- * account's. Prod proof: 48 of 59 `moderation_actions` rows are
- * `status='failed'`, `error='error'` — the account repeatedly attempting an
- * enforcement that Discord had already refused.
+ * Both halves are needed, and each covers the other's blind spot:
  *
- * A role list is the right key because it survives staff turnover: a new admin
- * is covered the moment they are given the role, with no config edit and no
- * redeploy. Exempting today's *holders* by user id would silently start
- * failing again the next time an admin is appointed.
+ * - The FLAG alone is too broad. `identity_attack` and `name_targeting` also
+ *   describe a body that turns on the reader's identity, so they are NOT treated
+ *   as name evidence here — only the two flags that name the name are.
+ * - The CAPTURED NAME alone misses the flagged case. A promo nickname
+ *   ("Cara sukses modal jual kelas AI") contains no insult term at all, so the
+ *   text cannot reveal it; only the model's `offensive_nickname` category can.
+ */
+export function isNameImplicated(
+	message: MessageLike,
+	verdict?: VerdictLike | null,
+): boolean {
+	// The effective categories, not the raw `flags`: the parser stores the
+	// category list with `flags` as a fallback and derives the ACTION from that
+	// same value, so reading only `flags` here would let a category-only row
+	// (`categories: ["offensive_nickname"], flags: []`) be enforced on the name
+	// by the action while this predicate reported that no name was involved.
+	if (
+		effectiveCategories(message, verdict).some((c) => NICKNAME_FLAGS.has(c))
+	) {
+		return true
+	}
+	const nick = readServerNickname(message)
+	if (!nick) return false
+	const cleanNick = normaliseName(nick)
+	return INSULT_TERMS.some((term) => cleanNick.includes(term))
+}
+
+/**
+ * True when the member holds a role whose NICKNAME may not be changed.
+ *
+ * ## Scope: this skips the nickname reset, NOT the message deletion
+ *
+ * The two are different permissions and must not be conflated:
+ *
+ *  - Deleting a message needs `MANAGE_MESSAGES` in that CHANNEL. A member with
+ *    a high role does not stop the account from deleting their message, and the
+ *    manager already verifies that permission before acting.
+ *  - Changing a nickname is bounded by ROLE HIERARCHY. Discord answers
+ *    `50013 Missing Permissions` for any target whose top role sits above the
+ *    account's, no matter what permissions it holds. So these members can never
+ *    be renamed, and every attempt was a doomed PATCH.
+ *
+ * An earlier version of this guard returned false from
+ * `isEligibleForAutoDelete`, which ALSO blocked deletion — i.e. it exempted the
+ * server's admins from moderation entirely. That is the opposite of what the
+ * operator asked for, and it is a real hole: the members most able to abuse the
+ * server were the ones whose messages were spared. The gate now applies only
+ * where the permission actually fails.
+ *
+ * ## Why a role list rather than a user list
+ *
+ * `AUTO_DELETE_EXCLUDED_USER_IDS` already exists, but a role list survives
+ * staff turnover: a new admin is covered the moment they are given the role,
+ * with no config edit and no redeploy. Exempting today's *holders* by user id
+ * would silently start failing again the next time an admin is appointed.
  *
  * The roles are read from the metadata captured WITH the message, so no Discord
  * fetch is needed and the decision is against the member's roles at send time.
@@ -386,18 +463,13 @@ export function isEligibleForAutoDelete(
 	const v = readVerdict(message, verdict)
 	const status = v.status
 
-	// Exempt roles are checked FIRST, before the decision is even consulted.
-	// This is not an evidence gate — it is a statement about what the account
-	// is ABLE to do. Enforcement against a holder of an exempt role is refused
-	// by Discord (50013) every time, so letting it through only produces failed
-	// audit rows for an action no code path can complete.
-	if (holdsExemptRole(message)) {
-		logger.debug(
-			{ messageId: message.id },
-			"Not eligible: sender holds an exempt role",
-		)
-		return false
-	}
+	// NOTE: exempt roles are deliberately NOT checked here. The exemption is
+	// about the NICKNAME, not the message: Discord refuses `setNickname`
+	// (50013) for a member whose top role is above the account's, but a member
+	// with a high role can still post a message the account is allowed to
+	// delete. Blocking deletion here would silently stop moderating exactly the
+	// people most able to abuse the server. The reset is what is skipped, and
+	// that gate lives in the manager beside the reset call.
 
 	// The decision. `status` is the only thing that authorises a deletion, and
 	// `error` is a keep by construction — "could not judge" is not evidence of a

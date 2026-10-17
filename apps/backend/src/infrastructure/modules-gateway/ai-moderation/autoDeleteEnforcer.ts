@@ -94,6 +94,21 @@ async function claimUnenforced(limit: number): Promise<Row[]> {
 	// 2. `FOR UPDATE OF v SKIP LOCKED` locks only the verdict rows, so two
 	//    gateway processes can never both act on the same message and neither
 	//    blocks waiting on the other.
+	//
+	// 3. `status = 'deleted'` is the "there is a violation to act on" flag, and
+	//    it is NOT the same as "delete the message" — that is the category's job.
+	//    A name-only violation is claimed here (status `deleted`) and then the
+	//    manager KEEPS the message and resets the nickname instead, because
+	//    `isNicknameOnlyViolation` reads the clean body. This one gate therefore
+	//    covers both enforcement kinds, and the partial index below stays usable.
+	//
+	//    That is why widening this predicate with an OR arm for name categories
+	//    is wrong: it would defeat `idx_verdicts_auto_delete_pending` (whose
+	//    predicate is exactly `status = 'deleted'`) to admit rows the prompt
+	//    never produces. All 51 real `offensive_nickname` verdicts in production
+	//    are `status = 'deleted'`, and `policy.ts` requires that, so the rows
+	//    arrive claimable. A prompt the model can disobey is not a reason to
+	//    make the enforcer's hot query unscannable.
 	const res = await db.execute(sql`
     WITH candidates AS (
       SELECT v.message_id
@@ -192,10 +207,11 @@ async function tick(client: Client): Promise<void> {
 		for (const row of rows) {
 			const verdict: VerdictLike = {
 				status: row.status,
-				// The model's disposition, straight from the verdict row. NULL on every
-				// row written before the column existed, and on error verdicts — the
-				// manager derives the outcome from `status` when it is absent, so a
-				// missing value is the old behaviour, not a new failure mode.
+				// Straight from the verdict row, for the audit trail only. The
+				// manager does NOT read it: enforcement is re-derived from the
+				// category here, in the gateway process, because the row was
+				// written by the worker and may predate this build. NULL on every
+				// row written before the column existed, which changes nothing.
 				action: row.action,
 				confidence: row.confidence,
 				score: row.score,

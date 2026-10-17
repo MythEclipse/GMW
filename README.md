@@ -116,6 +116,31 @@ Auto-delete has no dry-run and no disable switch, but it does have gates:
   body violates in its own right, BOTH are enforced — the message is deleted and
   the nickname is reset, and each is written as its own `moderation_actions` row
 
+### Enforcement follows the violation CATEGORY, not the model's opinion
+
+Which action a verdict gets is DERIVED (`actionForCategories` in
+`verdictParser.ts`), never taken from the model's `action` field:
+
+- a category set made up entirely of NAME categories (`offensive_nickname`,
+  `offensive_username`) is enforced on the NAME — nickname reset, message kept
+- any other violating category is enforced on the MESSAGE — message deleted
+- `error` is inert: "could not judge" is not evidence, so it never authorises
+  enforcement
+
+The model still names the CATEGORY, which is judgement and where it is
+reliable; it no longer decides what happens. Production had 51 verdicts
+correctly categorised `offensive_nickname` whose model-supplied action still
+deleted the message and left the nickname untouched, and the claimed reset never
+once ran. `verdicts.action` is now a record of the derived outcome, not an input.
+
+`AUTO_DELETE_EXEMPT_ROLE_IDS` (defaults to the admin and bot roles) skips the
+NICKNAME RESET only. Discord answers `50013 Missing Permissions` for
+`setNickname` against a member whose top role outranks the account's, so the
+PATCH is not attempted for those members — but the exemption says nothing about
+deleting, which needs `MANAGE_MESSAGES` in the channel. Gating deletion on the
+role would exempt the server's admins from moderation entirely, which is exactly
+backwards: they are the members most able to abuse it.
+
 Every attempt writes a `moderation_actions` row (`pending` / `executed` /
 `failed`) — that table, not `messages.deleted_at`, is how you tell what the
 bot did. `deleted_at` is written only from Discord's own delete event and fires

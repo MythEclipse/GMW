@@ -30,13 +30,14 @@ import { messageStore } from "../message-capture/messageStore.js"
 import {
 	holdsExemptRole,
 	isEligibleForAutoDelete,
+	isNameImplicated,
 	isNicknameOnlyViolation,
 	type MessageLike,
 	type VerdictLike,
 } from "./autoDeleteEligibility.js"
 import { logAlreadyDeleted, logDeletionToChannel } from "./autoDeleteLogger.js"
 import { createDefaultGateway } from "./llmGateway.js"
-import { normaliseAction } from "./verdictParser.js"
+import { actionForVerdict } from "./verdictParser.js"
 import { verdictToActionFields } from "./verdictToActionFields.js"
 
 const logger = createChildLogger("auto-delete-manager")
@@ -321,6 +322,78 @@ export async function resetOffensiveNickname(
 }
 
 /**
+ * The nickname reset, and the audit row that records it — one place.
+ *
+ * Three gates, in order, and each has its own outcome so the caller can report
+ * honestly rather than collapsing them into a boolean:
+ *
+ *  1. EXEMPT ROLE. Discord refuses `setNickname` (50013) for a member whose top
+ *     role is above the account's, so the reset is not attempted at all. This is
+ *     a permission fact, not a judgement about the violation — which is why it
+ *     skips the RESET while the message deletion proceeds normally.
+ *  2. COOLDOWN. One PATCH per member per window; the reset is idempotent and
+ *     hammering it risks rate limits.
+ *  3. The PATCH itself, with the failure recorded as `nickname_reset_failed`.
+ *
+ * Extracted so both call sites (the nickname-only branch and the "body violates
+ * too" branch) cannot drift: a duplicated reset is how the earlier version came
+ * to log a reset it never performed in one branch.
+ */
+async function applyNicknameReset(
+	client: Client | undefined,
+	message: AutoDeleteInput,
+	verdict: VerdictLike | null | undefined,
+	reason: string,
+): Promise<"reset" | "exempt_role" | "cooldown"> {
+	if (holdsExemptRole(message)) {
+		logger.debug(
+			{ messageId: message.id, userId: message.user_id },
+			"Nick reset skipped: sender holds a role above this account (Discord 50013)",
+		)
+		return "exempt_role"
+	}
+	if (isNicknameResetInCooldown(message.guild_id, message.user_id)) {
+		logger.debug(
+			{ messageId: message.id, userId: message.user_id },
+			"Nick reset skipped: cooldown active",
+		)
+		return "cooldown"
+	}
+
+	const resetOk = await resetOffensiveNickname(
+		client,
+		message.guild_id,
+		message.user_id,
+		message.id,
+	)
+	try {
+		await messageStore.createModerationAction({
+			message_id: message.id,
+			user_id: message.user_id,
+			guild_id: message.guild_id,
+			action_type: "reset_nickname",
+			reason,
+			...verdictToActionFields(message, verdict),
+			username: message.username ?? null,
+			server_nick: resolveServerNick(message),
+			executed_by: "auto-delete-manager",
+			status: resetOk ? "executed" : "failed",
+			error: resetOk ? null : "nickname_reset_failed",
+			executed_at: resetOk ? Date.now() : null,
+		} as never)
+	} catch (error) {
+		logger.warn(
+			{
+				messageId: message.id,
+				error: error instanceof Error ? error.message : String(error),
+			},
+			"Failed to persist nickname reset action log",
+		)
+	}
+	return "reset"
+}
+
+/**
  * Decide whether a just-judged message should be deleted, and do it.
  *
  * Called by the gateway for every message the worker has judged. Returns a
@@ -334,209 +407,92 @@ export async function attemptAutoDeleteFlaggedMessage(
 ): Promise<AutoDeleteResult> {
 	logger.debug({ messageId: message.id }, "Processing message for auto-delete")
 
-	// ── The model's chosen disposition ─────────────────────────────────
-	// `verdicts.action` is what the model decided should happen, so it is read
-	// first and the boolean classifier below is demoted to a safety net. The
-	// ordering is the whole point: a decision that must not be re-writable by the
-	// model belongs on evidence, and `action` IS evidence — a named field rather
-	// than a phrase the model chose to write.
+	// ── The enforcement, derived from the CATEGORY ─────────────────────
+	// Not from the model's own `action` field, and not from a remembered
+	// preference. Enforcement follows the violation category, so the same
+	// category always produces the same action — which is what stops a model
+	// from deleting a message over a nickname. `actionForCategories` is the one
+	// rule, shared with the parser.
 	//
-	// Re-validated here rather than trusted from the parser, because the two run
-	// in DIFFERENT PROCESSES: the worker parses and persists, the gateway
+	// Read from the verdict row rather than trusted from the parser, because the
+	// two run in DIFFERENT PROCESSES: the worker parses and persists, the gateway
 	// enforces, and anything in between (an older row, a hand-written verdict, a
-	// future writer) can put a value in that column this code has never seen.
-	const modelAction = normaliseAction(verdict?.action)
+	// future writer) can hold a value this code has never seen. Deriving it here
+	// means a legacy row is also classified by its category — prod's 51
+	// `offensive_nickname` rows carry that category, so they resolve correctly
+	// even though their stored `action` came from the old code path.
+	const enforced = actionForVerdict(verdict)
 
-	// ── Exempt roles: the account cannot enforce against these members ───
-	// Checked before ANY disposition, and before the nickname-reset branch in
-	// particular. `resetOffensiveNickname` already guards on `member.manageable`
-	// (hierarchy-aware), so these members were never actually renamed — but the
-	// refusal arrived as a Discord error, was logged as `nickname_reset_failed`,
-	// and wrote a `failed` audit row for an action the account is structurally
-	// unable to perform. Deciding it here turns a recurring fake failure into
-	// one honest skip with a named reason.
-	if (holdsExemptRole(message)) {
-		const result: AutoDeleteResult = {
-			deleted: false,
-			skipped: true,
-			reason: "exempt_role",
-		}
-		logger.info(
-			{
-				messageId: message.id,
-				userId: message.user_id,
-				reason: result.reason,
-			},
-			"Auto-delete skipped: sender holds an exempt role",
-		)
-		return result
-	}
-
-	// ── Nickname-only violation: reset the nick, keep the message ─────
-	// When the only flag is about the name, the problem is the nickname, not
-	// the content. Enforcement is removing the nickname, not deleting the text.
+	// ── Nickname violation: reset the nick, keep the message ─────
+	// The violation is in the NAME, so enforcement acts on the name and the
+	// message stays.
 	//
-	// Checked regardless of what the model said, and the model is overridden when
-	// it disagrees. The shipped regression: user 1052035456688205854, nickname
-	// "adit cuking", body "Nandayo" — the verdict blamed the NICKNAME, and the
-	// message was deleted while the name survived. A model answering
-	// `delete_message` for a violation that lives in the name is making exactly
-	// that mistake again, so it is not taken at its word while the evidence says
-	// otherwise.
+	// The predicate is `isNicknameOnlyViolation`, and it is the one that decides,
+	// because it is the only thing that can answer the question the category
+	// cannot. `enforced === "reset_nickname"` says "every category named the
+	// name"; it does NOT say the body is clean, and a message whose body also
+	// insults someone must still be deleted. Taking the category alone as
+	// sufficient would be the jail card in a new costume: categorise a message
+	// `offensive_nickname` and any abusive body escapes.
+	//
+	// `isNicknameOnlyViolation` reads the SAME effective categories (so a
+	// category-only row is still classified by its category) and additionally
+	// requires the body to be free of insult terms. It therefore contains the
+	// category test — `reset_nickname` is only derivable from name categories,
+	// and those are exactly the ones its path 1 accepts — and adds the body check
+	// that makes the difference between sparing a message and letting one
+	// through. One predicate, one source of truth for the insult terms.
+	//
+	// It is also a SAFETY NET over the category, which is the point of checking
+	// evidence at all: the shipped regression is user 1052035456688205854,
+	// nickname "adit cuking", body "Nandayo" — categorised `harassment`, so a
+	// purely category-driven decision deleted the message and left the name
+	// standing. A model that miscategorises a name violation as a content one
+	// must not thereby delete the message.
 	if (isNicknameOnlyViolation(message, verdict)) {
-		if (modelAction !== null && modelAction !== "reset_nickname") {
-			logger.warn(
-				{
-					messageId: message.id,
-					userId: message.user_id,
-					modelAction,
-					enforced: "reset_nickname",
-				},
-				"Model asked for a different action on a nickname-only violation — " +
-					"overridden to nickname reset, message kept",
-			)
-		}
-		if (!isNicknameResetInCooldown(message.guild_id, message.user_id)) {
-			const resetOk = await resetOffensiveNickname(
-				client,
-				message.guild_id,
-				message.user_id,
-				message.id,
-			)
-			try {
-				await messageStore.createModerationAction({
-					message_id: message.id,
-					user_id: message.user_id,
-					guild_id: message.guild_id,
-					action_type: "reset_nickname",
-					reason:
-						"nickname melanggar aturan server (offensive_username); pesan dibiarkan",
-					...verdictToActionFields(message, verdict),
-					username: message.username ?? null,
-					server_nick: resolveServerNick(message),
-					executed_by: "auto-delete-manager",
-					status: resetOk ? "executed" : "failed",
-					error: resetOk ? null : "nickname_reset_failed",
-					executed_at: resetOk ? Date.now() : null,
-				} as never)
-			} catch (error) {
-				logger.warn(
-					{
-						messageId: message.id,
-						error: error instanceof Error ? error.message : String(error),
-					},
-					"Failed to persist nickname reset action log",
-				)
-			}
-		}
+		const outcome = await applyNicknameReset(
+			client,
+			message,
+			verdict,
+			"nickname melanggar aturan server; pesan dibiarkan",
+		)
 		logger.info(
-			{ messageId: message.id, userId: message.user_id },
-			"Nickname-only violation: message kept, nickname reset attempted",
+			{ messageId: message.id, userId: message.user_id, outcome, enforced },
+			"Nickname violation: message kept, nickname reset attempted",
 		)
 		return {
 			deleted: false,
 			skipped: true,
-			reason: "nickname_only_violation",
+			reason:
+				outcome === "exempt_role"
+					? "nickname_reset_exempt_role"
+					: "nickname_only_violation",
 		}
 	}
 
-	// ── Model chose a nickname reset, and the evidence does not object ──
-	// `isNicknameOnlyViolation` above is the evidence check that overrides a model
-	// asking to delete. This is its mirror: a model asking for a name reset still
-	// gets one when nothing else is wrong, because the only cost is a member's
-	// nickname going back to their username — and the named field is now the only
-	// carrier of that intent, since it used to be recovered from the prose the
-	// model itself wrote.
+	// ── A content violation whose name is ALSO implicated ──────────────
+	// The message goes, and the name is corrected alongside it. This is the
+	// mirror of the branch above: `isNicknameOnlyViolation` returned false,
+	// which is ambiguous — it means either "no nickname problem" or "a nickname
+	// problem PLUS a rude body".
 	//
-	// Runs AFTER the evidence check, never instead of it. That check returned false
-	// here, which is ambiguous: it means either "no nickname problem" or "a
-	// nickname problem PLUS a rude body", and those two demand opposite
-	// enforcement. `isEligibleForAutoDelete` is what tells them apart, so the
-	// decision is delegated rather than re-derived — a second copy of the
-	// insult-term list would be a second thing to drift out of step with the first.
-	//
-	// A body that violates in its own right still gets deleted below, and `action`
-	// is not a veto: honouring `reset_nickname` there would hand the model a
-	// get-out-of-jail card — name the action and keep any message. Only the NAME is
-	// reset; the abusive message still goes.
-	if (
-		modelAction === "reset_nickname" &&
-		!isNicknameOnlyViolation(message, verdict)
-	) {
-		// Computed ONCE. This is the ambiguity resolver for the check above, and
-		// asking twice invites the two answers to drift apart the moment either
-		// predicate changes.
-		const messageIsBeingDeleted = isEligibleForAutoDelete(message, verdict)
-
-		// The nickname reset happens in BOTH sub-cases, and that is the fix.
-		//
-		// It used to run only in the `else` — the branch where the message was
-		// NOT being deleted — while the `if` logged that a reset had been
-		// applied. So for a member with an offensive name whose message body also
-		// violated, the message was deleted and the NAME was left alone, under a
-		// log line asserting the opposite. Production: 51 of those log lines and
-		// zero "Offensive nickname reset" lines — the claimed reset never once
-		// ran. Both violations are real, so both are now enforced.
-		//
-		// Not gated on evidence that the name is rude: `reset_nickname` is the
-		// model's named disposition and the shipped contract is that it is
-		// honoured on its own, because the only cost is a member's nickname going
-		// back to their username. The guard against a body violation is the
-		// `isNicknameOnlyViolation` check above, not this.
-		const canReset = !isNicknameResetInCooldown(
-			message.guild_id,
-			message.user_id,
+	// It used to perform the reset only in the "message not being deleted"
+	// sub-case, while logging that a reset had been applied in the other. So for
+	// a member whose name AND body both violated, the message was deleted and the
+	// NAME was left alone, under a log line asserting the opposite. Production:
+	// 51 of those log lines and ZERO "Offensive nickname reset" lines — the
+	// claimed reset never once ran.
+	if (isNameImplicated(message, verdict)) {
+		const outcome = await applyNicknameReset(
+			client,
+			message,
+			verdict,
+			"nickname juga melanggar; nickname direset dan pesan dihapus",
 		)
-
-		if (canReset) {
-			const resetOk = await resetOffensiveNickname(
-				client,
-				message.guild_id,
-				message.user_id,
-				message.id,
-			)
-			try {
-				await messageStore.createModerationAction({
-					message_id: message.id,
-					user_id: message.user_id,
-					guild_id: message.guild_id,
-					action_type: "reset_nickname",
-					reason: messageIsBeingDeleted
-						? "nickname juga melanggar; nickname direset dan pesan dihapus"
-						: "model memilih action reset_nickname; pesan dibiarkan",
-					...verdictToActionFields(message, verdict),
-					username: message.username ?? null,
-					server_nick: resolveServerNick(message),
-					executed_by: "auto-delete-manager",
-					status: resetOk ? "executed" : "failed",
-					error: resetOk ? null : "nickname_reset_failed",
-					executed_at: resetOk ? Date.now() : null,
-				} as never)
-			} catch (error) {
-				logger.warn(
-					{
-						messageId: message.id,
-						error: error instanceof Error ? error.message : String(error),
-					},
-					"Failed to persist nickname reset action log",
-				)
-			}
-		}
-		// Return WITHOUT deleting only when the message itself is not being
-		// deleted. When `isEligibleForAutoDelete` was true above, fall through to
-		// the delete path instead: the nickname gets reset here AND the abusive
-		// message gets deleted below.
-		if (!messageIsBeingDeleted) {
-			logger.info(
-				{ messageId: message.id, userId: message.user_id },
-				"Model chose reset_nickname: message kept, nickname reset attempted",
-			)
-			return {
-				deleted: false,
-				skipped: true,
-				reason: "model_action_reset_nickname",
-			}
-		}
+		logger.info(
+			{ messageId: message.id, userId: message.user_id, outcome },
+			"Content violation with a flagged name: nickname reset attempted, message still deleted",
+		)
 	}
 
 	// ── Eligibility gate ─────────────────────────────────────────────

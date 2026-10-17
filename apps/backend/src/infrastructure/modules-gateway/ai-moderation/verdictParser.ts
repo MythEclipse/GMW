@@ -43,14 +43,19 @@ export type ParsedVerdict = {
 	/** THE decision. `deleted` means "remove this"; `error` means "needs a human". */
 	status: "clean" | "deleted" | "error"
 	/**
-	 * WHICH enforcement the model chose, as a three-valued disposition.
+	 * WHICH enforcement applies, DERIVED from the violation category.
 	 *
-	 * Deliberately NOT a second decision: `status` still says whether the message
-	 * is a violation, and `action` says what happens to it. `clean` and
-	 * `delete_message` are DERIVED from `status` and carry no new information.
-	 * `reset_nickname` is the one outcome `status` cannot express — the violation
-	 * lives in the member's name while the message itself stays up in Discord —
-	 * so this is the only place the model's disposition survives.
+	 * Not the model's choice. `actionForCategories` computes it from
+	 * `categories` plus `status`, and the model's own `action` field is
+	 * discarded on the way in — a model asked to name its own disposition got
+	 * it wrong in prod: 51 verdicts categorised `offensive_nickname` whose
+	 * action still deleted the MESSAGE and left the nickname alone.
+	 *
+	 * So: the model answers "what rule was broken" (categories), the policy
+	 * answers "what happens then" (this field). `clean` and `delete_message`
+	 * follow `status`; `reset_nickname` is the one outcome `status` cannot
+	 * express, because the violation lives in the member's NAME while the
+	 * message itself stays up in Discord.
 	 */
 	action: VerdictAction
 	/** Required when `status` is `deleted`; the cause of the violation. */
@@ -106,55 +111,127 @@ export type VerdictAction = (typeof VERDICT_ACTIONS)[number]
 const ACTION_SET: ReadonlySet<string> = new Set(VERDICT_ACTIONS)
 
 /**
- * Read a model-supplied `action` into the three-value set, or return null.
+ * The violation categories that are enforced on the member's NAME.
  *
- * Null means "the model did not give us a value we understand", and the caller
- * decides what to do about it. It deliberately does NOT guess: an unrecognised
- * disposition must be distinguishable from a deliberate `clean`, because a
- * hallucinated `action` field is exactly as untrustworthy as a hallucinated
- * `status` and must not be laundered into a decision.
+ * ## Why this list exists, and why it — not the model — picks the action
+ *
+ * Enforcement is a property of the POLICY, not of the model's opinion. A model
+ * asked to name its own disposition gets it wrong in ways no prompt fixes: prod
+ * had 51 verdicts whose category was `offensive_nickname` and whose action still
+ * produced a deleted MESSAGE with the nickname left alone. The category was
+ * right and the disposition was not.
+ *
+ * So the mapping is mechanical and lives here: a message whose only violation
+ * category is a name category is enforced on the name (`reset_nickname`), and
+ * everything else is enforced on the message (`delete_message`). The model is
+ * still asked to identify the CATEGORY — that is judgement, and a model is
+ * better at it than a regex — but it no longer chooses what happens.
+ *
+ * Adding a category here is how a new name-based rule gets name-based
+ * enforcement. Nothing else needs to change.
+ */
+export const NAME_ONLY_CATEGORIES = [
+	"offensive_nickname",
+	"offensive_username",
+] as const
+
+const NAME_ONLY_CATEGORY_SET: ReadonlySet<string> = new Set(
+	NAME_ONLY_CATEGORIES,
+)
+
+/**
+ * The enforcement a verdict gets, derived from its CATEGORY and nothing else.
+ *
+ * This is the single rule. It deliberately takes no model-supplied `action`:
+ * accepting one as an input is what let a model delete a message over a
+ * nickname, and a parameter that must never be trusted is better absent from the
+ * signature than validated inside it.
+ *
+ *  - `error` is inert. "Could not judge" is not evidence of a violation, so it
+ *    can never authorise enforcement — the same reason it is not `deleted`.
+ *  - A category set that is ENTIRELY name categories is a name violation. The
+ *    body may still be rude — that is caught separately by
+ *    `isEligibleForAutoDelete`/`isNicknameOnlyViolation`, which read the text —
+ *    but the policy's judgement is that the name is what needs fixing.
+ *  - Anything else follows `status`: `deleted` means the message goes.
+ *
+ * A category set that mixes name and content categories is NOT a name
+ * violation: `["offensive_nickname", "harassment"]` says the body violates too,
+ * so the message goes (and the manager resets the name alongside it).
+ */
+export function actionForCategories(
+	categories: readonly string[] | null | undefined,
+	status: string,
+): VerdictAction {
+	if (status === "error") return "clean"
+
+	const cats = (categories ?? []).filter((c): c is string => Boolean(c))
+	if (
+		cats.length > 0 &&
+		cats.every((category) => NAME_ONLY_CATEGORY_SET.has(category))
+	) {
+		return "reset_nickname"
+	}
+
+	return status === "deleted" ? "delete_message" : "clean"
+}
+
+/**
+ * The categories a stored row effectively carries, and the action that follows.
+ *
+ * `categories` falls back to `flags` because the model routinely fills one field
+ * and not the other, and the ENFORCEMENT is derived from this value while a
+ * reader may be looking at the raw column. Computing the action from raw
+ * `categories` in one place and from the fallback in another is how the two
+ * disagree — the exact class of bug this whole change removes (a stored category
+ * that says `offensive_nickname` next to an action that deleted the message).
+ *
+ * The fallback triggers on an EMPTY array, not merely on null, because `[]` is
+ * what an unfilled array field arrives as. Treating `[]` as "answered, and the
+ * answer is nothing" would silently drop the flags beside it.
+ *
+ * The manager runs in a DIFFERENT PROCESS from the worker that wrote the row, so
+ * it re-derives rather than trusting the stored `action`: an older row, a
+ * hand-written verdict, or a future writer can all hold a value this build has
+ * never seen, and deriving means a legacy row is still classified by its
+ * category.
+ */
+export function actionForVerdict(
+	verdict:
+		| {
+				status?: string | null
+				categories?: readonly string[] | null
+				flags?: readonly string[] | null
+		  }
+		| null
+		| undefined,
+): VerdictAction {
+	if (!verdict) return "clean"
+
+	const categories = (verdict.categories ?? []).filter((c): c is string =>
+		Boolean(c),
+	)
+	const flags = (verdict.flags ?? []).filter((f): f is string => Boolean(f))
+	const effective = categories.length > 0 ? categories : flags
+
+	return actionForCategories(effective, verdict.status ?? "pending")
+}
+
+/**
+ * Read a stored `action` value into the three-value set, or return null.
+ *
+ * Null means "not a value we understand". It deliberately does NOT guess: an
+ * unrecognised disposition must be distinguishable from a deliberate `clean`,
+ * because a hallucinated `action` field is exactly as untrustworthy as a
+ * hallucinated `status` and must not be laundered into a decision.
+ *
+ * Used to READ rows written by older builds, never to decide enforcement —
+ * `actionForCategories` decides, and it does not accept this value as an input.
  */
 export function normaliseAction(value: unknown): VerdictAction | null {
 	if (typeof value !== "string") return null
 	const trimmed = value.trim()
 	return ACTION_SET.has(trimmed) ? (trimmed as VerdictAction) : null
-}
-
-/**
- * The disposition a verdict takes when the model named none we understand.
- *
- * Derives from `status`, and from `status` ALONE — which is what makes this the
- * safe direction to fail in. `status` is the field that already gates every
- * deletion, so falling back to it reproduces exactly the behaviour that shipped
- * before `action` existed. The alternatives are both worse: defaulting a
- * `deleted` verdict to `clean` would silently stop every deletion in the
- * pipeline the first time a model ignored the new field, and defaulting a
- * `clean` one to `delete_message` would let a hallucinated field delete
- * messages outright.
- */
-function actionFromStatus(status: string): VerdictAction {
-	return status === "deleted" ? "delete_message" : "clean"
-}
-
-/**
- * The disposition to store, reconciling the model's answer with `status`.
- *
- * Exported because this is the single place the two fields are made to agree,
- * and a caller that writes `verdicts` needs the same rule the parser used —
- * writing the raw model value instead is how a self-contradictory row
- * (`status: 'deleted'`, `action: 'clean'`) appears.
- */
-export function resolveAction(
-	modelAction: VerdictAction | null,
-	status: string,
-): VerdictAction {
-	// The one disposition `status` cannot express: a violation in the member's
-	// name, with the message itself left standing. Honoured on a `clean` status
-	// too, because it deletes nothing — it is the model's explicit statement that
-	// a name needs resetting, and dropping it would be the same infer-from-prose
-	// defect this field was added to remove.
-	if (modelAction === "reset_nickname") return "reset_nickname"
-	return actionFromStatus(status)
 }
 
 /** Deferral language. Kept from v1 so policy behaviour does not drift. */
@@ -385,35 +462,30 @@ export function parseVerdicts(
 		const flags = asStringArray(raw_.flags)
 		const categories = asStringArray(raw_.categories)
 
+		// The categories the row will actually carry. `flags` is the fallback
+		// because the model often fills one field and not the other, and the
+		// ENFORCEMENT is derived from this same value — computing the action from
+		// the raw `categories` and storing the fallback would let the two disagree,
+		// which is precisely the class of bug (action not following category) this
+		// change removes.
+		const effectiveCategories = categories.length > 0 ? categories : flags
+
 		const reason = typeof raw_.reason === "string" ? raw_.reason.trim() : ""
 
-		// The model's disposition, or the pre-existing derivation if it named none
-		// we understand.
+		// The model's disposition is NOT read, and that is the point.
 		//
-		// Never a degradation to `error`: unlike `status`, an unusable `action`
-		// must not cost us the verdict. `status` is still valid, the judgement is
-		// still real, and the whole batch would be one hallucinated field away from
-		// being thrown away — the exact D10 failure this parser was rewritten to
-		// eliminate. A bad disposition degrades the DISPOSITION.
-		const modelAction = normaliseAction(raw_.action)
-
-		// One rule, two cases: `reset_nickname` is the only disposition that
-		// survives a contradicting `status`, and everything else is derived from it.
+		// `action` used to be a model-supplied field, and the model got it
+		// wrong where it mattered most: prod had 51 verdicts correctly
+		// categorised `offensive_nickname` whose action still deleted the
+		// MESSAGE and left the nickname alone. The category was the reliable
+		// output; the disposition was not. Enforcement is now derived from the
+		// category by `actionForCategories`, so there is one rule instead of a
+		// model opinion to police.
 		//
-		// Honoured on a `clean` status — the model found a name violation but
-		// declined to call the message one. That deletes nothing, and it is the
-		// model's explicit statement that a name needs resetting.
-		//
-		// Everything else follows `status`, because `status` is the field the schema
-		// constrains and the only one that ever authorised a deletion. So an
-		// explicit `clean` beside `status: "deleted"` collapses to
-		// `delete_message`: the model cannot have meant "this is fine" in the same
-		// breath as "delete it", and honouring the `clean` would mean one
-		// inconsistent response silently switches enforcement off — the failure mode
-		// 0025 was written to kill, where flagged verdicts sat unenforced. The
-		// stored row is therefore never self-contradictory: a `deleted` verdict
-		// always carries an action that does something.
-		const action = resolveAction(modelAction, status)
+		// Consequence: a stored row can no longer be self-contradictory. Both
+		// fields now come from the same two inputs, so a `deleted` verdict always
+		// carries an action that does something.
+		const action = actionForCategories(effectiveCategories, status)
 
 		verdictById.set(id, {
 			messageId: id,
@@ -421,8 +493,7 @@ export function parseVerdicts(
 			// one of clean/deleted — so nothing reconciles it and nothing overrides
 			// it. The model states the outcome once and that value is the outcome.
 			status: status as ParsedVerdict["status"],
-			// The disposition the model chose, already reconciled with `status`
-			// above and never an unrecognised value.
+			// The enforcement the CATEGORY derived, never an unrecognised value.
 			action,
 			// A deletion without a stated cause is a deletion a moderator cannot
 			// audit or appeal, so it falls back to the model's own explanation rather
@@ -432,7 +503,7 @@ export function parseVerdicts(
 				? { reason: reason.length > 0 ? reason : analysis }
 				: {}),
 			flags,
-			categories: categories.length > 0 ? categories : flags,
+			categories: effectiveCategories,
 			confidence,
 			score,
 			analysis:
