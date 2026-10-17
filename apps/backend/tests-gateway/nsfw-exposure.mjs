@@ -8,17 +8,17 @@
  *
  * Run: DSN=<prod dsn> bun tests/nsfw-exposure.mjs
  */
-import pg from "pg";
+import pg from "pg"
 
-const dsn = process.env.DSN;
+const dsn = process.env.DSN
 if (!dsn) {
-  console.error("DSN is required");
-  process.exit(2);
+	console.error("DSN is required")
+	process.exit(2)
 }
-const pool = new pg.Pool({ connectionString: dsn, max: 1 });
+const pool = new pg.Pool({ connectionString: dsn, max: 1 })
 
 try {
-  const res = await pool.query(`
+	const res = await pool.query(`
     WITH nsfw_ch AS (
       SELECT DISTINCT channel_id
       FROM messages
@@ -40,17 +40,17 @@ try {
         WHERE v.status = 'deleted' AND m.deleted_at IS NULL
           AND (v.auto_delete_state IS NULL OR v.auto_delete_state = 'pending')
       ) AS still_claimable_by_enforcer
-  `);
-  const r = res.rows[0];
-  console.log("NSFW exposure in production:");
-  console.log(`  nsfw channels              ${r.nsfw_channels}`);
-  console.log(`  live messages in them      ${r.live_nsfw_messages}`);
-  console.log(`  deleted verdicts           ${r.undecided_deleted}`);
-  console.log(`  claimable by enforcer      ${r.still_claimable_by_enforcer}`);
+  `)
+	const r = res.rows[0]
+	console.log("NSFW exposure in production:")
+	console.log(`  nsfw channels              ${r.nsfw_channels}`)
+	console.log(`  live messages in them      ${r.live_nsfw_messages}`)
+	console.log(`  deleted verdicts           ${r.undecided_deleted}`)
+	console.log(`  claimable by enforcer      ${r.still_claimable_by_enforcer}`)
 
-  // The enforcer's own predicate, verbatim, so the number above is what the
-  // code would actually pick up rather than a paraphrase of it.
-  const claimable = await pool.query(`
+	// The enforcer's own predicate, verbatim, so the number above is what the
+	// code would actually pick up rather than a paraphrase of it.
+	const claimable = await pool.query(`
     WITH candidates AS (
       SELECT v.message_id
       FROM verdicts v
@@ -62,12 +62,12 @@ try {
       ORDER BY v.created_at ASC
       LIMIT 1000
     )
-    SELECT count(*)::int AS would_claim FROM candidates`);
-  console.log(
-    `\n  enforcer would claim (first 1000): ${claimable.rows[0].would_claim}`,
-  );
+    SELECT count(*)::int AS would_claim FROM candidates`)
+	console.log(
+		`\n  enforcer would claim (first 1000): ${claimable.rows[0].would_claim}`,
+	)
 } catch (e) {
-  console.log("ERR", e.message);
+	console.log("ERR", e.message)
 } finally {
-  await pool.end();
+	await pool.end()
 }

@@ -17,6 +17,7 @@
       "*.mjs",
       "scripts/**/*.ts",
       "scripts/**/*.mjs",
+      "apps/**/*.mjs",
       "!vendor",
       "!.claude",
       "!apps/**/dist",

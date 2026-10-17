@@ -11,56 +11,56 @@
 //   2. `./foo` / `../foo` -> `./foo.js` / `../foo.js` (append .js)
 // Already-extensioned relative imports (.js/.json/.node/.mjs/.cjs) and bare
 // package specifiers are left untouched (idempotent).
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
-import { join, relative, dirname } from "node:path";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { dirname, join, relative } from "node:path"
 
-let count = 0;
+let count = 0
 function walk(dir) {
-  if (!existsSync(dir)) return;
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) walk(p);
-    // `.d.ts` TOO, not just `.js`.
-    //
-    // The declaration emit carries the same `@/foo` specifiers as the JS, and a
-    // consumer resolving `dist/index.d.ts` cannot follow them — it fails with
-    // "Cannot find module '@/shared/...'". That is not hypothetical for anything
-    // downstream of this build: an editor, a dependent package, or a future
-    // switch of the frontend alias from backend SOURCE to built declarations.
-    // Rewriting both keeps `dist/` self-contained.
-    else if (e.name.endsWith(".js") || e.name.endsWith(".d.ts")) {
-      const c = readFileSync(p, "utf8");
-      const pat = /from\s+['"]([^'"]+)['"]/g;
-      const n = c.replace(pat, (m, spec) => {
-        if (spec.startsWith("@/")) {
-          // Source may already carry an extension (e.g. "@/shared/config/index.js");
-          // only append ".js" when the specifier has none — otherwise we'd
-          // produce "index.js.js".
-          const core = spec.slice(2);
-          let target;
-          if (/\.(js|json|node|mjs|cjs)$/.test(core)) {
-            target = join("dist", core);
-          } else {
-            target = join("dist", core) + ".js";
-          }
-          let rel = relative(dirname(p), target);
-          if (!rel.startsWith(".")) rel = "./" + rel;
-          return `from "${rel}"`;
-        }
-        if (
-          (spec.startsWith("./") || spec.startsWith("../")) &&
-          !/\.(js|json|node|mjs|cjs)$/.test(spec)
-        ) {
-          return `from "${spec}.js"`;
-        }
-        return m;
-      });
-      if (n !== c) {
-        writeFileSync(p, n);
-        count++;
-      }
-    }
-  }
+	if (!existsSync(dir)) return
+	for (const e of readdirSync(dir, { withFileTypes: true })) {
+		const p = join(dir, e.name)
+		if (e.isDirectory()) walk(p)
+		// `.d.ts` TOO, not just `.js`.
+		//
+		// The declaration emit carries the same `@/foo` specifiers as the JS, and a
+		// consumer resolving `dist/index.d.ts` cannot follow them — it fails with
+		// "Cannot find module '@/shared/...'". That is not hypothetical for anything
+		// downstream of this build: an editor, a dependent package, or a future
+		// switch of the frontend alias from backend SOURCE to built declarations.
+		// Rewriting both keeps `dist/` self-contained.
+		else if (e.name.endsWith(".js") || e.name.endsWith(".d.ts")) {
+			const c = readFileSync(p, "utf8")
+			const pat = /from\s+['"]([^'"]+)['"]/g
+			const n = c.replace(pat, (m, spec) => {
+				if (spec.startsWith("@/")) {
+					// Source may already carry an extension (e.g. "@/shared/config/index.js");
+					// only append ".js" when the specifier has none — otherwise we'd
+					// produce "index.js.js".
+					const core = spec.slice(2)
+					let target
+					if (/\.(js|json|node|mjs|cjs)$/.test(core)) {
+						target = join("dist", core)
+					} else {
+						target = join("dist", core) + ".js"
+					}
+					let rel = relative(dirname(p), target)
+					if (!rel.startsWith(".")) rel = "./" + rel
+					return `from "${rel}"`
+				}
+				if (
+					(spec.startsWith("./") || spec.startsWith("../")) &&
+					!/\.(js|json|node|mjs|cjs)$/.test(spec)
+				) {
+					return `from "${spec}.js"`
+				}
+				return m
+			})
+			if (n !== c) {
+				writeFileSync(p, n)
+				count++
+			}
+		}
+	}
 }
-walk("dist");
-console.log(`Fixed ${count} import specifiers in dist/`);
+walk("dist")
+console.log(`Fixed ${count} import specifiers in dist/`)

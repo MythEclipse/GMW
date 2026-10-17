@@ -56,7 +56,12 @@ SELECT
   CASE i % 5 WHEN 0 THEN 'analyzed' WHEN 1 THEN 'pending' WHEN 2 THEN 'skipped' ELSE 'claimed' END,
   -- Deliberate ties: two messages share a created_at so DESC ordering and
   -- MAX(created_at) both have a tie to break.
-  (extract(epoch from now())::bigint * 1000) - (i * 3600000) - (CASE WHEN i % 12 = 0 THEN 0 ELSE 1 END),
+  --
+  -- The trailing 60s margin keeps every row OFF the 24h/7d window edges. `now()`
+  -- is sampled when this file runs and again when the harness runs, so a row
+  -- sitting exactly on a boundary lands on different sides of it between the two
+  -- reads and the comparison reports a divergence that is pure timing.
+  (extract(epoch from now())::bigint * 1000) - (i * 3600000) - (CASE WHEN i % 12 = 0 THEN 0 ELSE 1 END) - 60000,
   NULL
 FROM generate_series(1, 72) i;
 

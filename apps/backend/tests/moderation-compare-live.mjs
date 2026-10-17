@@ -16,31 +16,32 @@
  *     bun tests/moderation-compare-live.mjs
  */
 
-import pg from "pg";
+import pg from "pg"
 
-const dsn = process.env.DSN;
+const dsn = process.env.DSN
 if (!dsn) {
-	console.error("DSN is required");
-	process.exit(2);
+	console.error("DSN is required")
+	process.exit(2)
 }
-process.env.DATABASE_URL = dsn;
-process.env.DISCORD_TOKEN ??= "not-used-by-this-test";
-process.env.JWT_SECRET ??= "not-used-by-this-test";
+process.env.DATABASE_URL = dsn
+process.env.DISCORD_TOKEN ??= "not-used-by-this-test"
+process.env.AI_LLM_API_KEY ??= "not-used-by-this-test"
+process.env.JWT_SECRET ??= "not-used-by-this-test"
 
-const DAYS = Number(process.env.DAYS ?? 30);
-const pool = new pg.Pool({ connectionString: dsn });
+const DAYS = Number(process.env.DAYS ?? 30)
+const pool = new pg.Pool({ connectionString: dsn })
 
-let pass = 0;
-let fail = 0;
+let pass = 0
+let fail = 0
 
 function check(name, ok, detail = "") {
-	ok ? pass++ : fail++;
-	console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
+	ok ? pass++ : fail++
+	console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`)
 }
 
 /** Compare two values with order-insensitive equality after normalizing. */
 function same(a, b) {
-	return JSON.stringify(sortDeep(a)) === JSON.stringify(sortDeep(b));
+	return JSON.stringify(sortDeep(a)) === JSON.stringify(sortDeep(b))
 }
 
 /**
@@ -58,40 +59,40 @@ function sortDeep(v) {
 		return v
 			.map((x) => sortDeep(x))
 			.sort((x, y) => {
-				const sx = JSON.stringify(x);
-				const sy = JSON.stringify(y);
-				return sx < sy ? -1 : sx > sy ? 1 : 0;
-			});
+				const sx = JSON.stringify(x)
+				const sy = JSON.stringify(y)
+				return sx < sy ? -1 : sx > sy ? 1 : 0
+			})
 	}
 	if (v && typeof v === "object") {
 		return Object.fromEntries(
 			Object.keys(v)
 				.sort()
 				.map((k) => [k, sortDeep(v[k])]),
-		);
+		)
 	}
-	return v;
+	return v
 }
 
 async function compare(name, sql, run, opts = {}) {
 	const [expected, actual] = await Promise.all([
 		pool.query(sql, opts.params ?? []),
 		run(),
-	]);
+	])
 	// `ordered: false` is for result sets whose ORDER BY leaves ties unresolved.
 	// Postgres and the JS reducer are then both free to emit tied rows in any
 	// order, so comparing them positionally would report a difference that the
 	// data does not actually contain. Content is still compared exactly.
-	const orderSensitive = opts.ordered !== false;
-	const a = orderSensitive ? expected.rows : [...expected.rows].sort(sortDeep);
-	const b = orderSensitive ? actual : [...actual].sort(sortDeep);
+	const orderSensitive = opts.ordered !== false
+	const a = orderSensitive ? expected.rows : [...expected.rows].sort(sortDeep)
+	const b = orderSensitive ? actual : [...actual].sort(sortDeep)
 
 	if (same(a, b)) {
-		check(name, true, `${expected.rows.length} rows`);
+		check(name, true, `${expected.rows.length} rows`)
 	} else {
-		check(name, false, "DIVERGENCE");
-		console.log("  SQL    :", JSON.stringify(a).slice(0, 900));
-		console.log("  Prisma :", JSON.stringify(b).slice(0, 900));
+		check(name, false, "DIVERGENCE")
+		console.log("  SQL    :", JSON.stringify(a).slice(0, 900))
+		console.log("  Prisma :", JSON.stringify(b).slice(0, 900))
 	}
 }
 
@@ -99,21 +100,17 @@ const CATEGORIES_TXT_ARRAY = `COALESCE(
   (SELECT array_agg(DISTINCT t[1])
      FROM regexp_matches(COALESCE(a.categories,''), '"([^"]*)"', 'g') AS t),
   NULLIF(regexp_split_to_array(btrim(a.categories), '\\s*,\\s*'), ARRAY[''])
-)`;
+)`
 
 try {
-	const { initializeDatabase, closeDatabase } = await import(
-		"../src/shared/database/init.ts"
-	);
-	const { moderationRepository: repo } = await import(
-		"../src/modules/moderation/moderation.repository.ts"
-	);
+	const { initializeDatabase, getDatabase, closeDrizzleDatabase } =
+		await import("../src/infrastructure/database/drizzle.ts")
+	const { ModerationRepository } = await import(
+		"../src/infrastructure/repositories/moderation.repository.ts"
+	)
 
-	await initializeDatabase({
-		DATABASE_URL: dsn,
-		POSTGRES_POOL_MIN: 1,
-		POSTGRES_POOL_MAX: 5,
-	});
+	await initializeDatabase()
+	const repo = new ModerationRepository(getDatabase())
 
 	// --- getCoverage: groupBy on analysis_attempts + queue count ---
 	await compare(
@@ -121,14 +118,14 @@ try {
 		`SELECT outcome, COUNT(*)::int AS c FROM analysis_attempts
 		 WHERE created_at >= ${Date.now() - DAYS * 86400000} GROUP BY outcome`,
 		async () => {
-			const r = await repo.getCoverage(DAYS);
+			const r = await repo.getCoverage(DAYS)
 			return Object.entries(r.outcomes).map(([outcome, count]) => ({
 				outcome,
 				c: count,
-			}));
+			}))
 		},
 		{ ordered: false },
-	);
+	)
 
 	await compare(
 		"getCoverage.completed/failed/total",
@@ -138,10 +135,10 @@ try {
 		   COUNT(*) FILTER (WHERE outcome IN ('llm_error','parse_error','abandoned'))::int AS failed
 		 FROM analysis_attempts WHERE created_at >= ${Date.now() - DAYS * 86400000}`,
 		async () => {
-			const r = await repo.getCoverage(DAYS);
-			return [{ total: r.total, completed: r.completed, failed: r.failed }];
+			const r = await repo.getCoverage(DAYS)
+			return [{ total: r.total, completed: r.completed, failed: r.failed }]
 		},
-	);
+	)
 
 	// --- getTrends: categories via unnest, decisions via CASE rank ---
 	await compare(
@@ -154,12 +151,12 @@ try {
 		 ) s WHERE cat IS NOT NULL AND cat <> ''
 		 GROUP BY cat ORDER BY c DESC LIMIT 15`,
 		async () => {
-			const r = await repo.getTrends(DAYS);
-			return r.categories.map((x) => ({ cat: x.name, c: x.count }));
+			const r = await repo.getTrends(DAYS)
+			return r.categories.map((x) => ({ cat: x.name, c: x.count }))
 		},
 		// The SQL's `ORDER BY c DESC` leaves equal counts unordered.
 		{ ordered: false },
-	);
+	)
 
 	await compare(
 		"getTrends.decisions",
@@ -169,10 +166,10 @@ try {
 		 ORDER BY CASE action_type
 		   WHEN 'delete_message' THEN 1 WHEN 'reset_nickname' THEN 0 ELSE -1 END DESC, c DESC`,
 		async () => {
-			const r = await repo.getTrends(DAYS);
-			return r.decisions.map((x) => ({ action_type: x.level, c: x.count }));
+			const r = await repo.getTrends(DAYS)
+			return r.decisions.map((x) => ({ action_type: x.level, c: x.count }))
 		},
-	);
+	)
 
 	await compare(
 		"getTrends.actions",
@@ -180,12 +177,12 @@ try {
 		 WHERE created_at >= ${Date.now() - DAYS * 86400000}
 		 GROUP BY action_type ORDER BY c DESC`,
 		async () => {
-			const r = await repo.getTrends(DAYS);
-			return r.actions.map((x) => ({ action_type: x.type, c: x.count }));
+			const r = await repo.getTrends(DAYS)
+			return r.actions.map((x) => ({ action_type: x.type, c: x.count }))
 		},
 		// `ORDER BY c DESC` leaves equal counts unordered.
 		{ ordered: false },
-	);
+	)
 
 	// --- getHourlyModeration: EXTRACT(HOUR FROM to_timestamp(...)) ---
 	await compare(
@@ -195,12 +192,12 @@ try {
 		 FROM moderation_actions WHERE created_at >= ${Date.now() - DAYS * 86400000}
 		 GROUP BY hour ORDER BY hour`,
 		async () => {
-			const r = await repo.getHourlyModeration(DAYS);
+			const r = await repo.getHourlyModeration(DAYS)
 			return r
 				.filter((x) => x.total > 0)
-				.map((x) => ({ hour: x.hour, total: x.total }));
+				.map((x) => ({ hour: x.hour, total: x.total }))
 		},
-	);
+	)
 
 	// --- getTopFlaggedDomains: regexp_matches over content||reason||evidence ---
 	await compare(
@@ -216,10 +213,10 @@ try {
 		 ) sub WHERE host IS NOT NULL
 		 GROUP BY lower(host) ORDER BY c DESC LIMIT 20`,
 		async () => {
-			const r = await repo.getTopFlaggedDomains(DAYS);
-			return r.map((x) => ({ host: x.domain, c: x.count }));
+			const r = await repo.getTopFlaggedDomains(DAYS)
+			return r.map((x) => ({ host: x.domain, c: x.count }))
 		},
-	);
+	)
 
 	// --- getTopFlaggedChannels: metadata->channel->>channelName ---
 	await compare(
@@ -234,14 +231,14 @@ try {
 		 GROUP BY m.channel_id, (m.metadata::jsonb -> 'channel' ->> 'channelName')
 		 ORDER BY flagged_count DESC LIMIT 15`,
 		async () => {
-			const r = await repo.getTopFlaggedChannels(DAYS);
+			const r = await repo.getTopFlaggedChannels(DAYS)
 			return r.map((x) => ({
 				channel_id: x.channel_id,
 				channel_name: x.channel_name ?? x.channel_id,
 				flagged_count: x.flagged_count,
-			}));
+			}))
 		},
-	);
+	)
 
 	// --- getQueueStats: groupBy with the OR filter ---
 	await compare(
@@ -250,14 +247,14 @@ try {
 		 WHERE ai_status <> 'analyzed' OR deleted_at IS NOT NULL
 		 GROUP BY ai_status`,
 		async () => {
-			const r = await repo.getQueueStats();
+			const r = await repo.getQueueStats()
 			return Object.entries(r.by_status).map(([ai_status, c]) => ({
 				ai_status,
 				c,
-			}));
+			}))
 		},
 		{ ordered: false },
-	);
+	)
 
 	// --- getStats: verdict statuses + unjudged ---
 	await compare(
@@ -266,15 +263,15 @@ try {
 		 FROM messages m LEFT JOIN verdicts v ON v.message_id = m.id
 		 GROUP BY 1`,
 		async () => {
-			const r = await repo.getStats();
+			const r = await repo.getStats()
 			return Object.entries(r.by_status).map(([status, c]) => ({
 				status,
 				c,
-			}));
+			}))
 		},
 		// `GROUP BY 1` with no ORDER BY.
 		{ ordered: false },
-	);
+	)
 
 	// --- getByCategory: containment over the normalizer ---
 	const distinctCats = (
@@ -285,7 +282,7 @@ try {
 			   AND a.categories IS NOT NULL AND btrim(a.categories) <> ''
 			 LIMIT 5`,
 		)
-	).rows.map((r) => r.cat);
+	).rows.map((r) => r.cat)
 
 	for (const cat of distinctCats) {
 		await compare(
@@ -296,12 +293,12 @@ try {
 			   AND ${CATEGORIES_TXT_ARRAY} @> ARRAY[$1]::text[]
 			 ORDER BY a.created_at DESC LIMIT 50`,
 			async () => {
-				const r = await repo.getByCategory(DAYS, cat, 50);
-				return r.map((x) => ({ id: x.id }));
+				const r = await repo.getByCategory(DAYS, cat, 50)
+				return r.map((x) => ({ id: x.id }))
 			},
 			// The category is bound as $1, never interpolated.
 			{ params: [cat] },
-		);
+		)
 	}
 
 	// --- listActions: cursor page + joined content ---
@@ -314,23 +311,23 @@ try {
 		 LEFT JOIN messages m ON m.id = a.message_id
 		 ORDER BY a.created_at DESC LIMIT 50`,
 		async () => {
-			const r = await repo.listActions({ limit: 50 });
+			const r = await repo.listActions({ limit: 50 })
 			return r.data.map((x) => ({
 				id: x.id,
 				message_id: x.message_id,
 				content: x.content ?? "",
-			}));
+			}))
 		},
-	);
+	)
 } catch (err) {
-	console.error("harness error:", err?.message ?? err);
-	fail++;
+	console.error("harness error:", err?.message ?? err)
+	fail++
 } finally {
-	await pool.end();
+	await pool.end()
 	try {
-		await closeDatabase();
+		await closeDrizzleDatabase()
 	} catch {}
 }
 
-console.log(`\n${pass} pass, ${fail} fail`);
-process.exit(fail > 0 ? 1 : 0);
+console.log(`\n${pass} pass, ${fail} fail`)
+process.exit(fail > 0 ? 1 : 0)
