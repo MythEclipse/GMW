@@ -47,8 +47,18 @@ function assertConfigIsUsable(): void {
 	}
 }
 
-/** Run migrations then open the PostgreSQL pool. */
-async function connectDatabase(): Promise<void> {
+/** Run migrations then open the PostgreSQL pool.
+ *
+ *  Exported because `main()` in `index.ts` runs it as the FIRST startup step,
+ *  before the HTTP surface can accept a connection — see the comment there for
+ *  why the order matters. `initializeDiscordGateway` still asks for it too, so
+ *  the gateway stays independently bootable when run on its own.
+ *
+ *  Both callers are safe: `runMigrations` serialises on an advisory lock, and
+ *  `initializeDatabase` returns the existing handle rather than opening a
+ *  second pool.
+ */
+export async function connectDatabase(): Promise<void> {
 	try {
 		logger.info("running database migrations")
 		await runMigrations()
@@ -148,14 +158,10 @@ export async function initializeDiscordGateway() {
 		stopMetricsServer()
 		await eventBroadcaster
 			.close()
-			.catch((err) =>
-				logger.warn({ error: err }, "Error closing event broadcaster"),
-			)
+			.catch((err) => logger.warn({ err }, "Error closing event broadcaster"))
 		await commandHandler
 			.close()
-			.catch((err) =>
-				logger.warn({ error: err }, "Error closing command handler"),
-			)
+			.catch((err) => logger.warn({ err }, "Error closing command handler"))
 		client.destroy()
 		logger.info("Discord capture stopped")
 	}

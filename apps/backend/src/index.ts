@@ -46,7 +46,10 @@ import { closeDrizzleDatabase } from "./infrastructure/database/drizzle.js"
 import { createChildLogger } from "./infrastructure/logger/index.js"
 import { stopCommandBridge } from "./infrastructure/redis/index.js"
 import { stopRedisBridge as stopEventBridge } from "./infrastructure/redis/redis-bridge.js"
-import { initializeDiscordGateway } from "./presentation/gateway/bootstrap.js"
+import {
+	connectDatabase,
+	initializeDiscordGateway,
+} from "./presentation/gateway/bootstrap.js"
 import { startHttpServer, stopHttpSurface } from "./presentation/http/server.js"
 import { startModerationWorker } from "./presentation/worker/start.js"
 
@@ -63,7 +66,29 @@ let stopWorker: (() => Promise<void>) | undefined
 async function main(): Promise<void> {
 	logger.info("Starting GMW — HTTP + Discord capture + moderation")
 
-	// 1. The dashboard surface first. If this fails there is nothing useful to
+	// 0. Migrate BEFORE the surface accepts a connection.
+	//
+	//    Every deploy wipes the schema (`reset-data.sh` drops and rebuilds the
+	//    whole `public` schema) and the process is expected to recreate it on
+	//    boot, so there is a window where the database is legitimately empty.
+	//    Serving through that window is not merely untidy: the dashboard is a
+	//    long-lived WebSocket client that reconnects on its own, so it arrives
+	//    within milliseconds of the listener opening and `sendInitialStates`
+	//    reads `ui_state` against a schema that does not exist yet —
+	//    `relation "ui_state" does not exist`, logged at boot on every deploy.
+	//
+	//    The migration used to run as a side effect of step 2, i.e. after the
+	//    HTTP surface was already listening. It is now its own first step, and
+	//    a failure is FATAL: coming up with no schema serves errors to every
+	//    request, whereas exiting lets systemd (Restart=always) retry.
+	try {
+		await connectDatabase()
+	} catch (err) {
+		logger.error({ err }, "Database migration failed — refusing to serve")
+		throw err
+	}
+
+	// 1. The dashboard surface. If this fails there is nothing useful to
 	//    serve, so the process must not come up half-alive.
 	httpServer = await startHttpServer()
 	logger.info("HTTP surface ready")
