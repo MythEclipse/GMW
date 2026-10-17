@@ -341,7 +341,14 @@ export function buildRouter(useCases: UseCases) {
 	}
 	const configRouter = {
 		get: os.handler(() => ({
-			monitorGuildId: config.MONITOR_GUILD_ID || null,
+			// Derived from the EFFECTIVE list, not `MONITOR_GUILD_ID` directly.
+			// The singular is deprecated: a multi-guild deployment sets
+			// `MONITOR_GUILD_IDS` and leaves it unset, so reading it raw returned
+			// null and every server-rendered page lost its guild scoping —
+			// capture honoured all guilds while the UI silently fell back to
+			// `guilds[0]`.
+			monitorGuildId: config.EFFECTIVE_MONITOR_GUILD_IDS[0] ?? null,
+			monitorGuildIds: config.EFFECTIVE_MONITOR_GUILD_IDS,
 			webserverPort: config.WEBSERVER_PORT,
 			nodeEnv: config.NODE_ENV,
 			backlogSyncHours: config.BACKLOG_SYNC_HOURS,

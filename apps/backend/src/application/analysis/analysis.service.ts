@@ -10,8 +10,12 @@ export type { AnalysisSearchQuery }
 
 /** The one setting this use-case needs, supplied by the composition root. */
 export interface AnalysisSettings {
-	/** Guild whose messages are in scope — see `domain/config/guildScope.ts`. */
-	monitorGuildId?: string
+	/**
+	 * Guilds whose messages are in scope — the EFFECTIVE allow-list from
+	 * `config.EFFECTIVE_MONITOR_GUILD_IDS`, not the deprecated singular.
+	 * See `domain/config/guildScope.ts` for why the list is the source of truth.
+	 */
+	monitorGuildIds: string[]
 }
 
 export class AnalysisService {
@@ -22,14 +26,14 @@ export class AnalysisService {
 
 	async search(query: AnalysisSearchQuery) {
 		const { q = "", channelId, limit = 20 } = query
-		const guildId = this.settings.monitorGuildId
+		const guildIds = this.settings.monitorGuildIds
 
-		logger.debug({ q, channelId, limit, guildId }, "Searching analysis")
+		logger.debug({ q, channelId, limit, guildIds }, "Searching analysis")
 
 		const rows = await this.repository.search({
 			q,
 			channelId,
-			guildId,
+			guildIds,
 			limit,
 		})
 

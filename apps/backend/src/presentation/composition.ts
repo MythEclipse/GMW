@@ -64,7 +64,10 @@ export interface UseCases {
 }
 
 const analysisSettings = (): AnalysisSettings => ({
-	monitorGuildId: config.MONITOR_GUILD_ID,
+	// The EFFECTIVE list, so a multi-guild deployment searches every guild it
+	// captures. `config.MONITOR_GUILD_ID` is the deprecated singular that only
+	// the fallback path in `loadConfig()` still fills.
+	monitorGuildIds: config.EFFECTIVE_MONITOR_GUILD_IDS,
 })
 
 const aiLlmSettings = (): AiLlmSettings => ({

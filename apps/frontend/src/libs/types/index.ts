@@ -459,6 +459,8 @@ export interface IChatbotHistoryResult {
 
 export interface IAppConfig {
 	monitorGuildId: string | null
+	/** Every monitored guild. `monitorGuildId` is the first entry, or null. */
+	monitorGuildIds: string[]
 	webserverPort: number
 	nodeEnv: string
 	backlogSyncHours: number
