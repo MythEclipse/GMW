@@ -13,7 +13,6 @@ import {
 	DEBUG_VERBOSE,
 } from "../../infrastructure/logger/index.js"
 import { startAutoDeleteEnforcer } from "../../infrastructure/modules-gateway/ai-moderation/autoDeleteEnforcer.js"
-import { CommandHandler } from "../../infrastructure/modules-gateway/command-handler/commandHandler.js"
 import {
 	EventBroadcaster,
 	RedisEventPublisher,
@@ -101,17 +100,15 @@ export async function initializeDiscordGateway() {
 	logger.info("Creating Discord client")
 	const client = new Client(createDiscordClientOptions())
 
-	// Long-lived services: Redis event broadcaster (capture → dashboard) and the
-	// command handler (dashboard → capture).
+	// Long-lived services: the Redis event broadcaster, which carries
+	// captured events from the gateway modules to the backend's bridge.
 	//
 	// The Redis bus is kept rather than collapsed into a direct call. Publishing
 	// still goes out over Redis and the backend's bridge still reads it, so an
 	// event survives a module-level failure and the wire format the frontend's
-	// handlers already parse is untouched. What the merge removed is the process
-	// boundary, not the contract.
+	// handlers already parse is untouched.
 	const redisPublisher = new RedisEventPublisher(config.REDIS_URL, logger)
 	const eventBroadcaster = new EventBroadcaster(redisPublisher)
-	const commandHandler = new CommandHandler()
 
 	await connectDatabase()
 
@@ -122,7 +119,6 @@ export async function initializeDiscordGateway() {
 		startGatewayLifecycle({
 			client,
 			eventBroadcaster,
-			commandHandler,
 			logger,
 			retention: buildRetentionDeps(),
 		})
@@ -159,9 +155,6 @@ export async function initializeDiscordGateway() {
 		await eventBroadcaster
 			.close()
 			.catch((err) => logger.warn({ err }, "Error closing event broadcaster"))
-		await commandHandler
-			.close()
-			.catch((err) => logger.warn({ err }, "Error closing command handler"))
 		client.destroy()
 		logger.info("Discord capture stopped")
 	}

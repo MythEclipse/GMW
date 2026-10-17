@@ -288,32 +288,6 @@ try {
 		)
 	}
 
-	// --- getActivity ---------------------------------------------------------
-	await compareOrdered(
-		"getActivity",
-		`SELECT m.channel_id,
-		        COALESCE(NULLIF((m.metadata::jsonb -> 'channel' ->> 'channelName'), ''), m.channel_id) AS channel_name,
-		        EXTRACT(HOUR FROM to_timestamp(m.created_at / 1000))::int AS hour,
-		        COUNT(*)::int AS c
-		 FROM messages m
-		 WHERE m.created_at >= ${Date.now() - 86400000}
-		 GROUP BY m.channel_id, channel_name, hour
-		 ORDER BY channel_name, hour`,
-		async () => {
-			const r = await repo.getActivity(1)
-			// Collapse the 24 buckets the port emits per channel into the
-			// non-zero ones, matching what the GROUP BY would return.
-			return r
-				.filter((x) => x.count > 0)
-				.map((x) => ({
-					channel_id: x.channelId,
-					channel_name: x.channelName,
-					hour: x.hour,
-					c: x.count,
-				}))
-		},
-	)
-
 	// --- getImageMessages ----------------------------------------------------
 	// The repository returns `limit` rows; the +1 is the internal overflow
 	// proof. So the SQL side is trimmed to `limit` too, otherwise it is

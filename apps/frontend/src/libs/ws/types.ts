@@ -54,22 +54,6 @@ export interface IAnalysisQueueStatus {
 	activeMediaRequests?: number
 }
 
-/** Payload of `message_snapshot_end` — end of a streamed replay. */
-export interface IMessageSnapshotEnd {
-	sent: number
-	nextCursor: string | null
-	error?: boolean
-}
-
-/**
- * `message_deleted` sends an OBJECT, not a bare id string. Reading it as a
- * string silently yields "undefined" in the UI.
- */
-export interface IMessageDeletedPayload {
-	id: string
-	deleted_at?: number
-}
-
 export type TConnectionStatus =
 	| "connecting"
 	| "connected"

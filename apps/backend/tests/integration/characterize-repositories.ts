@@ -196,7 +196,6 @@ async function collect(): Promise<Record<string, unknown>> {
 			"messages.getAttachmentsByChannel",
 			() => messagesRepository.getAttachmentsByChannel(CH_A, { limit: 10 }),
 		],
-		["messages.getActivity", () => messagesRepository.getActivity(30)],
 		[
 			"messages.getRecentEdits",
 			() => messagesRepository.getRecentEdits(undefined, undefined),

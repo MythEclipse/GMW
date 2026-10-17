@@ -56,22 +56,3 @@ export class ConfigError extends AppError {
 export function errorMessage(err: unknown): string {
 	return err instanceof Error ? err.message : String(err)
 }
-
-/**
- * True when an error code is a transient stream-teardown failure
- * (EPIPE / stream destroyed / write-after-end / socket reset).
- *
- * These are NOT fatal: crashing the gateway on them (e.g. voice stop races,
- * ffmpeg stdin closed while we still write) takes the whole bot offline
- * mid-operation. Callers that install process-level handlers use this to
- * log-and-continue instead of shutting down.
- */
-export function isTransientStreamError(err: unknown): boolean {
-	const code = (err as NodeJS.ErrnoException)?.code ?? ""
-	return (
-		code === "EPIPE" ||
-		code === "ERR_STREAM_DESTROYED" ||
-		code === "ERR_STREAM_WRITE_AFTER_END" ||
-		code === "ECONNRESET"
-	)
-}

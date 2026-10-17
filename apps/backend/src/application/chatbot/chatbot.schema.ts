@@ -14,16 +14,12 @@ export const chatRequestSchema = z.object({
 	context: contextSchema.optional(),
 })
 
-export const chatResponseSchema = z.object({
-	response: z.string(),
-	timestamp: z.string(),
-})
-
-export const chatHistoryQuerySchema = z.object({
-	limit: z.coerce.number().int().positive().max(100).default(50),
-})
-
-export type ChatRequest = z.infer<typeof chatRequestSchema>
-export type ChatResponse = z.infer<typeof chatResponseSchema>
-export type ChatContext = z.infer<typeof contextSchema>
-export type ChatHistoryQuery = z.infer<typeof chatHistoryQuerySchema>
+/**
+ * The history query's schema is NOT here.
+ *
+ * `chatbot.history` validates its own inline `limit` in the router, and
+ * `chatbot.clearHistory` takes no input at all, so a `chatHistoryQuerySchema`
+ * in this file was a second declaration of a shape nothing imported. Same for
+ * `chatResponseSchema`: the chat procedure's return value is whatever
+ * `processMessage` produces, and nothing parses it against a schema.
+ */

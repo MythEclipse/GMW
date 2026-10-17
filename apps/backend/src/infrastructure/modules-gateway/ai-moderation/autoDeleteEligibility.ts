@@ -144,15 +144,6 @@ function readVerdict(
 	}
 }
 
-export function parseModerationFlags(
-	message: MessageLike,
-	verdict?: VerdictLike | null,
-): string[] {
-	const v = readVerdict(message, verdict)
-	if (v.flags && v.flags.length > 0) return v.flags
-	return []
-}
-
 /**
  * The category list a row effectively carries, with `flags` as the fallback.
  *

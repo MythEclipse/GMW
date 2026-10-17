@@ -28,8 +28,6 @@ import { createChildLogger } from "../logger/index.js"
  * model-supplied arguments cannot inject SQL.
  */
 
-export type ToolResult = string
-
 const logger = createChildLogger("chatbot.tools")
 
 /** Saturating counter of chatbot tool execution errors (for observability). */

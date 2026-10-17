@@ -57,15 +57,3 @@ export function Badge({
 		</BadgePrimitive>
 	)
 }
-
-export function ToneText({
-	tone = "neutral",
-	children,
-	className,
-}: {
-	tone?: TTone
-	children: React.ReactNode
-	className?: string
-}) {
-	return <span className={cn(TONE_TEXT[tone], className)}>{children}</span>
-}

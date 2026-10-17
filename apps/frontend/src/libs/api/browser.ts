@@ -45,7 +45,6 @@ export const browserApi = {
 		detail: (id: string) => client().messages.detail({ id }),
 		review: (input: { limit?: number; channelId?: string; cursor?: string }) =>
 			client().messages.review(input),
-		activity: (days: number) => client().messages.activity({ days }),
 		editHistory: (input: {
 			limit?: number
 			channelId?: string
@@ -123,5 +122,3 @@ export const browserApi = {
 		update: (state: Record<string, unknown>) => client().uiState.update(state),
 	},
 }
-
-export type TBrowserApi = typeof browserApi

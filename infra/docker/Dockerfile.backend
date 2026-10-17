@@ -15,7 +15,13 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     PATH=/pnpm:$PATH
 RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
 
-# Build tools for native addons (discordjs/voice may need node-gyp)
+# Build tools for native addons.
+#
+# Kept even though the lockfile currently declares no `requiresBuild` package.
+# The reason is the optional native deps of the Discord stack: `bufferutil` and
+# `utf-8-validate` can be resolved in a later install and compile from source,
+# and a builder without g++ fails the whole image over an optional accelerator
+# rather than degrading. With `sharp` removed this is the only reason left.
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     python3 make g++ \
     && rm -rf /var/lib/apt/lists/*

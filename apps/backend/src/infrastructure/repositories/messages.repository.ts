@@ -3,7 +3,6 @@ import {
 	asc,
 	desc,
 	eq,
-	gte,
 	inArray,
 	isNull,
 	lt,
@@ -18,7 +17,6 @@ import type {
 	MessageUpdate,
 } from "../../domain/messages/message-contracts.js"
 import { readChannelName } from "../../domain/utils/channelName.js"
-import { localHour } from "../../domain/utils/localTime.js"
 import { mapMessageRow } from "../../domain/utils/messageMapper.js"
 import { config } from "../config/index.js"
 import type { DatabaseHandle } from "../database/handle.js"
@@ -1084,55 +1082,6 @@ export class MessagesRepository {
 		const trimmed = data.slice(0, limit)
 
 		return { data: trimmed, nextCursor }
-	}
-
-	/**
-	 * Per-hour message volume for the last `days` days, grouped by channel.
-	 * Powers the public Activity Heatmap (read-only, no write scope).
-	 * Returns a flat list of { channel_id, hour (0-23), count } buckets.
-	 */
-	async getActivity(days = 30) {
-		const since = Date.now() - days * 24 * 60 * 60 * 1000
-
-		// `EXTRACT(HOUR FROM to_timestamp(created_at / 1000))` resolved in the
-		// database's timezone — see `localHour` for why UTC would be wrong here.
-		const rows = await this.db
-			.select({
-				channel_id: messagesTable.channel_id,
-				metadata: messagesTable.metadata,
-				created_at: messagesTable.created_at,
-			})
-			.from(messagesTable)
-			.where(gte(messagesTable.created_at, since))
-
-		const buckets = new Map<string, { channelName: string; hours: number[] }>()
-		for (const r of rows) {
-			const channelName = readChannelName(r.metadata) ?? r.channel_id
-			const hour = localHour(r.created_at)
-			const entry = buckets.get(r.channel_id) ?? {
-				channelName,
-				hours: new Array(24).fill(0),
-			}
-			// A later row may carry the name when an earlier one did not.
-			if (entry.channelName === r.channel_id && channelName !== r.channel_id) {
-				entry.channelName = channelName
-			}
-			entry.hours[hour] += 1
-			buckets.set(r.channel_id, entry)
-		}
-
-		return [...buckets.entries()]
-			.flatMap(([channelId, v]) =>
-				v.hours.map((count, hour) => ({
-					channelId: channelId || "unknown",
-					channelName: v.channelName || "unknown",
-					hour,
-					count,
-				})),
-			)
-			.sort(
-				(a, b) => a.channelName.localeCompare(b.channelName) || a.hour - b.hour,
-			)
 	}
 
 	/**

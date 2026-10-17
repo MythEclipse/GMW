@@ -14,51 +14,29 @@ import { createChildLogger } from "../../infrastructure/logger/index.js"
 const logger = createChildLogger("broadcast")
 
 type BroadcastFn = (type: string, data: unknown) => void
-type BroadcastBinaryFn = (data: Buffer) => void
 
 let _broadcast: BroadcastFn | null = null
-let _broadcastBinary: BroadcastBinaryFn | null = null
-
-let _enabled = true
-
-/** Enable or disable broadcast logging (disabled by default to reduce noise). */
-export function setBroadcastLogging(enabled: boolean): void {
-	_enabled = enabled
-}
 
 /**
- * Inject broadcast functions from the WebSocket server initializer.
+ * Inject the broadcast function from the WebSocket server initializer.
  * Must be called once during server startup before any broadcast is used.
+ *
+ * Binary broadcasting used to be injected alongside this one, but nothing ever
+ * called it: `broadcastEvent` is the only entry point any module uses. A second
+ * injected function that no caller reaches is a permanent `null` behind an
+ * optional call — it reads as a live transport and silently drops nothing only
+ * because nothing was ever sent. Removed rather than wired up; voice PCM over
+ * `/ws` is gone with the gateway merge, and the dashboard takes JSON only.
  */
-export function setBroadcastFunctions(
-	bf: BroadcastFn,
-	bfBinary: BroadcastBinaryFn,
-): void {
+export function setBroadcastFunctions(bf: BroadcastFn): void {
 	_broadcast = bf
-	_broadcastBinary = bfBinary
 	logger.info("Broadcast functions initialized")
-}
-
-/** Clear injected functions (used during cleanup). */
-export function clearBroadcastFunctions(): void {
-	_broadcast = null
-	_broadcastBinary = null
-	logger.info("Broadcast functions cleared")
 }
 
 /**
  * Broadcast a JSON event to all connected WebSocket clients.
  */
 export function broadcastEvent(type: string, data: unknown): void {
-	if (_enabled) {
-		logger.debug({ event: type }, "Broadcasting event")
-	}
+	logger.debug({ event: type }, "Broadcasting event")
 	_broadcast?.(type, data)
-}
-
-/**
- * Broadcast binary data to all connected WebSocket clients.
- */
-export function broadcastBinary(data: Buffer): void {
-	_broadcastBinary?.(data)
 }

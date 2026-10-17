@@ -114,12 +114,6 @@ export class MessagesService {
 		return this.repository.getReviewMessages(channelId, limit, cursor)
 	}
 
-	async getActivity(
-		days = 30,
-	): Promise<Awaited<ReturnType<MessagesRepository["getActivity"]>>> {
-		return this.repository.getActivity(days)
-	}
-
 	async getRecentEdits(
 		limit = 50,
 		channelId?: string,

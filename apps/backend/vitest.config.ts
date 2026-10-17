@@ -39,10 +39,10 @@ export default defineConfig({
 		/**
 		 * `forks`, not `threads`.
 		 *
-		 * The config singleton, `discord.js-selfbot-v13`, and `sharp`'s native
-		 * bindings are a poor fit for worker threads — native modules loaded in a
-		 * thread pool leak handles across test files. `forks` matches bun's
-		 * process-per-file isolation, which is what the suite was green under.
+		 * The config singleton and `discord.js-selfbot-v13` are a poor fit for
+		 * worker threads — native modules loaded in a thread pool leak handles
+		 * across test files. `forks` matches bun's process-per-file isolation,
+		 * which is what the suite was green under.
 		 */
 		pool: "forks",
 

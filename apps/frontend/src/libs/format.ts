@@ -39,16 +39,6 @@ export function formatDateTime(epochMs: number | null | undefined): string {
 	})
 }
 
-export function formatDate(epochMs: number | null | undefined): string {
-	if (epochMs == null) return "—"
-	return new Date(epochMs).toLocaleDateString("id-ID", { dateStyle: "medium" })
-}
-
-export function formatTime(epochMs: number | null | undefined): string {
-	if (epochMs == null) return "—"
-	return new Date(epochMs).toLocaleTimeString("id-ID", { timeStyle: "short" })
-}
-
 /** "3 minutes ago" / "just now" — for live feeds. */
 export function formatRelative(
 	epochMs: number | null | undefined,
@@ -182,11 +172,6 @@ export function messageBody(content: string | null | undefined): string {
 			.replace(/\n{3,}/g, "\n\n")
 			.trim()
 	)
-}
-
-/** Discord snowflakes are strings; never coerce them through Number(). */
-export function isSnowflake(value: unknown): value is string {
-	return typeof value === "string" && /^\d{17,20}$/.test(value)
 }
 
 /**

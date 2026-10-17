@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
 // Redis Channel Constants — single source of truth
 //
-// All Redis channel names, status keys, and command types used on the Redis bus.
-// Capture and the dashboard run in ONE process now, but the bus and these
-// channel names are unchanged: publishing still goes out over Redis and the
-// bridge still reads it, so a failure inside one module cannot drop events for
-// the other, and the wire format the frontend already parses is untouched.
+// Every Redis channel name used on the Redis bus. Capture and the dashboard run
+// in ONE process now, but the bus and these channel names are unchanged:
+// publishing still goes out over Redis and the bridge still reads it, so a
+// failure inside one module cannot drop events for the other, and the wire
+// format the frontend already parses is untouched.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -31,21 +31,6 @@ export const DISCORD_GUILD_MEMBER_REMOVED = "discord:guild_member:removed"
 export const DISCORD_MODERATION_ACTION = "discord:moderation:action"
 
 // ---------------------------------------------------------------------------
-// Command channels (dashboard -> capture)
-// ---------------------------------------------------------------------------
-
-export const BACKEND_COMMAND = "backend:command"
-export const BACKEND_COMMAND_REPLY_PREFIX = "backend:command:reply:"
-
-// ---------------------------------------------------------------------------
-// Command types (used as the `type` field in CommandMessage envelopes)
-// ---------------------------------------------------------------------------
-
-export const COMMAND_GUILDS_LIST = "guilds:list"
-export const COMMAND_GUILDS_TEXT_CHANNELS = "guilds:text-channels"
-export const COMMAND_MODERATION_ACTION = "moderation:action"
-
-// ---------------------------------------------------------------------------
 // Event envelope — used by capture when publishing to Redis
 // ---------------------------------------------------------------------------
 
@@ -54,24 +39,6 @@ export interface DiscordGatewayEvent {
 	data: unknown
 	timestamp: number
 	source: string
-}
-
-// ---------------------------------------------------------------------------
-// Command envelope — used by backend when publishing to backend:command
-// ---------------------------------------------------------------------------
-
-export interface CommandMessage {
-	id: string
-	type: string
-	payload: Record<string, unknown>
-	replyChannel: string
-}
-
-export interface CommandReply<T = unknown> {
-	id: string
-	success: boolean
-	data?: T
-	error?: string
 }
 
 // ---------------------------------------------------------------------------

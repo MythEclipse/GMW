@@ -8,7 +8,6 @@ import {
 } from "@tanstack/react-query"
 import { browserApi } from "#/libs/api/browser"
 import type {
-	IActivityCell,
 	IChannelCulture,
 	IChannelPage,
 	IDashboardActivity,
@@ -87,7 +86,6 @@ export const qk = {
 	messagePage: (query: IMessageQuery) => ["messages", "list", query] as const,
 	review: (channelId: string | undefined) =>
 		["messages", "review", channelId ?? "all"] as const,
-	messageActivity: (days: number) => ["messages", "activity", days] as const,
 	edits: (channelId: string | undefined) =>
 		["messages", "edits", channelId ?? "all"] as const,
 	modStats: ["moderation", "stats"] as const,
@@ -145,14 +143,6 @@ export function useUsers(search: string) {
 	})
 }
 
-export function useUserDetail(userId: string) {
-	return useQuery({
-		queryKey: qk.userDetail(userId),
-		queryFn: () => browserApi.dashboard.userDetail(userId),
-		...shared,
-	})
-}
-
 export function useChannels(search: string, guildId?: string) {
 	return useQuery({
 		queryKey: [...qk.channels(search), guildId ?? "*"],
@@ -164,14 +154,6 @@ export function useChannels(search: string, guildId?: string) {
 			}) as Promise<IChannelPage>,
 		...shared,
 		placeholderData: (prev) => prev,
-	})
-}
-
-export function useChannelDetail(channelId: string) {
-	return useQuery({
-		queryKey: qk.channelDetail(channelId),
-		queryFn: () => browserApi.dashboard.channelDetail(channelId),
-		...shared,
 	})
 }
 
@@ -323,15 +305,6 @@ export function useEditFeed(
 		>,
 		Error
 	>
-}
-
-export function useMessageActivity(days: number) {
-	return useQuery({
-		queryKey: qk.messageActivity(days),
-		queryFn: () =>
-			browserApi.messages.activity(days) as Promise<IActivityCell[]>,
-		...shared,
-	})
 }
 
 // ── Moderation ──────────────────────────────────────────────────────────────

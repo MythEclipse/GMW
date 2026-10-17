@@ -482,36 +482,6 @@ export type MessageInsert = typeof messagesTable.$inferInsert
 
 // Attachments
 export type Attachment = typeof attachmentsTable.$inferSelect
-export type AttachmentInsert = typeof attachmentsTable.$inferInsert
-
-// Message Reviews
-export type DbMessageReview = typeof messageReviewsTable.$inferSelect
-export type DbMessageReviewInsert = typeof messageReviewsTable.$inferInsert
-
-// User Profiles
-export type UserProfile = typeof userProfilesTable.$inferSelect
-export type UserProfileInsert = typeof userProfilesTable.$inferInsert
-
-// Channel Cultures
-export type ChannelCulture = typeof channelCulturesTable.$inferSelect
-export type ChannelCultureInsert = typeof channelCulturesTable.$inferInsert
-
-// Term Glossary Cache
-export type TermGlossaryCache = typeof termGlossaryCacheTable.$inferSelect
-export type TermGlossaryCacheInsert = typeof termGlossaryCacheTable.$inferInsert
-
-// UI State
-export type UIState = typeof uiStateTable.$inferSelect
-export type UIStateInsert = typeof uiStateTable.$inferInsert
-
-// Retention Policies
-export type DbRetentionPolicy = typeof retentionPoliciesTable.$inferSelect
-export type DbRetentionPolicyInsert = typeof retentionPoliciesTable.$inferInsert
-
-// Chatbot Messages
-export type ChatbotMessage = typeof chatbotMessagesTable.$inferSelect
-export type ChatbotMessageInsert = typeof chatbotMessagesTable.$inferInsert
-
 // =============================================================================
 // Moderation Actions (gateway-local)
 // =============================================================================

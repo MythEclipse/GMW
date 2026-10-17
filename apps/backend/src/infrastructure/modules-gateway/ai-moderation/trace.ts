@@ -67,37 +67,6 @@ export function humanMs(ms: number | null | undefined): string {
 	return `${m}m${String(s).padStart(2, "0")}s`
 }
 
-/** Fields shared by every stage line for one message. */
-export interface TraceFields {
-	trace: string
-	messageId: string
-}
-
-/** Stage 1 — the gateway persisted a new message. */
-export function logCaptured(
-	logger: Logger,
-	m: {
-		messageId: string
-		channelId: string
-		authorId: string
-		hasMedia: boolean
-		contentChars: number
-	},
-): void {
-	logger.debug(
-		{
-			trace: traceId(m.messageId),
-			messageId: m.messageId,
-			channelId: m.channelId,
-			authorId: m.authorId,
-			hasMedia: m.hasMedia,
-			contentChars: m.contentChars,
-			stage: "captured",
-		},
-		"message captured; queued for analysis",
-	)
-}
-
 /** Stage 2 — a worker took ownership of the rows. */
 export function logClaimed(
 	workerId: string,

@@ -245,11 +245,3 @@ export function startVerdictNotifier(broadcasterArg: EventBroadcaster): void {
 	// Do not hold the event loop open on shutdown.
 	timer.unref?.()
 }
-
-export function stopVerdictNotifier(): void {
-	if (timer) {
-		clearInterval(timer)
-		timer = null
-	}
-	broadcaster = undefined
-}

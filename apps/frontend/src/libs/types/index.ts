@@ -41,17 +41,6 @@ export type TPipelineStatus =
 export type TVerdictStatus = "clean" | "deleted" | "error"
 
 /**
- * What the model wants done, mirroring the verdict. `clean` means leave it
- * alone; `deleted` means the message goes. Same two states as the verdict
- * because there is no middle outcome left to distinguish.
- */
-export type TRecommendedAction = "clean" | "deleted"
-
-export type TModerationActionType = "delete_message" | "reset_nickname"
-
-export type TActionExecutionStatus = "pending" | "executed" | "failed"
-
-/**
  * The verdict as the dashboard reads it. The backend coalesces a missing
  * verdict row to the string `"unjudged"`, so that is a real value the UI must
  * handle — it means "the worker has not concluded yet", NOT "judged clean".
@@ -175,31 +164,6 @@ export interface IMessageEdit {
 	username: string | null
 }
 
-export interface IActivityCell {
-	channelId: string
-	channelName: string
-	hour: number
-	count: number
-}
-
-export interface IAnalysisAttempt {
-	id?: string
-	message_id?: string
-	outcome?: string
-	error?: string | null
-	model?: string | null
-	duration_ms?: number | null
-	created_at?: number
-	finished_at?: number | null
-	[key: string]: unknown
-}
-
-export interface IMessageDetail extends IMessage {
-	edit_count: number
-	edit_history: IMessageEdit[]
-	analysis_attempts: IAnalysisAttempt[]
-}
-
 export interface IReviewResult {
 	results: IMessage[]
 	limit: number
@@ -294,16 +258,6 @@ export interface IChannelPage {
 	nextCursor: string | null
 }
 
-export interface IChannelDetail extends IChannelSummary {
-	clean_count: number
-	recent_messages: Array<
-		Pick<
-			IMessage,
-			"id" | "content" | "channel_id" | "created_at" | "ai_status" | "username"
-		>
-	>
-}
-
 export interface ITopReaction {
 	message_id: string
 	content: string
@@ -386,22 +340,6 @@ export interface IModerationActionPage {
 	nextCursor: string | null
 }
 
-export interface ICategoryDrilldownRow {
-	id: string
-	message_id: string | null
-	user_id: string | null
-	guild_id: string
-	action_type: string
-	reason: string | null
-	status: string
-	created_at: number
-	confidence: number | null
-	score: number | null
-	username: string | null
-	server_nick: string | null
-	content: string | null
-}
-
 export interface ICoverage {
 	total: number
 	completed: number
@@ -451,11 +389,6 @@ export interface IChatbotTurn {
 	context: Record<string, unknown> | null
 }
 
-export interface IChatbotHistoryResult {
-	history: IChatbotTurn[]
-	total: number
-}
-
 export interface IAppConfig {
 	monitorGuildId: string | null
 	/** Every monitored guild. `monitorGuildId` is the first entry, or null. */
@@ -468,5 +401,3 @@ export interface IAppConfig {
 	retentionAttachmentsDays: number
 	logLevel: string
 }
-
-export type TUiState = Record<string, unknown>

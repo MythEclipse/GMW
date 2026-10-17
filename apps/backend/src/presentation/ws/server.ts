@@ -224,21 +224,11 @@ export function createWebSocketServer(
 		}
 	}
 
-	function broadcastBinary(data: Buffer) {
-		for (const client of frontendClients) {
-			if (client.readyState === WebSocket.OPEN) {
-				try {
-					client.send(data)
-				} catch (err) {
-					logger.error({ err }, "Failed to broadcast binary data to client")
-				}
-			}
-		}
-	}
-
-	setBroadcastFunctions(
-		(type: string, data: unknown) => broadcast({ type, data }),
-		broadcastBinary,
+	// The JSON transport is the only one: `broadcastEvent` is what every module
+	// calls, and the binary channel that used to be injected beside it had no
+	// caller at all. See the note in `broadcast.ts`.
+	setBroadcastFunctions((type: string, data: unknown) =>
+		broadcast({ type, data }),
 	)
 
 	// Cleanup on close

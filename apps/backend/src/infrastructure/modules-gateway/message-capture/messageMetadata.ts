@@ -840,48 +840,6 @@ export function parseRichMessageMetadata(
 	}
 }
 
-export function isAgeRestrictedMetadata(
-	metadata: string | null | undefined,
-): boolean {
-	const parsed = parseRichMessageMetadata(metadata)
-	if (!parsed) return false
-
-	const nsfwLevel = parsed.channel.nsfwLevel?.toUpperCase()
-	return Boolean(
-		parsed.channel.nsfw ||
-			parsed.channel.ageRestricted ||
-			nsfwLevel === "AGE_RESTRICTED",
-	)
-}
-
-export function isAgeRestrictedMessage(message: Message): boolean {
-	try {
-		const channel = message.channel as {
-			nsfw?: boolean
-			nsfwLevel?: string | number | null
-			isThread?: () => boolean
-			parent?: { nsfw?: boolean; nsfwLevel?: string | number | null } | null
-		}
-		if (channel.nsfw) return true
-		if (
-			typeof channel.nsfwLevel === "string" &&
-			channel.nsfwLevel.toUpperCase() === "AGE_RESTRICTED"
-		)
-			return true
-		if (channel.isThread?.() && channel.parent) {
-			if (channel.parent.nsfw) return true
-			if (
-				typeof channel.parent.nsfwLevel === "string" &&
-				channel.parent.nsfwLevel.toUpperCase() === "AGE_RESTRICTED"
-			)
-				return true
-		}
-	} catch {
-		// Can't determine → allow capture
-	}
-	return false
-}
-
 /**
  * Attachments recorded on a stored row, for comparing a live message against
  * its persisted copy. Returns [] for a row captured before attachments were
@@ -903,65 +861,6 @@ export function extractMessageMediaEvidence(
 		attachments: parsed?.attachments ?? [],
 		customEmojis: parsed?.customEmojis ?? [],
 	}
-}
-
-export function formatMediaEvidenceForPrompt(
-	metadata: string | null | undefined,
-): string {
-	const evidence = extractMessageMediaEvidence(metadata)
-	const parts: string[] = []
-
-	if (evidence.stickers.length > 0) {
-		parts.push(
-			`[stickers: ${evidence.stickers
-				.map((sticker) =>
-					[`name=${sticker.name}`, sticker.url ? `url=${sticker.url}` : null]
-						.filter(Boolean)
-						.join(", "),
-				)
-				.join(" | ")}]`,
-		)
-	}
-
-	if (evidence.embeds.length > 0) {
-		parts.push(
-			`[embeds: ${evidence.embeds
-				.map((embed) =>
-					[
-						embed.title ? `title=${embed.title}` : null,
-						embed.description ? `description=${embed.description}` : null,
-						embed.url ? `url=${embed.url}` : null,
-						embed.image ? `image=${embed.image}` : null,
-						embed.thumbnail ? `thumbnail=${embed.thumbnail}` : null,
-						embed.fields.length > 0
-							? `fields=${embed.fields.map((field) => `${field.name}: ${field.value}`).join("; ")}`
-							: null,
-					]
-						.filter(Boolean)
-						.join(", "),
-				)
-				.join(" | ")}]`,
-		)
-	}
-
-	if (evidence.attachments.length > 0) {
-		parts.push(
-			`[attachments: ${evidence.attachments
-				.map((attachment) =>
-					[
-						`name=${attachment.name}`,
-						attachment.contentType ? `type=${attachment.contentType}` : null,
-						`size=${attachment.size}`,
-						attachment.url ? `url=${attachment.url}` : null,
-					]
-						.filter(Boolean)
-						.join(", "),
-				)
-				.join(" | ")}]`,
-		)
-	}
-
-	return parts.join(" ")
 }
 
 // ─── Prompt-safe escaping ─────────────────────────────────────────────────────
@@ -1389,45 +1288,4 @@ export function getDisplayContent(message: Message): string {
 	}
 
 	return ""
-}
-
-/**
- * Renders Discord mention/emoji tokens in message content to readable names
- * using the captured metadata (mentionedRoles / mentionedUsers / customEmojis).
- *
- * - `<@&id>`          → `@RoleName` (falls back to `@role`)
- * - `<@id>` / `<@!id>` → `@Username` (falls back to `@user`)
- * - `<:name:id>`      → `:name:`    (falls back to the literal name)
- *
- * Unresolvable tokens keep Discord's own name from the token, so no numeric
- * snowflake ever reaches the reader. Content without "<" is returned untouched.
- * Used by both the LLM prompt pipeline (conversationContext / moderationBuilders)
- * and mirrored in the frontend (libs/format.ts renderMessageContent).
- */
-export function renderDiscordMentions(
-	content: string,
-	metadata: string | null | undefined,
-): string {
-	if (!content?.includes("<")) return content
-	const parsed = parseRichMessageMetadata(metadata)
-	const roleName = new Map(
-		(parsed?.mentionedRoles ?? []).map((r) => [r.id, r.name] as const),
-	)
-	const userName = new Map(
-		(parsed?.mentionedUsers ?? []).map((u) => [u.id, u.username] as const),
-	)
-	const emojiName = new Map(
-		(parsed?.customEmojis ?? []).map((e) => [e.id, e.name] as const),
-	)
-	return content.replace(
-		/<(?:a)?:([a-zA-Z0-9_]+):(\d{17,20})>|<@!?(\d{17,20})>|<@&(\d{17,20})>/g,
-		(_full, emojiTokenName, emojiId, userId, roleId) => {
-			if (emojiId !== undefined) {
-				return `:${emojiName.get(emojiId) ?? emojiTokenName}:`
-			}
-			if (roleId !== undefined) return `@${roleName.get(roleId) ?? "role"}`
-			if (userId !== undefined) return `@${userName.get(userId) ?? "user"}`
-			return _full
-		},
-	)
 }

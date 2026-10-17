@@ -353,11 +353,4 @@ export function startAutoDeleteEnforcer(client: Client): void {
 	timer.unref?.()
 }
 
-export function stopAutoDeleteEnforcer(): void {
-	if (timer) {
-		clearInterval(timer)
-		timer = null
-	}
-}
-
 export { MARKER_COLUMNS }

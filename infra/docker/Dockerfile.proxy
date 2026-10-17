@@ -14,7 +14,9 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     PATH=/pnpm:$PATH
 RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
 
-# Build essentials (native deps like sharp need g++)
+# Build essentials. The only native dep this image installs is the Discord
+# stack's optional `bufferutil` / `utf-8-validate`; the backend's `sharp` is
+# gone with the image-resize module that used it.
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     make g++ \
     && rm -rf /var/lib/apt/lists/*

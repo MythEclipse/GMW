@@ -44,7 +44,6 @@
 import type { Server } from "node:http"
 import { closeDrizzleDatabase } from "./infrastructure/database/drizzle.js"
 import { createChildLogger } from "./infrastructure/logger/index.js"
-import { stopCommandBridge } from "./infrastructure/redis/index.js"
 import { stopRedisBridge as stopEventBridge } from "./infrastructure/redis/redis-bridge.js"
 import {
 	connectDatabase,
@@ -150,19 +149,14 @@ async function shutdown(signal: string): Promise<void> {
 		await stopWorker?.()
 	})
 
-	await guard("stop Redis bridges", async () => {
-		// Both bridges drop their connections synchronously before awaiting, so
-		// neither can hang the shutdown when Redis is unreachable. See the comments
-		// on `disconnectEventSubscriber` and `disconnectCommandClients` for why a
-		// plain `quit()` is not enough on its own.
-		await Promise.allSettled([
-			stopEventBridge().catch((err) =>
-				logger.warn({ err }, "Error stopping event bridge"),
-			),
-			stopCommandBridge().catch((err) =>
-				logger.warn({ err }, "Error stopping command bridge"),
-			),
-		])
+	await guard("stop the Redis event bridge", async () => {
+		// The event bridge drops its connection synchronously before awaiting,
+		// so it cannot hang the shutdown when Redis is unreachable. See the
+		// comment on `disconnectEventSubscriber` for why a plain `quit()` is not
+		// enough on its own.
+		await stopEventBridge().catch((err) =>
+			logger.warn({ err }, "Error stopping event bridge"),
+		)
 	})
 
 	await guard("close database pool", async () => {

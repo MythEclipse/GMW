@@ -4,7 +4,6 @@ import { startRetentionCleanup } from "../../application/gateway/retention.js"
 import type { Logger } from "../../infrastructure/logger/index.js"
 import { startVerdictNotifier } from "../../infrastructure/modules-gateway/ai-moderation/verdictNotifier.js"
 import { registerChannelTopicCapture } from "../../infrastructure/modules-gateway/channel-topic/index.js"
-import type { CommandHandler } from "../../infrastructure/modules-gateway/command-handler/commandHandler.js"
 import type { EventBroadcaster } from "../../infrastructure/modules-gateway/event-broadcaster/index.js"
 import { registerGuildMemberEvents } from "../../infrastructure/modules-gateway/guild-member-events/index.js"
 import {
@@ -20,7 +19,6 @@ import { registerPresenceCapture } from "../../infrastructure/modules-gateway/us
 export interface GatewayLifecycleOptions {
 	client: Client
 	eventBroadcaster: EventBroadcaster
-	commandHandler: CommandHandler
 	logger: Logger
 	/** Built by the composition root; drives the retention sweep. */
 	retention: RetentionDeps
@@ -38,7 +36,6 @@ export interface GatewayLifecycleOptions {
 export function startGatewayLifecycle({
 	client,
 	eventBroadcaster,
-	commandHandler,
 	logger,
 	retention,
 }: GatewayLifecycleOptions): void {
@@ -56,20 +53,19 @@ export function startGatewayLifecycle({
 
 	// 3. Background schedulers.
 	//
-	// Moderation is NOT started here — src/index.ts starts it, after this
-	// process's HTTP surface is up. Messages land in the queue simply by being
-	// captured: `ai_status` defaults to 'pending' and the worker claims from
-	// there, so nothing on this path ever waits on a model call. Capture keeps
-	// no moderation state in memory, which is why a restart mid-flight strands
-	// nothing.
-	commandHandler.start(client)
-	logger.info("Command handler started")
-
 	// The worker is database-only, so it announces no verdicts. This polls
 	// `verdicts` and republishes each new judgement as `message_analyzed`,
 	// which is what makes the dashboard's badges update live instead of
 	// freezing at the server-rendered values and showing "unjudged" for every
 	// message captured after the page loaded.
+	//
+	// Moderation itself is NOT started here — src/index.ts starts it, after this
+	// process's HTTP surface is up. Messages land in the queue simply by being
+	// captured: `ai_status` defaults to 'pending' and the worker claims from
+	// there, so nothing on this path ever waits on a model call. Capture keeps
+	// no moderation state in memory, which is why a restart mid-flight strands
+	// nothing.
+	logger.info("Gateway capture listeners registered")
 	startVerdictNotifier(eventBroadcaster)
 
 	startRetentionCleanup(retention)

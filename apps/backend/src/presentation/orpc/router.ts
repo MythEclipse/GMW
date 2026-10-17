@@ -143,14 +143,6 @@ export function buildRouter(useCases: UseCases) {
 				)
 				return { results, limit: input.limit, cursor: nextCursor }
 			}),
-		// Public, read-only activity heatmap data (per-hour volume by channel).
-		activity: os
-			.input(
-				z.object({
-					days: z.coerce.number().int().positive().max(365).default(30),
-				}),
-			)
-			.handler(({ input }) => messagesService.getActivity(input.days)),
 		// Public, read-only recent message edits (evasion tracker). Cursor-paged like
 		// `review`: the response is now `{ results, nextCursor }` rather than a bare
 		// array, so the Edits tab can scroll the same way the other two tabs do.

@@ -199,35 +199,3 @@ export function pipelineTone(
 			return "neutral"
 	}
 }
-
-/**
- * A message the pipeline will never resolve on its own.
- *
- * `dead` means the worker exhausted its retries, and `error` means the model
- * call failed in a way that produced no usable verdict. Both are terminal
- * without intervention — but this is NOT a review queue. There is no human
- * approval step anywhere in the system: the enforcer deletes what the model
- * says to delete, on its own. These rows are "this needs someone to LOOK at",
- * not "this is waiting for someone to APPROVE it".
- */
-export function isUnresolved(message: {
-	ai_status?: TPipelineStatus | null
-	verdict_status?: TDisplayVerdict | null
-}): boolean {
-	return message.ai_status === "dead" || message.verdict_status === "error"
-}
-
-/**
- * Work still owed by the worker.
- *
- * `dead` is excluded on purpose — it is not queued any more, it is
- * abandoned, and conflating the two hides a stuck pipeline behind a
- * healthy-looking backlog number. `skipped` is excluded for a different
- * reason: nothing is ever owed, so counting it would put an exempt channel
- * in the backlog permanently.
- */
-export function isBacklogged(
-	status: TPipelineStatus | null | undefined,
-): boolean {
-	return status === "pending" || status === "claimed" || status === "retry_wait"
-}

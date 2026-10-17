@@ -12,9 +12,9 @@
  * cannot share that path.
  *
  * TYPE-ONLY ON PURPOSE. Every export below is erased at compile time. Importing
- * a VALUE from this module into the frontend would drag `drizzle`, `pg`,
- * `discord.js` and `sharp` into the browser bundle — which is exactly why the
- * frontend reaches the backend for types only, never for runtime.
+ * a VALUE from this module into the frontend would drag `drizzle`, `pg` and
+ * `discord.js` into the browser bundle — which is exactly why the frontend
+ * reaches the backend for types only, never for runtime.
  */
 import type { InferClientOutputs } from "@orpc/client"
 import type { RouterClient } from "@orpc/server"
