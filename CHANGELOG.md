@@ -1,3 +1,12 @@
+## [1.0.13](https://github.com/asepharyana/GMW/compare/v1.0.12...v1.0.13) (2026-10-17)
+
+
+### Bug Fixes
+
+* **gateway:** stop dropping every reaction removal ([13b409b](https://github.com/asepharyana/GMW/commit/13b409b9abb240ed41b0bea0690d3bb9b7ecf6d5))
+* **moderation:** carry the model's citations and policy version into the audit record ([35d7809](https://github.com/asepharyana/GMW/commit/35d780984b0f9fdf4555887f276f97f46750980f))
+* **multi-guild:** scope every read from the effective guild list ([c0d80cb](https://github.com/asepharyana/GMW/commit/c0d80cb5a7e4d96c8affe2b0e4e82629f55c458e))
+
 ## [1.0.12](https://github.com/asepharyana/GMW/compare/v1.0.11...v1.0.12) (2026-10-17)
 
 ## [1.0.11](https://github.com/asepharyana/GMW/compare/v1.0.10...v1.0.11) (2026-10-17)
