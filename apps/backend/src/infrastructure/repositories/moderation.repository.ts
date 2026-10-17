@@ -12,6 +12,7 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm"
+import { summarizeAttemptOutcomes } from "../../domain/moderation-types.js"
 import { readChannelName } from "../../domain/utils/channelName.js"
 import { localHour } from "../../domain/utils/localTime.js"
 import type { DatabaseHandle } from "../database/handle.js"
@@ -697,31 +698,14 @@ export class ModerationRepository {
 		])
 
 		const counts: Record<string, number> = {}
-		let total = 0
 		for (const r of attempts) {
 			counts[String(r.outcome)] = r.n
-			total += r.n
 		}
-		// "Failed" is anything the worker could not turn into a verdict. `duplicate`
-		// is not a failure — the model answered fine, we just discarded a stale
-		// result — so it counts as a success here.
-		const completed = (counts.success ?? 0) + (counts.duplicate ?? 0)
-		const failed =
-			(counts.llm_error ?? 0) +
-			(counts.parse_error ?? 0) +
-			(counts.abandoned ?? 0)
+		// The success/failure split and the rates come from `domain/`, shared
+		// with the weekly digest, so the two cannot disagree about what counts
+		// as a completed attempt.
+		const summary = summarizeAttemptOutcomes(counts)
 		const pending = pendingRows[0]?.n ?? 0
-		return {
-			total,
-			completed,
-			failed,
-			pending,
-			// Counts are also exposed per-outcome so the UI can break down
-			// parse failures separately from model timeouts.
-			outcomes: counts,
-			coverage_rate:
-				total > 0 ? Number(((completed / total) * 100).toFixed(1)) : 0,
-			failed_rate: total > 0 ? Number(((failed / total) * 100).toFixed(1)) : 0,
-		}
+		return { ...summary, pending }
 	}
 }

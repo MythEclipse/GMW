@@ -31,6 +31,89 @@ export type AIStatus =
  */
 export type VerdictStatus = "clean" | "deleted" | "error"
 
+/**
+ * `analysis_attempts.outcome` — one row per model call, successful or not.
+ *
+ * This vocabulary is a STORAGE fact, not a preference: `0000_baseline.sql`
+ * pins it with a CHECK constraint
+ *   CHECK (outcome = ANY (ARRAY['success','llm_error','parse_error',
+ *                              'abandoned','duplicate']))
+ * so any other value is rejected by the database at write time.
+ *
+ * It lives in `domain/` because two consumers derive the same public
+ * "auto-moderation coverage" number from it — `ModerationRepository.getCoverage`
+ * and the weekly digest scheduler. When each one spelled the value list out
+ * itself, they drifted: the repository was corrected to read
+ * `analysis_attempts` while the digest kept reading `ai_analysis_runs`, a table
+ * the rewrite left with no writer, so the digest reported a permanent 0%.
+ */
+export type AnalysisAttemptOutcome =
+	| "success"
+	| "llm_error"
+	| "parse_error"
+	| "abandoned"
+	| "duplicate"
+
+/**
+ * Outcomes that DID produce a usable verdict.
+ *
+ * `duplicate` belongs here and is not a failure: the model answered fine, the
+ * result was merely discarded because a newer attempt for the same message had
+ * already landed. Counting it as a failure understates coverage.
+ */
+const SUCCESSFUL_ATTEMPT_OUTCOMES: readonly AnalysisAttemptOutcome[] = [
+	"success",
+	"duplicate",
+]
+
+/**
+ * The distinct outcomes the failing half of the CHECK constraint allows. Kept
+ * as one list so a new failure mode added to the database is added in one
+ * place, rather than in every caller that computes a rate.
+ */
+const FAILED_ATTEMPT_OUTCOMES: readonly AnalysisAttemptOutcome[] = [
+	"llm_error",
+	"parse_error",
+	"abandoned",
+]
+
+/**
+ * Turn a per-outcome count map into the coverage figures the dashboard and the
+ * digest both publish.
+ *
+ * `coverage_rate` is the share of ATTEMPTS that produced a verdict, so it is
+ * the honest "how much of this is automated" denominator: a message retried
+ * three times and succeeding on the third counts as three attempts, one of
+ * which completed — not as one success out of one.
+ */
+export function summarizeAttemptOutcomes(counts: Record<string, number>): {
+	total: number
+	completed: number
+	failed: number
+	outcomes: Record<string, number>
+	coverage_rate: number
+	failed_rate: number
+} {
+	let total = 0
+	for (const n of Object.values(counts)) total += n
+
+	const sum = (keys: readonly AnalysisAttemptOutcome[]) =>
+		keys.reduce((acc, k) => acc + (counts[k] ?? 0), 0)
+
+	const completed = sum(SUCCESSFUL_ATTEMPT_OUTCOMES)
+	const failed = sum(FAILED_ATTEMPT_OUTCOMES)
+
+	return {
+		total,
+		completed,
+		failed,
+		outcomes: counts,
+		coverage_rate:
+			total > 0 ? Number(((completed / total) * 100).toFixed(1)) : 0,
+		failed_rate: total > 0 ? Number(((failed / total) * 100).toFixed(1)) : 0,
+	}
+}
+
 export interface BroadcasterClient {
 	messageCreated: (data: unknown) => void
 	messageUpdated: (data: unknown) => void

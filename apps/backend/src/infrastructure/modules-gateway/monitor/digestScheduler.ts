@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm"
+import { summarizeAttemptOutcomes } from "../../../domain/moderation-types.js"
 import { config } from "../../config/index.js"
 import { getDatabase } from "../../database/drizzle.js"
 import { createChildLogger } from "../../logger/index.js"
@@ -60,12 +61,16 @@ export async function runWeeklyDigest(now = Date.now()): Promise<void> {
         WHERE a.created_at >= ${since} AND m.channel_id IS NOT NULL
         GROUP BY channel_name ORDER BY c DESC LIMIT 5
       `),
-			// Coverage
+			// Coverage — same denominator as the dashboard's `getCoverage`:
+			// `analysis_attempts`, not `ai_analysis_runs`. The latter was written
+			// only by the pre-rewrite in-process pipeline and has had no writer
+			// since, so this line read a permanently empty table and reported
+			// "0% (0/0 runs completed)" every week while the worker was healthy.
 			db.execute(sql`
-        SELECT status, COUNT(*)::int AS c
-        FROM ai_analysis_runs
+        SELECT outcome AS status, COUNT(*)::int AS c
+        FROM analysis_attempts
         WHERE created_at >= ${since}
-        GROUP BY status
+        GROUP BY outcome
       `),
 		])
 
@@ -78,10 +83,17 @@ export async function runWeeklyDigest(now = Date.now()): Promise<void> {
 		const topChannels = (channels.rows as Record<string, unknown>[]).map(
 			(r) => `${r.channel_name} (${r.c})`,
 		)
-		const cov = (coverage.rows as Record<string, unknown>[]) || []
-		const total = cov.reduce((s, r) => s + Number(r.c), 0)
-		const completed = Number(cov.find((r) => r.status === "completed")?.c ?? 0)
-		const covRate = total > 0 ? ((completed / total) * 100).toFixed(1) : "0"
+		const counts: Record<string, number> = {}
+		for (const r of coverage.rows as Record<string, unknown>[]) {
+			counts[String(r.status)] = Number(r.c)
+		}
+		// One shared summariser with the dashboard, so the digest and the UI
+		// cannot publish different coverage numbers for the same week.
+		const {
+			total,
+			completed,
+			coverage_rate: covRate,
+		} = summarizeAttemptOutcomes(counts)
 
 		const lines: string[] = []
 		lines.push(`**GMW Weekly Moderation Digest** (last 7 days)`)
