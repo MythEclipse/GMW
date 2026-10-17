@@ -1,3 +1,10 @@
+## [1.0.19](https://github.com/asepharyana/GMW/compare/v1.0.18...v1.0.19) (2026-10-17)
+
+
+### Bug Fixes
+
+* **frontend:** repair the corrupted copy, the collapsed tabs, and the dead guild guard ([dfe2b0c](https://github.com/asepharyana/GMW/commit/dfe2b0cf5911ec34110168864826f40a47649b10))
+
 ## [1.0.18](https://github.com/asepharyana/GMW/compare/v1.0.17...v1.0.18) (2026-10-17)
 
 ## [1.0.17](https://github.com/asepharyana/GMW/compare/v1.0.16...v1.0.17) (2026-10-17)
