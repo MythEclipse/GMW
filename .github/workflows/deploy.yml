@@ -101,6 +101,12 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    # `github.ref`, NOT `event_name`. A manual `workflow_dispatch` RUNS THIS FILE
+    # FROM THE DISPATCHED REF and DOES receive the repository secrets, so an
+    # event-based gate would still let a dispatch aimed at a branch deploy that
+    # branch's `github.sha` — overwriting production with unreviewed code.
+    # Verified on mcpedia on 2026-10-17.
+    if: ${{ github.ref == 'refs/heads/main' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
