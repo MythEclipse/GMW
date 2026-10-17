@@ -15,7 +15,7 @@ export class RedisEventPublisher {
 		this.logger = logger
 
 		this.redis.on("error", (err) => {
-			this.logger.error({ error: err }, "Redis connection error")
+			this.logger.error({ err }, "Redis connection error")
 		})
 
 		this.redis.on("connect", () => {

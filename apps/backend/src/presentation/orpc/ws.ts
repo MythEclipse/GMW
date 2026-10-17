@@ -48,7 +48,7 @@ export function createORPCWebSocketServer(
 ): WebSocketServer {
 	const handler = new RPCHandler(buildRouter(useCases), {
 		interceptors: [
-			onError((error) => logger.error({ error }, "oRPC WS error")),
+			onError((error) => logger.error({ err: error }, "oRPC WS error")),
 		],
 	})
 

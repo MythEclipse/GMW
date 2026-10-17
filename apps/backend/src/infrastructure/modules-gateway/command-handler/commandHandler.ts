@@ -38,7 +38,7 @@ export class CommandHandler {
 		this.redisPub = new Redis(config.REDIS_URL)
 
 		this.redisSub.on("error", (err) => {
-			logger.error({ error: err }, "Redis subscriber connection error")
+			logger.error({ err }, "Redis subscriber connection error")
 		})
 
 		this.redisSub.on("connect", () => {
@@ -72,7 +72,7 @@ export class CommandHandler {
 
 		this.redisSub.subscribe(BACKEND_COMMAND, (err) => {
 			if (err) {
-				logger.error({ error: err }, "Failed to subscribe to command channel")
+				logger.error({ err }, "Failed to subscribe to command channel")
 			} else {
 				logger.info(`Subscribed to Redis channel "${BACKEND_COMMAND}"`)
 			}

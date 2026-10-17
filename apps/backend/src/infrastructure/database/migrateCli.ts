@@ -9,6 +9,6 @@ runMigrations()
 		process.exit(0)
 	})
 	.catch((error: unknown) => {
-		logger.error({ error }, "Migration failed")
+		logger.error({ err: error }, "Migration failed")
 		process.exit(1)
 	})

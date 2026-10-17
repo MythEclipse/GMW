@@ -310,7 +310,7 @@ Gaya ngobrol:
 			logger.warn("Tool loop exhausted without final content")
 			return this.fallbackResponse(userMessage)
 		} catch (error) {
-			logger.warn({ error }, "LLM call failed, using fallback response")
+			logger.warn({ err: error }, "LLM call failed, using fallback response")
 			return this.fallbackResponse(userMessage)
 		}
 	}

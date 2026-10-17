@@ -75,7 +75,9 @@ export function createHttpApp(useCases: UseCases): Hono {
 	// artifacts — the `next()` dance and the `res.headersSent` guard — instead
 	// of porting them.
 	const orpcHandler = new RPCHandler(buildRouter(useCases), {
-		interceptors: [onError((error) => logger.error({ error }, "oRPC error"))],
+		interceptors: [
+			onError((error) => logger.error({ err: error }, "oRPC error")),
+		],
 	})
 
 	// oRPC's FETCH handler takes and returns a web-standard Request/Response, which
