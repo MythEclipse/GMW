@@ -1,3 +1,5 @@
+## [1.0.18](https://github.com/asepharyana/GMW/compare/v1.0.17...v1.0.18) (2026-10-17)
+
 ## [1.0.17](https://github.com/asepharyana/GMW/compare/v1.0.16...v1.0.17) (2026-10-17)
 
 
