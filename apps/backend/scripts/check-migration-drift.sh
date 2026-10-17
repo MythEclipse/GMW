@@ -19,7 +19,7 @@
 #   `pg_dump --schema-only`, so no drizzle snapshot was ever produced for it.
 #
 #   With no snapshot to diff against, drizzle concludes the schema is entirely
-#   new and emits a migration that re-CREATEs all 20 tables. That is not drift,
+#   new and emits a migration that re-CREATEs every table. That is not drift,
 #   it is a destructive artifact. Verified: on 2026-10-05 `drizzle-kit generate`
 #   produced `0001_heavy_molly_hayes.sql`, 325 lines of `CREATE TABLE` for every
 #   table in the schema, plus every index and the attachments foreign key.
@@ -33,9 +33,21 @@
 #   here rather than papered over.
 #
 # EXIT CODES
-#   0  no drift
-#   1  drift: schema changed without a matching migration
-#   2  cannot evaluate (missing baseline snapshot) — fails loudly by design
+#   0  no drift. A missing baseline snapshot does NOT fail the run — see below.
+#   1  drift: schema.ts changed without a matching migration
+#
+# WHY A MISSING SNAPSHOT IS A WARNING, NOT A FAILURE
+#   The two guards below are independent, and the old version short-circuited on
+#   the weaker one. Guard B (the snapshot) is only needed for the
+#   `drizzle-kit generate` path described above; Guard A (schema and migrations
+#   move together) needs no snapshot at all. Because Guard B ran first and
+#   exited 2, Guard A never executed, so the gate enforced nothing — and CI
+#   carried `continue-on-error: true` to stop a guaranteed red X, which meant
+#   the real invariant was unguarded in both directions.
+#
+#   So: Guard A now runs first and can fail the build. Guard B only warns. The
+#   snapshot gap stays visible on every run instead of hiding the check that
+#   does work.
 
 set -euo pipefail
 
@@ -45,33 +57,23 @@ SCHEMA="src/infrastructure/database/schema.ts"
 MIGRATIONS="drizzle/migrations"
 BASELINE_SNAPSHOT="$MIGRATIONS/meta/0000_snapshot.json"
 
+warn() {
+	echo "" >&2
+	echo "⚠ $1" >&2
+	echo "" >&2
+}
+
 fail() {
 	echo "" >&2
 	echo "✗ $1" >&2
 	echo "" >&2
 }
 
-# ── Guard 1: the baseline snapshot must exist before we can reason about drift ──
-if [ ! -f "$BASELINE_SNAPSHOT" ]; then
-	fail "migration drift gate cannot run: $BASELINE_SNAPSHOT is missing.
-
-The baseline migration was captured with pg_dump, so drizzle-kit has no
-snapshot to diff schema.ts against. Until one exists, drizzle-kit generate
-emits a migration that re-CREATEs all 20 tables.
-
-To fix properly: port the 6 CHECK constraints and 2 SQL functions that
-0000_baseline.sql carries but schema.ts does not declare, then regenerate
-the snapshot.
-
-See apps/backend/scripts/check-migration-drift.sh for the full rationale."
-	exit 2
-fi
-
-# ── Guard 2: schema and migrations must move together ──
+# ── Guard A: schema and migrations must move together ──
 #
-# Compared against the merge base rather than the working tree so that this
-# works the same locally (dirty tree, staged edits) and in CI (clean checkout,
-# feature branch merged).
+# This is the enforceable half: it compares the two paths against the merge
+# base, so it behaves the same locally (dirty tree, staged edits) and in CI
+# (clean checkout, feature branch merged).
 if git rev-parse --verify HEAD >/dev/null 2>&1 && \
 	git rev-parse --verify "$(git merge-base HEAD origin/main 2>/dev/null || echo HEAD)" >/dev/null 2>&1; then
 	BASE="$(git merge-base HEAD origin/main 2>/dev/null || echo HEAD)"
@@ -97,3 +99,23 @@ Run 'pnpm db:generate' and commit the generated SQL."
 fi
 
 echo "✓ no migration drift (schema changed: $SCHEMA_CHANGED, migrations changed: $MIGRATIONS_CHANGED)"
+
+# ── Guard B: the baseline snapshot must exist before generate can be trusted ──
+if [ ! -f "$BASELINE_SNAPSHOT" ]; then
+	warn "migration drift gate cannot check GENERATED migrations: $BASELINE_SNAPSHOT is missing.
+
+The baseline migration was captured with pg_dump, so drizzle-kit has no
+snapshot to diff schema.ts against. Until one exists, drizzle-kit generate
+emits a migration that re-CREATEs every table.
+
+Consequence: Guard A above still caught 'schema.ts changed with no migration',
+but it CANNOT catch a migration that was regenerated wrongly. Do not run
+'drizzle-kit generate' in this repo until the snapshot exists.
+
+To fix properly: port the 6 CHECK constraints that 0000_baseline.sql carries
+but schema.ts does not declare, then regenerate the snapshot. The 2 SQL
+functions cannot be declared in Drizzle's schema DSL and must be excluded from
+any generated migration by hand.
+
+See the header of $0 for the full rationale."
+fi
