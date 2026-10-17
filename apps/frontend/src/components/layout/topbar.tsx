@@ -32,13 +32,13 @@ export function Topbar({ onOpenPalette }: { onOpenPalette: () => void }) {
 			<Link
 				to="/dashboard"
 				className="-m-2.5 flex min-h-11 min-w-11 items-center gap-2.5 p-2.5 sm:-m-0 sm:min-h-0 sm:min-w-0 sm:p-0"
-				aria-label="IGuild Moderation Watcher, home"
+				aria-label="Guild Moderation Watcher, home"
 			>
 				<span className="flex size-7 items-center justify-center rounded-md border border-hairline bg-surface">
 					<ShieldAlert className="size-4 text-signal" aria-hidden />
 				</span>
 				<span className="hidden font-display text-sm font-semibold tracking-tight text-ink sm:inline">
-					IGuild Moderation Watcher
+					Guild Moderation Watcher
 				</span>
 			</Link>
 

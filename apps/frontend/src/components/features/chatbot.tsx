@@ -160,12 +160,17 @@ export function Chatbot() {
 				<Bot className="size-4 text-signal" aria-hidden />
 				<span className="text-sm font-medium text-ink">Assistant</span>
 				<div className="ml-auto flex items-center gap-1">
+					{/* 44px below `sm`, the primitive's own `size-6` above it. The panel
+					    is fixed-position and covers the full width on a phone, so these
+					    two controls are the only way out of it — the same touch
+					    treatment topbar, mode-toggle and the pickers already apply. */}
 					<Button
 						variant="ghost"
 						size="icon-xs"
 						onClick={clear}
 						aria-label="Clear conversation"
 						disabled={messages.length === 0}
+						className="min-h-11 min-w-11 sm:min-h-6 sm:min-w-6"
 					>
 						<Trash2 aria-hidden />
 					</Button>
@@ -174,6 +179,7 @@ export function Chatbot() {
 						size="icon-xs"
 						onClick={() => setOpen(false)}
 						aria-label="Close assistant"
+						className="min-h-11 min-w-11 sm:min-h-6 sm:min-w-6"
 					>
 						<X aria-hidden />
 					</Button>
@@ -238,7 +244,7 @@ export function Chatbot() {
 					}}
 					placeholder="Ask about moderation…"
 					rows={1}
-					aria-label="IMessage"
+					aria-label="Message"
 					className="min-h-9 resize-none"
 				/>
 				<Button
@@ -246,6 +252,7 @@ export function Chatbot() {
 					size="icon-sm"
 					disabled={send.isPending || draft.trim().length === 0}
 					aria-label="Send"
+					className="min-h-11 min-w-11 sm:min-h-7 sm:min-w-7"
 				>
 					<Send aria-hidden />
 				</Button>

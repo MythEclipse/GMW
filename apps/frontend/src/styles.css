@@ -540,19 +540,6 @@
     }
   }
 
-  /* Terminal cursor — used once, on the chatbot's streaming reply. */
-  .cursor-blink::after {
-    content: "\2588";
-    animation: cursor-blink 1s step-end infinite;
-    color: var(--color-signal);
-    margin-left: 2px;
-  }
-
-  @keyframes cursor-blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
-  }
-
   /* -- Typography ---------------------------------------------------------- */
   .display {
     font-family: var(--font-display);
@@ -577,33 +564,42 @@
    * `TabsList` is `h-8` (32px) via the primitive's own
    * `group-data-horizontal/tabs:h-8`, minus 3px of its padding, and each
    * trigger is `h-[calc(100%-1px)]` of that — so the triggers come out 25px
-   * tall. 25px is under the 44px touch minimum on the control that switches
-   * the whole page.
+   * tall. 25px is fine for a mouse but under the 44px touch minimum on the
+   * control that switches the whole page, so the override below applies ONLY
+   * below `sm`, where a finger is the input.
    *
-   * The override has to be a custom class in the UTILITIES layer, not a plain
-   * `h-11` on the list: Tailwind emits `group-data-horizontal/tabs:h-8` after
-   * the plain `h-11` inside the same layer, so the group variant wins on
-   * source order. A `data-[orientation=horizontal]:h-11` would be a plain
-   * variant and is not generated for this element at all.
+   * WHY THIS IS SCOPED WITH `@media (width < 40rem)` INSTEAD OF RESETTING AT
+   * `>= 40rem`. The earlier shape applied the touch height unconditionally and
+   * then "undid" it on desktop with `height: 0`. That reset collapsed the
+   * control instead of restoring it: `height: 0` is a real used height, not a
+   * return to `auto`, so the primitive's own `h-[calc(100%-1px)]` never got a
+   * chance to apply — the descendant rule `.tabs-touch > [data-slot=…]`
+   * outranks the single-class utility. With `border-box` the trigger then
+   * bottomed out at its padding plus border (2px + 2px padding + 2px border)
+   * and rendered 6px tall, with the 20px line box overflowing it visibly. The
+   * strip looked like a thin sliver rather than a tab bar.
+   *
+   * Scoping by width removes the reset problem rather than fixing it: on
+   * desktop no rule here matches, so the primitive sizes itself.
+   *
+   * The override lives in the UTILITIES layer, not as a plain `h-11` on the
+   * list: Tailwind emits `group-data-horizontal/tabs:h-8` after a plain `h-11`
+   * inside the same layer, so the group variant wins on source order. A
+   * `data-[orientation=horizontal]:h-11` would be a plain variant and is not
+   * generated for this element at all.
    *
    * Both the list and the triggers are set, because the list's 3px padding and
    * the trigger's `-1px` are inside whatever height the list has — a 44px list
    * on its own still yields 37px triggers.
    */
-  .tabs-touch {
-    min-height: 2.75rem;
-    height: 2.75rem;
-  }
+  @media (width < 40rem) {
+    .tabs-touch {
+      min-height: 2.75rem;
+      height: 2.75rem;
+    }
 
-  .tabs-touch > [data-slot="tabs-trigger"] {
-    min-height: 2.75rem;
-  }
-
-  @media (width >= 40rem) {
-    .tabs-touch,
     .tabs-touch > [data-slot="tabs-trigger"] {
-      min-height: 0;
-      height: 0;
+      min-height: 2.75rem;
     }
   }
 
@@ -673,11 +669,6 @@
   [data-slot="table-row"][data-loading] {
     opacity: 0.6;
     transition: opacity 0.15s ease;
-  }
-  .mote {
-    left: var(--mote-left, 50%);
-    animation-delay: var(--mote-delay, 0s);
-    animation-duration: var(--mote-duration, 8s);
   }
 
   /* SVG charts: measured size for the hand-rolled area chart. */
@@ -763,14 +754,13 @@
 .animate-pulse-ring { animation: pulse-ring 2s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Regenerated from the classes that ACTUALLY exist above. The ambient blob
-   * and mote guards were dropped with the Record Office migration: those
-   * classes and their render site in shell.tsx are gone, so guarding them
+  /* Regenerated from the classes that ACTUALLY exist above. The ambient blob,
+   * mote and terminal-cursor guards were dropped with the Record Office
+   * migration: those classes and their render sites are gone, so guarding them
    * here was decoration pretending to be a safety net. */
   .animate-breathe,
   .animate-pulse-ring,
-  .route-in,
-  .cursor-blink::after {
+  .route-in {
     animation: none !important;
   }
   *,

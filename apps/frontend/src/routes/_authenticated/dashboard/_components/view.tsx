@@ -131,7 +131,7 @@ export function DashboardView({ days }: { days: number }) {
 
 			<SectionGrid cols={2}>
 				<Section
-					title="IMessage volume"
+					title="Message volume"
 					description={`Daily, last ${days} days`}
 				>
 					{activity.error && !activity.data ? (

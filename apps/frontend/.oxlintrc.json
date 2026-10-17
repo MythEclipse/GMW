@@ -24,22 +24,6 @@
         ],
         "contracts": [
           {
-            "pattern": "^Card$",
-            "allow": [
-              "layout",
-              "channel-row",
-              "channel-roster-card",
-              "glass",
-              "glossary-entry",
-              "hud-card",
-              "linear-tile",
-              "mod-tile",
-              "msg-feed-card",
-              "stagger-item",
-              "user-tile"
-            ]
-          },
-          {
             "pattern": "^TabsList$",
             "allow": [
               "layout",

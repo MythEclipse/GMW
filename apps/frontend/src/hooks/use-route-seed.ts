@@ -80,7 +80,7 @@ export function useRouteSeed<T>(
 
 	const queryClient = useQueryClient()
 
-	// Bumped by retry() to force the effect to re-run. IState, not a ref —
+	// Bumped by retry() to force the effect to re-run. State, not a ref —
 	// bumping a ref would not re-render, so the effect would never re-fire
 	// and retry would silently do nothing.
 	const [attempt, setAttempt] = useState(0)

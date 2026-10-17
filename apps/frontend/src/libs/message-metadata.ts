@@ -12,7 +12,7 @@
  * and is deliberately duplicated rather than shared: the two services are
  * deployed and versioned separately, and the gateway's copy pulls in Drizzle,
  * the config singleton and discord.js types, none of which belong in a
- * browser bundle. The `IEmbedEvidence` shape below is the contract; if it
+ * browser bundle. The `EmbedEvidence` shape below is the contract; if it
  * changes on the gateway side it changes here too, in the same commit.
  *
  * Every reader is defensive on purpose: a row captured before a field existed,
@@ -183,7 +183,7 @@ export function readStickers(
 	return parseMessageMetadata(metadata).stickers
 }
 
-// ─── IAttachment classification ──────────────────────────────────────────────
+// ─── Attachment classification ──────────────────────────────────────────────
 
 /**
  * Whether an attachment can be handed to an `<img>`.

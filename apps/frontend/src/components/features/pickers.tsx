@@ -8,7 +8,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "#/components/ui/select"
-import { channelLabel } from "#/libs/format"
+import { channelLabel, guildLabel } from "#/libs/format"
 import type { IGuild, ITextChannel } from "#/libs/types"
 
 /**
@@ -23,7 +23,7 @@ import type { IGuild, ITextChannel } from "#/libs/types"
 export const ALL_CHANNELS = "__all__"
 
 /**
- * IGuild + channel pickers, built on the shadcn `Select` primitive.
+ * Guild + channel pickers, built on the shadcn `Select` primitive.
  *
  * `items` is the important part. Without it, `<Select.Value>` falls back to
  * rendering the raw item VALUE, so the trigger displayed the literal strings
@@ -63,7 +63,7 @@ export function GuildPicker({
 				<SelectTrigger
 					size="sm"
 					className="min-h-11 sm:min-h-8 w-full sm:w-52"
-					aria-label="IGuild"
+					aria-label="Guild"
 				>
 					No guilds yet
 				</SelectTrigger>
@@ -71,16 +71,11 @@ export function GuildPicker({
 		)
 	}
 
-	// The backend only stores a guild NAME for some guilds; the rest fall back to
-	// the id. Showing a bare snowflake is honest but unreadable, so the id is
-	// kept as a secondary line.
+	// `items` is the label map base-ui resolves the trigger against; it must use
+	// the same `guildLabel` the item rows render, or the trigger and the list
+	// disagree about the selected guild's name.
 	const items = Object.fromEntries(
-		guilds.map((guild) => [
-			guild.id,
-			guild.name && guild.name !== `IGuild ${guild.id}`
-				? guild.name
-				: `IGuild ${guild.id.slice(-6)}`,
-		]),
+		guilds.map((guild) => [guild.id, guildLabel(guild)]),
 	)
 
 	return (
@@ -95,7 +90,7 @@ export function GuildPicker({
 			<SelectTrigger
 				size="sm"
 				className="min-h-11 sm:min-h-8 w-full sm:w-52"
-				aria-label="IGuild"
+				aria-label="Guild"
 			>
 				<SelectValue placeholder="Select a guild" />
 			</SelectTrigger>
@@ -105,11 +100,7 @@ export function GuildPicker({
 					{guilds.map((guild) => (
 						<SelectItem key={guild.id} value={guild.id}>
 							<span className="flex min-w-0 flex-col">
-								<span className="truncate">
-									{guild.name && guild.name !== `IGuild ${guild.id}`
-										? guild.name
-										: `IGuild ${guild.id.slice(-6)}`}
-								</span>
+								<span className="truncate">{guildLabel(guild)}</span>
 								<span className="truncate font-mono text-xs text-muted-foreground">
 									{guild.id}
 								</span>

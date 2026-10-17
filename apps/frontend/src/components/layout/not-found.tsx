@@ -8,13 +8,19 @@ import { DEFAULT_ROUTE } from "#/libs/navigation"
  * The static host answers an unknown deep link with `index.html` rather than a
  * 404, so without this route a mistyped URL would boot the whole SPA and land
  * the user on an empty shell with no explanation.
+ *
+ * The heading is an `<h1>`, not the styled `<p>` it used to be. Every other
+ * route opens with one (`Overview`, `Moderation`, …), and this page is the
+ * heading of the document it renders — a reader navigating by heading got a
+ * page with no heading at all, so the one place a lost user needs an anchor
+ * was the one place the outline went missing.
  */
 export function NotFoundPage() {
 	return (
 		<div className="flex flex-col items-center gap-3 py-20 text-center">
-			<p className="font-display text-xl font-semibold tracking-tight text-ink">
+			<h1 className="font-display text-xl font-semibold tracking-tight text-ink">
 				Page not found
-			</p>
+			</h1>
 			<p className="max-w-md text-xs text-ink-muted">
 				That route does not exist in this dashboard. Use the rail, the bottom
 				dock, or ⌘K to jump to a section.

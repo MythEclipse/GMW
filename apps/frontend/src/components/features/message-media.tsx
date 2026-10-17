@@ -19,7 +19,7 @@ import {
  * back out. Nothing ever rendered them. A member posting a screenshot rendered
  * as a card whose entire body was blank, because:
  *
- *   - `getDisplayContent()` substitutes `[IAttachment: file.png]` for a
+ *   - `getDisplayContent()` substitutes `[Attachment: file.png]` for a
  *     media-only post, and `messageBody()` STRIPS that placeholder, so the body
  *     reduced to `""`;
  *   - `EmbeddedPreview` then took the `content.length > 0` branch (the

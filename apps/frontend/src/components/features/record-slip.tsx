@@ -329,7 +329,14 @@ export function RecordSlipCompact({
 			</div>
 			<p className="mt-1 truncate text-sm text-ink">
 				{summary}
-				<span className="mx-1.5 text-ink-faint">·</span>
+				{/*
+          The separator is a SEPARATOR, so it may not lead the line. When the
+          summary is the "nothing was typed" fallback there is no left-hand part
+          to separate from, and rendering it unconditionally put an orphan "·"
+          at the start of the row — the visible scar of a message whose only
+          content was a gateway placeholder.
+        */}
+				{summary ? <span className="mx-1.5 text-ink-faint">·</span> : null}
 				<span className="text-ink-muted">{channel}</span>
 			</p>
 			<p className="mt-1 text-micro-lg text-ink-muted">

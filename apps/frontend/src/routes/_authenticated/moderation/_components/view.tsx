@@ -130,6 +130,22 @@ function clauseFor(row: IModerationActionRow): string {
 }
 
 /**
+ * The one-line summary the drawer shows for a record.
+ *
+ * Gating on the CLEANED body, not on the raw `content`. `content` is the
+ * gateway's display string, and for a media-only post it holds a placeholder
+ * (`[Attachment: shot.png]`) rather than author text — so a truthiness check on
+ * `content` says "there is a message here" for a post whose author typed
+ * nothing. `messageBody` strips that placeholder, and the result then has to be
+ * checked again: an empty cleaned body means the empty-state string, not a row
+ * that renders as nothing but the separator that follows it.
+ */
+function drawerSummary(content: string | null | undefined): string {
+	const body = truncate(messageBody(content), 72)
+	return body.length > 0 ? body : "No message text was captured"
+}
+
+/**
  * The filed decisions, as the drawer shows them: enough to recognise a record
  * and see its outcome, never so much that a drawer of twenty competes with the
  * consulted slip. Each entry is a whole button, so a keyboard reaches every
@@ -181,11 +197,7 @@ function DrawerList({
 					accession={accessionFor(row)}
 					channel={row.server_nick ? `@${row.server_nick}` : "unknown member"}
 					verdict={verdictFor(row)}
-					summary={
-						row.content
-							? truncate(messageBody(row.content), 72)
-							: "No message text was captured"
-					}
+					summary={drawerSummary(row.content)}
 					decidedAt={formatDateTime(row.created_at)}
 					onSelect={() => onSelect(row.id)}
 					isActive={row.id === activeId}

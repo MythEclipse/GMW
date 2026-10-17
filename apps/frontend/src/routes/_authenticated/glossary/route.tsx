@@ -16,7 +16,7 @@ const DAYS = 30
 
 /**
  * Client route for /glossary — was a server component issuing three parallel
- * oRPC calls. IProps unchanged.
+ * oRPC calls. Props unchanged.
  */
 export function GlossaryPage() {
 	const fetcher = useCallback(async () => {

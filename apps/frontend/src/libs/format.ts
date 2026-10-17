@@ -110,7 +110,7 @@ export function messageLabel(
 		.replace(/<@!?\d{17,20}>/g, "@someone")
 		// Gateway placeholders for media-only messages; the panel cannot show the
 		// media, so leaving the literal text is worse than dropping it.
-		.replace(/\[(?:Sticker|IAttachment|Image|GIF)[^\]]*\]/gi, "")
+		.replace(/\[(?:Sticker|Attachment|Image|GIF)[^\]]*\]/gi, "")
 		.replace(/\s+/g, " ")
 		.trim()
 
@@ -150,7 +150,7 @@ export function messageBody(content: string | null | undefined): string {
 		(content ?? "")
 			.replace(/<a?:([a-zA-Z0-9_]{2,32}):\d{17,20}>/g, ":$1:")
 			.replace(/<@!?\d{17,20}>/g, "@someone")
-			.replace(/\[(Sticker|IAttachment|Image|GIF)[^\]]*\]/gi, "")
+			.replace(/\[(Sticker|Attachment|Image|GIF)[^\]]*\]/gi, "")
 			// Code fences and inline code keep their contents but lose the fences.
 			.replace(/```(?:[a-zA-Z0-9+#-]*)\n?/g, "")
 			.replace(/`([^`\n]+)`/g, "$1")
@@ -180,4 +180,38 @@ export function messageBody(content: string | null | undefined): string {
  */
 export function channelLabel(name: string | null, id: string): string {
 	return name && name.trim().length > 0 ? name : `#${id}`
+}
+
+/**
+ * The number of leading id characters `listGuilds()` puts in its synthesised
+ * name. Kept as a named constant so the guard below and the backend's format
+ * string cannot drift apart silently.
+ */
+const GUILD_PLACEHOLDER_PREFIX = 8
+
+/**
+ * The display name for a guild row.
+ *
+ * `listGuilds()` cannot know real guild names — it derives the list from the
+ * message archive and synthesises `Guild <first 8 of the id>` for every row
+ * (`messages.repository.ts`). So this has to answer "is this name just the id
+ * again?" and it has to compare against the string the API ACTUALLY produces.
+ *
+ * The guard used to read `Guild ${guild.id}` — the full snowflake — while the
+ * backend emits the 8-character prefix. The two were never equal, so the
+ * shortening branch was unreachable: a hand-copied format string had drifted
+ * from its producer, and the label the reader saw was a prefix the guard was
+ * not written to detect.
+ *
+ * Lives here rather than in the component so it is testable without a DOM.
+ */
+export function guildLabel(guild: {
+	id: string
+	name?: string | null
+}): string {
+	const placeholder = `Guild ${guild.id.slice(0, GUILD_PLACEHOLDER_PREFIX)}`
+	if (guild.name && guild.name !== placeholder) return guild.name
+	// Unreadable but honest: two guilds whose synthesised names share a prefix
+	// are still distinguishable by the tail.
+	return `Guild ${guild.id.slice(-6)}`
 }

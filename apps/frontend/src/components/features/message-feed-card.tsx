@@ -18,7 +18,7 @@ import {
 import type { IMessage, TVerdictStatus } from "#/libs/types"
 
 /**
- * IMessage row for the live feed and the enforcement log.
+ * Message row for the live feed and the enforcement log.
  *
  * Shows BOTH state axes explicitly, because collapsing them is the bug that
  * made "still queued" indistinguishable from "judged clean":
@@ -68,7 +68,7 @@ function EmbeddedPreview({ message }: { message: IMessage }) {
 
     THE CHECK IS ON THE CLEANED BODY, NOT ON THE RAW `content`. That inversion
     is the media-only-post bug, and the previous comment here got it backwards.
-    `getDisplayContent()` substitutes `[IAttachment: file.png]` for a post whose
+    `getDisplayContent()` substitutes `[Attachment: file.png]` for a post whose
     only payload is a picture, so `content` is NON-EMPTY even though the author
     typed nothing. `messageBody()` strips that placeholder — correctly, it is a
     gateway stand-in rather than author text — leaving `""`. Gating on the raw
