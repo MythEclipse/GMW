@@ -1358,7 +1358,7 @@ export class ModerationWorker {
 		for (const { msg, v } of items) {
 			const isError = v.status === "error"
 			verdictRowsSql.push(
-				`($${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}::jsonb, $${vp++}, $${vp++}, $${vp++})`,
+				`($${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}, $${vp++}::jsonb, $${vp++}, $${vp++}, $${vp++}, $${vp++})`,
 			)
 			verdictValues.push(
 				msg.id,
@@ -1377,13 +1377,19 @@ export class ModerationWorker {
 				// badge, and it has read NULL on every row since the column was created
 				// because nothing on the write path ever populated it.
 				durationMs,
+				// `verdictParser` has always stamped the policy that actually ruled
+				// (`v.policyVersion`), but this INSERT omitted the column, so every
+				// row carried NULL and the audit trail could not say which policy
+				// version produced a deletion. The parser's value wins over anything
+				// the model echoed back.
+				v.policyVersion ?? null,
 			)
 		}
 
 		await client.query(
 			`INSERT INTO verdicts
          (message_id, status, reason, score, confidence, flags, categories,
-          analysis, evidence, model, action, duration_ms)
+          analysis, evidence, model, action, duration_ms, policy_version)
        VALUES ${verdictRowsSql.join(", ")}
        ON CONFLICT (message_id) DO UPDATE SET
          status = EXCLUDED.status,
@@ -1394,6 +1400,7 @@ export class ModerationWorker {
          model = EXCLUDED.model,
          action = EXCLUDED.action,
          duration_ms = EXCLUDED.duration_ms,
+         policy_version = EXCLUDED.policy_version,
          auto_delete_state = CASE
            WHEN verdicts.status IS DISTINCT FROM EXCLUDED.status
              OR verdicts.score IS DISTINCT FROM EXCLUDED.score

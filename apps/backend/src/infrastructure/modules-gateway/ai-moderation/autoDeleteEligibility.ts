@@ -57,6 +57,18 @@ export interface VerdictLike {
 	categories?: string[] | null
 	flags?: string[] | null
 	analysis?: string | null
+	/**
+	 * The quoted spans the model cited, straight from `verdicts.evidence`
+	 * (jsonb). This is what the record slip renders under "Evidence kept", so it
+	 * must be the model's own citations and nothing else.
+	 */
+	evidence?: string[] | null
+	/**
+	 * The policy version that actually produced this judgement, from
+	 * `verdicts.policy_version`. Stamped by the parser from `POLICY_VERSION`,
+	 * never taken from the model's echo.
+	 */
+	policyVersion?: string | null
 }
 
 export interface MessageLike {

@@ -24,6 +24,22 @@ function list(value: unknown): string {
 	return ""
 }
 
+/**
+ * The `evidence` column holds the quoted spans the model cited — the record slip
+ * renders them under "Evidence kept", and the moderation repository parses them
+ * back with `parseJsonArray` into `string[]`.
+ *
+ * It must therefore be written as a JSON array of citations. It previously
+ * received `verdict.flags` (the category labels) as an array whenever any flags
+ * were present, and the model's `analysis` prose otherwise — so a slip showed
+ * `harassment` where it claimed to show the message text the model quoted, and
+ * the column carried prose in the slot the reader parses as a list.
+ */
+function evidenceField(verdict?: VerdictLike | null): string {
+	const citations = (verdict?.evidence ?? []).map(String).filter(Boolean)
+	return citations.length > 0 ? JSON.stringify(citations) : ""
+}
+
 export function verdictToActionFields(
 	message: MessageLike,
 	verdict?: VerdictLike | null,
@@ -44,12 +60,12 @@ export function verdictToActionFields(
 		categories,
 		flags,
 		confidence,
-		// `evidence` is jsonb in the schema. Older rows stored a bare string, so a
-		// plain string is still accepted; an array is stored as JSON.
-		evidence: Array.isArray(verdict?.flags)
-			? JSON.stringify(verdict?.flags)
-			: (verdict?.analysis ?? ""),
+		evidence: evidenceField(verdict),
 		score,
-		policy_version: policyVersion ?? null,
+		// `verdict.policyVersion` is the version that ACTUALLY ruled — the parser
+		// stamps it from POLICY_VERSION, and the worker writes it to
+		// `verdicts.policy_version`. The explicit argument stays supported for
+		// callers that resolve it themselves.
+		policy_version: policyVersion ?? verdict?.policyVersion ?? null,
 	}
 }

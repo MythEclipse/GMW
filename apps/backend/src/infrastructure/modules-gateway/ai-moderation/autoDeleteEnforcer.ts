@@ -61,6 +61,9 @@ interface Row {
 	categories: string[] | null
 	flags: string[] | null
 	analysis: string | null
+	/** jsonb; the driver hands it back already parsed when it is a JSON array. */
+	evidence: unknown
+	policy_version: string | null
 	auto_delete_state: string | null
 	guild_id: string
 	channel_id: string
@@ -70,6 +73,26 @@ interface Row {
 	content: string | null
 	edited_content: string | null
 	metadata: unknown
+}
+
+/**
+ * Normalise `verdicts.evidence` to a list of cited spans.
+ *
+ * The column is jsonb, so the driver may hand back an already-parsed array or
+ * the raw JSON text depending on the value's shape (and on rows written before
+ * the column was jsonb). Anything that is not a list of strings yields `[]`
+ * rather than being coerced, so the audit trail never renders a stray object as
+ * a citation.
+ */
+function normalizeEvidence(raw: unknown): string[] {
+	if (Array.isArray(raw)) return raw.map(String).filter(Boolean)
+	if (typeof raw !== "string" || raw.length === 0) return []
+	try {
+		const parsed: unknown = JSON.parse(raw)
+		return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : []
+	} catch {
+		return []
+	}
 }
 
 /** Verdicts awaiting a decision, oldest first. */
@@ -135,7 +158,7 @@ async function claimUnenforced(limit: number): Promise<Row[]> {
     WHERE v.message_id IN (SELECT message_id FROM candidates)
       AND m.id = v.message_id
     RETURNING v.message_id, v.status, v.reason, v.action, v.confidence, v.score,
-              v.categories, v.flags, v.analysis,
+              v.categories, v.flags, v.analysis, v.evidence, v.policy_version,
               m.guild_id, m.channel_id, m.user_id, m.thread_id, m.username,
               m.content, m.edited_content, m.metadata
   `)
@@ -218,6 +241,12 @@ async function tick(client: Client): Promise<void> {
 				categories: row.categories ?? [],
 				flags: row.flags ?? [],
 				analysis: row.analysis,
+				// The model's own quoted citations and the policy version that ruled.
+				// Both are copied off the verdict row so the audit record can state
+				// them; without this the manager wrote `evidence` from `flags` and left
+				// `policy_version` NULL on every row.
+				evidence: normalizeEvidence(row.evidence),
+				policyVersion: row.policy_version,
 			}
 
 			let result: AutoDeleteResult
