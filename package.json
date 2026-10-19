@@ -1,5 +1,6 @@
 {
   "name": "gmw",
+  "description": "GMW — pnpm workspace root: Discord moderation dashboard, backend service and SPA frontend",
   "private": true,
   "workspaces": [
     "apps/*"
@@ -14,7 +15,7 @@
     "dev": "moon run :dev"
   },
   "devDependencies": {
-    "@moonrepo/cli": "^2.6.1",
+    "@moonrepo/cli": "^2.6.2",
     "@types/bun": "1.4.3"
   },
   "packageManager": "pnpm@10.33.2",
