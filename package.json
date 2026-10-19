@@ -1,5 +1,6 @@
 {
   "name": "gmw",
+  "description": "GMW — pnpm workspace root: Discord moderation dashboard, backend service and SPA frontend",
   "private": true,
   "workspaces": [
     "apps/*"

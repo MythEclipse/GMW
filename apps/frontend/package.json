@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "GMW frontend — React 19 + Vite SPA for Discord moderation monitoring",
   "private": true,
+  "type": "module",
   "engines": {
     "node": ">=22.12.0"
   },
