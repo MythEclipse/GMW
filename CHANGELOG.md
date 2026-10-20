@@ -1,3 +1,10 @@
+## [1.0.22](https://github.com/asepharyana/GMW/compare/v1.0.21...v1.0.22) (2026-10-20)
+
+
+### Bug Fixes
+
+* auto-fix code quality [skip ci] ([f89f70d](https://github.com/asepharyana/GMW/commit/f89f70db94cb7af85d2cb912b24232e4d7db12f9))
+
 ## [1.0.21](https://github.com/asepharyana/GMW/compare/v1.0.20...v1.0.21) (2026-10-19)
 
 
