@@ -8,13 +8,13 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "test": "vitest run",
-    "start": "vite preview --host 127.0.0.1 --port 4017",
+    "dev": "vite",
     "format": "biome format --write .",
     "lint": "biome check . && oxlint",
+    "preview": "vite preview",
+    "start": "vite preview --host 127.0.0.1 --port 4017",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
