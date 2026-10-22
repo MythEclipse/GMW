@@ -1,3 +1,10 @@
+## [1.0.26](https://github.com/asepharyana/GMW/compare/v1.0.25...v1.0.26) (2026-10-22)
+
+
+### Bug Fixes
+
+* auto-fix code quality ([cedad7b](https://github.com/asepharyana/GMW/commit/cedad7b67fa9a30b96d2374dbf5e596136e24124))
+
 ## [1.0.25](https://github.com/asepharyana/GMW/compare/v1.0.24...v1.0.25) (2026-10-22)
 
 
