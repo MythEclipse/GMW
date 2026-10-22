@@ -36,7 +36,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
-    "@shadcn/lint": "0.2.1",
+    "@shadcn/lint": "0.2.3",
     "@tailwindcss/vite": "^4",
     "@tanstack/router-cli": "1.167.45",
     "@tanstack/router-plugin": "^1.168.47",
