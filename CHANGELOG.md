@@ -1,3 +1,10 @@
+## [1.0.31](https://github.com/asepharyana/GMW/compare/v1.0.30...v1.0.31) (2026-10-26)
+
+
+### Bug Fixes
+
+* tighten moderation policy against joke-labelled abuse ([a949757](https://github.com/asepharyana/GMW/commit/a9497572211db5ede947c048dc705e2254d828e0))
+
 ## [1.0.30](https://github.com/asepharyana/GMW/compare/v1.0.29...v1.0.30) (2026-10-26)
 
 
