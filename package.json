@@ -15,8 +15,8 @@
     "dev": "moon run :dev"
   },
   "devDependencies": {
-    "@moonrepo/cli": "^2.6.2",
-    "@types/bun": "1.4.3"
+    "@moonrepo/cli": "^2.6.4",
+    "@types/bun": "1.4.4"
   },
   "packageManager": "pnpm@10.33.2",
   "engines": {
