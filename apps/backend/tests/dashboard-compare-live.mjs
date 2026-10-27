@@ -85,13 +85,17 @@ async function compare(
 	}
 }
 
-try {
-	const { initializeDatabase, getDatabase, closeDrizzleDatabase } =
-		await import("../src/infrastructure/database/drizzle.ts")
-	const { DashboardRepository } = await import(
-		"../src/infrastructure/repositories/dashboard.repository.ts"
-	)
+// Imported OUTSIDE the try: the `finally` below calls `closeDrizzleDatabase`,
+// and a binding declared inside `try` is not in scope there — the call threw a
+// ReferenceError into an empty catch, so the pool was never closed.
+const { initializeDatabase, getDatabase, closeDrizzleDatabase } = await import(
+	"../src/infrastructure/database/drizzle.ts"
+)
+const { DashboardRepository } = await import(
+	"../src/infrastructure/repositories/dashboard.repository.ts"
+)
 
+try {
 	await initializeDatabase()
 	const repo = new DashboardRepository(getDatabase())
 

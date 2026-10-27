@@ -1,4 +1,14 @@
-import { and, count, countDistinct, eq, gte, inArray, sql } from "drizzle-orm"
+import {
+	and,
+	count,
+	countDistinct,
+	desc,
+	eq,
+	gte,
+	inArray,
+	sql,
+} from "drizzle-orm"
+import { buildLeaderboards } from "../../domain/dashboard/leaderboards.js"
 import {
 	rawChannelName,
 	readChannelName,
@@ -266,6 +276,40 @@ export class DashboardRepository {
 			daily,
 			hourly,
 		}
+	}
+
+	/**
+	 * Leaderboards: who the model deletes, who posts most, which channels carry
+	 * it.
+	 *
+	 * One flat scan of messages LEFT JOIN verdicts, reduced in `domain/`. The
+	 * obvious alternative — a GROUP BY per ranking — cannot resolve a channel
+	 * name, because the name lives inside `messages.metadata` and the fallback
+	 * rule belongs to `readChannelName`. Grouping on (channel_id, raw name) to
+	 * work around that would split one channel into two rows: the split that
+	 * `getStats().top_channels` reproduces on purpose (it mirrors the old GROUP
+	 * BY key exactly) and that a leaderboard must not inherit.
+	 *
+	 * `ORDER BY created_at DESC` is part of the contract, not decoration. The
+	 * reduction keeps the newest name per member and per channel using a strict
+	 * `>`, so equal timestamps resolve to whichever row came back first — and
+	 * newest-first is what makes that the current name.
+	 */
+	async getLeaderboards(limit: number) {
+		const rows = await this.db
+			.select({
+				user_id: messagesTable.user_id,
+				username: messagesTable.username,
+				channel_id: messagesTable.channel_id,
+				metadata: messagesTable.metadata,
+				created_at: messagesTable.created_at,
+				verdict_status: verdictsTable.status,
+			})
+			.from(messagesTable)
+			.leftJoin(verdictsTable, eq(verdictsTable.message_id, messagesTable.id))
+			.orderBy(desc(messagesTable.created_at))
+
+		return buildLeaderboards(rows, limit)
 	}
 
 	async getTopReactions(limit: number) {

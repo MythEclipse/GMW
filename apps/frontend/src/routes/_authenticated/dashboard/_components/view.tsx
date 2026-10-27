@@ -8,11 +8,13 @@ import { Section, SectionGrid } from "#/components/layout/section"
 import { ErrorState } from "#/components/ui/states"
 import {
 	useActivity,
+	useLeaderboards,
 	useStats,
 	useTopReactions,
 	useTopReactors,
 } from "#/hooks/use-data"
 import {
+	channelLabel,
 	formatCompact,
 	formatNumber,
 	formatPercent,
@@ -24,14 +26,17 @@ import { useWsEvent } from "#/libs/ws/context"
 export function DashboardView({ days }: { days: number }) {
 	const stats = useStats()
 	const activity = useActivity(days)
+	const leaderboards = useLeaderboards(8)
 	const reactions = useTopReactions(10)
 	const reactors = useTopReactors(10)
 
-	// A verdict landing invalidates the headline numbers; revalidate rather than
-	// poll, so a quiet system costs nothing and a busy one stays honest.
+	// A verdict landing invalidates the headline numbers AND the rankings — a
+	// deletion moves a name up the offender list — so both revalidate rather
+	// than poll, and a quiet system costs nothing.
 	useWsEvent("message_analyzed", () => {
 		void stats.refetch()
 		void activity.refetch()
+		void leaderboards.refetch()
 	})
 	useWsEvent("moderation_action", () => {
 		void stats.refetch()
@@ -56,10 +61,68 @@ export function DashboardView({ days }: { days: number }) {
 		[daily],
 	)
 
+	// Verdict mix answers "what did the model decide", which is a different
+	// question from queue health's "where is each message in the pipeline". They
+	// disagree on purpose, and the gap between them — captured vs judged — is the
+	// number that says whether the worker is keeping up.
+	const verdictMix = useMemo(() => {
+		const total = stats.data?.total_messages ?? 0
+		if (total === 0) return []
+		const rows = [
+			{ label: "Clean", value: stats.data?.total_clean ?? 0 },
+			{ label: "Deleted", value: stats.data?.total_flagged ?? 0 },
+			{ label: "Errored", value: stats.data?.total_error ?? 0 },
+		]
+		const judged = rows.reduce((sum, r) => sum + r.value, 0)
+		rows.push({ label: "No verdict yet", value: Math.max(0, total - judged) })
+		return rows.map((r) => ({
+			...r,
+			secondary: formatPercent((r.value / total) * 100),
+		}))
+	}, [stats.data])
+
+	const judgedShare = useMemo(() => {
+		const total = stats.data?.total_messages ?? 0
+		if (total === 0) return null
+		const judged =
+			(stats.data?.total_clean ?? 0) +
+			(stats.data?.total_flagged ?? 0) +
+			(stats.data?.total_error ?? 0)
+		return (judged / total) * 100
+	}, [stats.data])
+
+	// Peak hour and busiest day are reduced from the activity series that is
+	// already on the page. A second endpoint for a max() over the same buckets
+	// would be a second way for the two numbers to disagree.
+	const peakHour = useMemo(() => {
+		const best = (activity.data?.hourly ?? []).reduce<{
+			hour: number
+			messages: number
+		} | null>(
+			(acc, row) => (acc === null || row.messages > acc.messages ? row : acc),
+			null,
+		)
+		return best !== null && best.messages > 0 ? best : null
+	}, [activity.data?.hourly])
+
+	const busiestDay = useMemo(
+		() =>
+			daily.reduce<{ day: string; messages: number } | null>(
+				(acc, row) => (acc === null || row.messages > acc.messages ? row : acc),
+				null,
+			),
+		[daily],
+	)
+
+	const averagePerDay = useMemo(() => {
+		if (daily.length === 0) return null
+		return daily.reduce((sum, d) => sum + d.messages, 0) / daily.length
+	}, [daily])
+
 	const channelBars = useMemo(
 		() =>
 			(stats.data?.top_channels ?? []).map((c) => ({
-				label: c.channel_name || `#${c.channel_id}`,
+				label: channelLabel(c.channel_name, c.channel_id),
 				value: c.message_count,
 			})),
 		[stats.data?.top_channels],
@@ -122,9 +185,51 @@ export function DashboardView({ days }: { days: number }) {
 					to="/messages?status=pending"
 				/>
 				<StatTile
+					label="Judged"
+					value={formatPercent(judgedShare)}
+					hint={
+						judgedShare === null
+							? "Nothing captured yet"
+							: "of everything captured"
+					}
+					tone={
+						judgedShare !== null && judgedShare < 90 ? "warning" : "neutral"
+					}
+				/>
+				<StatTile
 					label="Active members"
 					value={formatNumber(stats.data?.active_users_24h)}
 					hint={`${formatNumber(stats.data?.total_users)} total`}
+				/>
+				<StatTile
+					label="Peak hour"
+					value={
+						peakHour === null
+							? "—"
+							: `${String(peakHour.hour).padStart(2, "0")}:00`
+					}
+					hint={
+						peakHour === null
+							? "No messages in 24h"
+							: `${formatNumber(peakHour.messages)} messages`
+					}
+				/>
+				<StatTile
+					label="Average / day"
+					value={
+						averagePerDay === null
+							? "—"
+							: formatNumber(Math.round(averagePerDay))
+					}
+					hint={`Last ${days} days`}
+				/>
+				<StatTile
+					label="Busiest day"
+					value={busiestDay === null ? "—" : formatCompact(busiestDay.messages)}
+					exact={
+						busiestDay === null ? undefined : formatNumber(busiestDay.messages)
+					}
+					hint={busiestDay?.day ?? "No messages in this window"}
 				/>
 			</StatGrid>
 
@@ -141,6 +246,79 @@ export function DashboardView({ days }: { days: number }) {
 					) : (
 						<AreaChart data={chartData} />
 					)}
+				</Section>
+
+				<Section
+					title="Verdict mix"
+					description="Every captured message by how it was judged"
+				>
+					<RankedBars data={verdictMix} emptyLabel="Nothing captured yet" />
+				</Section>
+			</SectionGrid>
+
+			{/*
+        Leaderboards. Both member panels share one row shape on purpose — sent,
+        of which deleted — so a name that appears in both reads the same way in
+        both places.
+
+        "Top offenders" is the only panel in the app that names members for what
+        they did, so its description says "model": a message a human deleted by
+        hand is not counted there, and the wording has to survive being read as
+        an accusation.
+      */}
+			<SectionGrid cols={2}>
+				<Section
+					title="Top offenders"
+					description="Members whose messages the model deleted, all time"
+				>
+					{leaderboards.error && !leaderboards.data ? (
+						<ErrorState
+							error={leaderboards.error}
+							onRetry={() => void leaderboards.refetch()}
+						/>
+					) : (
+						<RankedBars
+							showRank
+							data={(leaderboards.data?.top_offenders ?? []).map((u) => ({
+								label: u.username,
+								value: u.deleted,
+								secondary: ratioLabel(u.deleted, u.total),
+							}))}
+							emptyLabel="Nothing deleted yet"
+						/>
+					)}
+				</Section>
+
+				<Section
+					title="Most active members"
+					description="Messages sent, all time"
+				>
+					<RankedBars
+						showRank
+						data={(leaderboards.data?.most_active ?? []).map((u) => ({
+							label: u.username,
+							value: u.total,
+							secondary: `${formatNumber(u.total)} · ${formatNumber(
+								u.deleted,
+							)} deleted`,
+						}))}
+						emptyLabel="No messages captured yet"
+					/>
+				</Section>
+
+				<Section
+					title="Problem channels"
+					description="Channels carrying the most deletions, all time"
+				>
+					<RankedBars
+						showRank
+						data={(leaderboards.data?.problem_channels ?? []).map((c) => ({
+							label: channelLabel(c.channel_name, c.channel_id),
+							value: c.deleted,
+							secondary: ratioLabel(c.deleted, c.total),
+						}))}
+						emptyLabel="No channel has had a deletion"
+					/>
 				</Section>
 
 				<Section title="Busiest channels" description="All time">
@@ -202,6 +380,20 @@ export function DashboardView({ days }: { days: number }) {
 			</Section>
 		</div>
 	)
+}
+
+/**
+ * "3 / 28 · 10,7%" — deletions, the denominator, and the share.
+ *
+ * The share is the point. Three deletions out of 28 messages is a habit; three
+ * out of 3 000 is a bad day. A list that shows only the first number ranks the
+ * loudest member rather than the worst one.
+ */
+function ratioLabel(deleted: number, total: number): string {
+	if (total === 0) return formatNumber(deleted)
+	return `${formatNumber(deleted)} / ${formatNumber(total)} · ${formatPercent(
+		(deleted / total) * 100,
+	)}`
 }
 
 /**

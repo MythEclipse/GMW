@@ -9,6 +9,7 @@ import {
 import { browserApi } from "#/libs/api/browser"
 import type {
 	IDashboardActivity,
+	IDashboardLeaderboards,
 	IDashboardStats,
 	IFlaggedChannel,
 	IFlaggedDomain,
@@ -70,6 +71,8 @@ export const qk = {
 	stats: ["dashboard", "stats"] as const,
 	activity: (days: number) => ["dashboard", "activity", days] as const,
 	reactions: (limit: number) => ["dashboard", "reactions", limit] as const,
+	leaderboards: (limit: number) =>
+		["dashboard", "leaderboards", limit] as const,
 	reactors: (limit: number) => ["dashboard", "reactors", limit] as const,
 	guilds: ["messages", "guilds"] as const,
 	textChannels: (guildId: string) =>
@@ -112,6 +115,18 @@ export function useActivity(days: number) {
 			browserApi.dashboard.activity(days) as Promise<IDashboardActivity>,
 		...shared,
 		refetchInterval: LIVE,
+	})
+}
+
+export function useLeaderboards(limit: number) {
+	return useQuery({
+		queryKey: qk.leaderboards(limit),
+		queryFn: () =>
+			browserApi.dashboard.leaderboards(
+				limit,
+			) as Promise<IDashboardLeaderboards>,
+		...shared,
+		placeholderData: (prev) => prev,
 	})
 }
 

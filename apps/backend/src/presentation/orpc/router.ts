@@ -31,6 +31,9 @@ export function buildRouter(useCases: UseCases) {
 				z.object({ days: z.coerce.number().int().min(1).max(90).default(14) }),
 			)
 			.handler(({ input }) => dashboardService.getActivity(input.days)),
+		leaderboards: os
+			.input(z.object({ limit: z.coerce.number().int().positive().default(8) }))
+			.handler(({ input }) => dashboardService.getLeaderboards(input.limit)),
 		reactions: os
 			.input(
 				z.object({ limit: z.coerce.number().int().positive().default(20) }),

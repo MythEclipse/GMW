@@ -22,6 +22,7 @@ export const browserApi = {
 	dashboard: {
 		stats: () => client().dashboard.stats({}),
 		activity: (days: number) => client().dashboard.activity({ days }),
+		leaderboards: (limit: number) => client().dashboard.leaderboards({ limit }),
 		reactions: (limit: number) => client().dashboard.reactions({ limit }),
 		reactors: (limit: number) => client().dashboard.reactors({ limit }),
 	},

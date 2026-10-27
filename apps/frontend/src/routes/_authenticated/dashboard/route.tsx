@@ -7,6 +7,7 @@ import { useRouteSeed } from "#/hooks/use-route-seed"
 import { browserApi } from "#/libs/api/browser"
 import type {
 	IDashboardActivity,
+	IDashboardLeaderboards,
 	IDashboardStats,
 	ITopReaction,
 	ITopReactor,
@@ -27,33 +28,39 @@ const DAYS = 14
 export function DashboardPage() {
 	const fetcher = useCallback(async () => {
 		// Independent reads, so they go in parallel rather than in sequence.
-		const [stats, activity, reactions, reactors] = await Promise.all([
-			browserApi.dashboard.stats(),
-			browserApi.dashboard.activity(DAYS),
-			browserApi.dashboard.reactions(10),
-			browserApi.dashboard.reactors(10),
-		])
+		const [stats, activity, leaderboards, reactions, reactors] =
+			await Promise.all([
+				browserApi.dashboard.stats(),
+				browserApi.dashboard.activity(DAYS),
+				browserApi.dashboard.leaderboards(8),
+				browserApi.dashboard.reactions(10),
+				browserApi.dashboard.reactors(10),
+			])
 
 		return {
 			stats: stats as unknown as IDashboardStats,
 			activity: activity as unknown as IDashboardActivity,
+			leaderboards: leaderboards as unknown as IDashboardLeaderboards,
 			reactions: reactions as unknown as ITopReaction[],
 			reactors: reactors as unknown as ITopReactor[],
 		}
 	}, [])
 
 	// Prime the cache under the exact keys `useStats` / `useActivity` /
-	// `useTopReactions` / `useTopReactors` read, so those hooks mount onto this
-	// data instead of firing four identical requests one frame later.
+	// `useLeaderboards` / `useTopReactions` / `useTopReactors` read, so those
+	// hooks mount onto this data instead of firing five identical requests one
+	// frame later.
 	const prime = useCallback(
 		(r: {
 			stats: IDashboardStats
 			activity: IDashboardActivity
+			leaderboards: IDashboardLeaderboards
 			reactions: ITopReaction[]
 			reactors: ITopReactor[]
 		}) => [
 			{ key: qk.stats, data: r.stats },
 			{ key: qk.activity(DAYS), data: r.activity },
+			{ key: qk.leaderboards(8), data: r.leaderboards },
 			{ key: qk.reactions(10), data: r.reactions },
 			{ key: qk.reactors(10), data: r.reactors },
 		],

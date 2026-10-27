@@ -16,6 +16,11 @@ export class DashboardService {
 		return this.repository.getActivity(days)
 	}
 
+	async getLeaderboards(limit: number) {
+		logger.debug({ limit }, "Fetching dashboard leaderboards")
+		return this.repository.getLeaderboards(limit)
+	}
+
 	async getTopReactions(limit: number) {
 		logger.debug({ limit }, "Fetching top reactions")
 		return this.repository.getTopReactions(limit)

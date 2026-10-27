@@ -226,6 +226,35 @@ export interface IDashboardActivity {
 	hourly: IHourlyActivity[]
 }
 
+/**
+ * Leaderboards.
+ *
+ * Both member rankings carry the same two counts, because the interesting number
+ * on either one is the ratio: a name with 40 messages and 3 deletions is a
+ * different story from a name with 3 messages and 3 deletions. `total` is always
+ * messages sent, `deleted` always messages the model deleted — the panel decides
+ * which one it ranks by.
+ */
+export interface IUserLeaderboardEntry {
+	user_id: string
+	username: string
+	total: number
+	deleted: number
+}
+
+export interface IChannelLeaderboardEntry {
+	channel_id: string
+	channel_name: string
+	total: number
+	deleted: number
+}
+
+export interface IDashboardLeaderboards {
+	top_offenders: IUserLeaderboardEntry[]
+	most_active: IUserLeaderboardEntry[]
+	problem_channels: IChannelLeaderboardEntry[]
+}
+
 export interface ITopReaction {
 	message_id: string
 	content: string
