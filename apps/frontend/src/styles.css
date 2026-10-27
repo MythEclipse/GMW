@@ -635,7 +635,6 @@
   .text-signal { color: var(--accent-signal); }
   .text-amber { color: var(--color-warning); }
   .text-vermilion { color: var(--color-danger); }
-  .text-error { color: var(--error-base); }
   .text-ink { color: var(--text-primary); }
   .text-ink-soft { color: var(--text-secondary); }
   .text-ink-muted { color: var(--text-muted); }
@@ -727,13 +726,14 @@
   /* SVG charts: measured size for the hand-rolled area chart. */
   .chart-frame { height: var(--chart-height, auto); }
 
-  /* HUD layout hooks. Semantic names the views attach to regions so the
-   * treatment lives in one place; the utility classes alongside them handle
-   * the actual box. */
+  /* Layout hooks. Semantic names the views attach to regions so the treatment
+   * lives in one place; the utility classes alongside them handle the box.
+   *
+   * `channel-row` and `glossary-entry` were dropped with the channels and
+   * glossary pages — a selector with no element is dead weight, not a slot to
+   * keep warm. */
   .linear-tile,
-  .channel-row,
   .msg-feed-card,
-  .glossary-entry,
   .nav-dock-item {
     min-width: 0;
   }
