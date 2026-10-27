@@ -62,12 +62,12 @@ jobs:
           submodules: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Apply schema to the test database
         # `0000_baseline.sql` IS the schema of record: one migration, the whole
