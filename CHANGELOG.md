@@ -1,3 +1,10 @@
+## [1.0.32](https://github.com/asepharyana/GMW/compare/v1.0.31...v1.0.32) (2026-10-27)
+
+
+### Bug Fixes
+
+* **ai-moderation:** judge a GIF preview by its own title, and stop losing its picture ([aba149c](https://github.com/asepharyana/GMW/commit/aba149cba48babc70c9d99196ff1b9961a2e5549)), closes [#general](https://github.com/asepharyana/GMW/issues/general)
+
 ## [1.0.31](https://github.com/asepharyana/GMW/compare/v1.0.30...v1.0.31) (2026-10-26)
 
 
