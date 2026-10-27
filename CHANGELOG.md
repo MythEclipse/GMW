@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/asepharyana/GMW/compare/v1.1.0...v1.2.0) (2026-10-27)
+
+
+### Features
+
+* **dashboard:** add offender and activity leaderboards plus judgement stats ([d8737c9](https://github.com/asepharyana/GMW/commit/d8737c91fae0f370181ade631d7eeaef47c249c5))
+
 # [1.1.0](https://github.com/asepharyana/GMW/compare/v1.0.32...v1.1.0) (2026-10-27)
 
 
