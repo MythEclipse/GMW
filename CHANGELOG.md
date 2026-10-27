@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/asepharyana/GMW/compare/v1.2.1...v1.3.0) (2026-10-27)
+
+
+### Features
+
+* **frontend:** rebuild the interface around verdicts and live data ([89859aa](https://github.com/asepharyana/GMW/commit/89859aa765a68cee03ce3bc5ac5dd7c00ae4f874))
+
 ## [1.2.1](https://github.com/asepharyana/GMW/compare/v1.2.0...v1.2.1) (2026-10-27)
 
 
