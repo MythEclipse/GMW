@@ -1049,6 +1049,15 @@ function renderEmbedBody(embed: EmbedEvidence): string {
 	// The image URL matters: a link whose preview is a picture carries all of
 	// its content in the picture, not in the text fields.
 	if (embed.image) add("image", embed.image, 600)
+	// A gifv preview has NO `image` — Discord puts the still in `thumbnail`
+	// and the animation in `video`. Rendering only `image` therefore dropped
+	// the picture from every GIF link (Klipy/Tenor/Giphy), leaving the model a
+	// bare title and an mp4 URL it cannot watch.
+	if (embed.thumbnail) add("thumbnail", embed.thumbnail, 600)
+	// The type separates a plain link preview from a GIF/animation, which is
+	// the difference between "someone shared a page" and "someone shared a
+	// clip" — the policy's animation rules key off it.
+	if (embed.type) add("type", embed.type, 40)
 	if (embed.video?.url) add("video", embed.video.url, 600)
 	if (rows.length === 0) {
 		return "  <preview>(embed ada tapi tidak ada field yang bisa dibaca)</preview>"

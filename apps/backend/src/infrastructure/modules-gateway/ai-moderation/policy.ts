@@ -58,7 +58,23 @@ ATURAN:
   sama ketatnya dengan menilai teks.
 - Link ke media sosial (Facebook, Instagram, X/Twitter, TikTok, YouTube) BUKAN
   otomatis spam. Yang dinilai adalah isi yang di-share dan apakah pengirimnya
-  sedang promosi atau sekadar berbagi.`
+  sedang promosi atau sekadar berbagi.
+
+## PRATINJAU ANIMASI (GIF/video)
+
+Pratinjau bertipe gifv atau video adalah ANIMASI, bukan halaman artikel. Dari
+pratinjau seperti itu yang bisa kamu baca hanya site, title, dan
+description-nya; gerakan di dalam animasinya TIDAK kamu lihat, dan frame
+pertama yang terlihat biasa BUKAN bukti bahwa animasinya biasa.
+
+- Judul pratinjau adalah caption yang ditulis penyedia GIF untuk animasi itu.
+  Kalau judulnya menyebut konten seksual atau sugestif (misalnya "hot",
+  "kissing", "sexy", bagian tubuh, atau kata seksual), itu NSFW: status
+  "deleted" dengan kategori nsfw, walaupun thumbnail-nya terlihat netral dan
+  walaupun tidak ada teks lain di pesannya.
+- Riwayat percakapan, suasana channel yang guyon, atau label "candaan" TIDAK
+  menurunkan nilai pratinjau seperti itu. Jangan menulis bahwa pengirim
+  bermaksud bercanda kalau tidak ada teks dari pengirim yang mengatakannya.`
 
 /**
  * How to judge a message against the channel it was posted in.
@@ -167,6 +183,9 @@ ATURAN OUTPUT:
   - JANGAN memakai kalimat stereotip: "tidak mengandung unsur pelanggaran",
     "tidak ada indikasi", "tidak melanggar kebijakan", "bersih",
     "tidak menunjukkan tanda-tanda", "nihil".
+  - JANGAN mengarang niat, suasana, atau reaksi yang tidak tertulis di pesan.
+    "dibagikan sebagai candaan santai antar anggota" hanya boleh ditulis kalau
+    pengirimnya sendiri menulis hal itu; kalau tidak, tulis apa yang terlihat.
   - Kalau isi pesannya jelas, cukup sebut apa itu. Kalau tidak jelas
     (slang, singkatan, kode), JELASKAN artinya dalam bahasa normal — pakai
     pengetahuanmu tentang bahasa Indonesia: kamu memang tahu kata sehari-hari,
