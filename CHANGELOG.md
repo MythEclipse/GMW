@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/asepharyana/GMW/compare/v1.0.32...v1.1.0) (2026-10-27)
+
+
+### Features
+
+* **dashboard:** remove the channels, users, analysis and glossary pages ([f1a363a](https://github.com/asepharyana/GMW/commit/f1a363a506605d182548584657704a2fdcf717a0))
+
 ## [1.0.32](https://github.com/asepharyana/GMW/compare/v1.0.31...v1.0.32) (2026-10-27)
 
 
