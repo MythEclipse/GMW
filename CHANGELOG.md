@@ -1,3 +1,10 @@
+## [1.3.3](https://github.com/asepharyana/GMW/compare/v1.3.2...v1.3.3) (2026-10-27)
+
+
+### Bug Fixes
+
+* **deploy:** stop wiping the database on every deploy ([0aca10b](https://github.com/asepharyana/GMW/commit/0aca10b6ebce8d64e324ac22a2f2a31732a086a3))
+
 ## [1.3.2](https://github.com/asepharyana/GMW/compare/v1.3.1...v1.3.2) (2026-10-27)
 
 
