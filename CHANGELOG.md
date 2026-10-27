@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/asepharyana/GMW/compare/v1.3.1...v1.3.2) (2026-10-27)
+
+
+### Bug Fixes
+
+* **frontend:** stop a missing metric from carrying a dash tooltip ([1b5cce1](https://github.com/asepharyana/GMW/commit/1b5cce16219d069a66ae89d30784719a702f3169))
+
 ## [1.3.1](https://github.com/asepharyana/GMW/compare/v1.3.0...v1.3.1) (2026-10-27)
 
 
