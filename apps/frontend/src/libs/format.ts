@@ -23,12 +23,24 @@ export function formatCompact(value: number | null | undefined): string {
 	return compactFormatter.format(value)
 }
 
+/**
+ * A percentage with Indonesian decimal notation.
+ *
+ * `toFixed()` was used here and produces `1.35%` while `formatNumber` produces
+ * `1,35` for the same locale — two separators for the same number on the same
+ * card. Both now go through Intl so a reader never has to decide which one the
+ * app means.
+ */
 export function formatPercent(
 	value: number | null | undefined,
 	digits = 1,
 ): string {
 	if (value == null || Number.isNaN(value)) return "—"
-	return `${value.toFixed(digits)}%`
+	const formatted = new Intl.NumberFormat("id-ID", {
+		minimumFractionDigits: digits,
+		maximumFractionDigits: digits,
+	}).format(value)
+	return `${formatted}%`
 }
 
 export function formatDateTime(epochMs: number | null | undefined): string {
@@ -36,6 +48,24 @@ export function formatDateTime(epochMs: number | null | undefined): string {
 	return new Date(epochMs).toLocaleString("id-ID", {
 		dateStyle: "medium",
 		timeStyle: "short",
+	})
+}
+
+/**
+ * A calendar day (`2026-10-27`) as "27 Okt".
+ *
+ * The API returns the day as a plain `YYYY-MM-DD` string, not an epoch, and the
+ * dashboard was printing it raw — an ISO date in a sentence about activity
+ * reads as a database column, not as a day. Parsed as local midnight rather than
+ * via `new Date("2026-10-27")`, which is UTC and shifts a day west of Greenwich.
+ */
+export function formatDay(isoDate: string | null | undefined): string {
+	if (!isoDate) return "—"
+	const [year, month, day] = isoDate.split("-").map(Number)
+	if (!year || !month || !day) return isoDate
+	return new Date(year, month - 1, day).toLocaleDateString("id-ID", {
+		day: "numeric",
+		month: "short",
 	})
 }
 

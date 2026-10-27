@@ -1,12 +1,14 @@
 import { Link } from "@tanstack/react-router"
 import { cn } from "cn"
 import { ChevronRight } from "lucide-react"
+import { formatNumber } from "#/libs/format"
+import { Ticker } from "#/libs/motion"
 
 /**
  * Statistic tile.
  *
  * `linear-tile` is the layout hook declared in styles.css; the surface is a
- * HUD card so a tile matches the panels around it.
+ * `hud-card` so a tile matches the panels around it.
  *
  * -- Why `to` exists (W2) ----------------------------------------------
  * A headline number is a claim about a list. "In queue 419" is only useful if
@@ -19,12 +21,21 @@ import { ChevronRight } from "lucide-react"
  * because an affordance that shows on a non-interactive element teaches the
  * user that affordances here mean nothing.
  *
+ * -- Why `value` is a number and not a string ---------------------------
+ * A tile whose figure changes under a WS push has to show that it changed, or
+ * the reader cannot tell a fresh number from a stale one. Taking the raw number
+ * plus a formatter is what lets the value tick to its new state (`Ticker`).
+ * A tile whose value is not a number at all — a clock hour, a date — passes a
+ * string instead and renders plainly.
+ *
  * The `hint` is folded into the accessible name so a screen reader announces
  * the context, not just the number.
  */
 export function StatTile({
 	label,
 	value,
+	format = formatNumber,
+	placeholder = "—",
 	hint,
 	tone = "neutral",
 	to,
@@ -33,7 +44,10 @@ export function StatTile({
 	className,
 }: {
 	label: string
-	value: string
+	/** Raw value: a number ticks, a string renders as given, null is a placeholder. */
+	value: number | string | null | undefined
+	format?: (n: number) => string
+	placeholder?: string
 	hint?: string
 	tone?: "neutral" | "positive" | "warning" | "danger"
 	/** When set, the whole tile becomes a link to this route. */
@@ -48,16 +62,21 @@ export function StatTile({
 }) {
 	const valueTone = {
 		neutral: "text-ink",
-		positive: "text-ink-soft",
+		positive: "text-signal",
 		warning: "text-amber",
 		danger: "text-vermilion",
 	}[tone]
 
+	const display =
+		value == null
+			? placeholder
+			: typeof value === "number"
+				? format(value)
+				: value
+
 	const body = (
 		<>
-			<p className="truncate text-xs tracking-wide text-ink-muted uppercase">
-				{label}
-			</p>
+			<p className="field-label truncate">{label}</p>
 			{/*
         `exact` exists because the headline numbers are abbreviated with
         `Intl.NumberFormat("id-ID")` compact notation, which renders 49,724 as
@@ -73,13 +92,17 @@ export function StatTile({
         tile that is not abbreviated does not gain a redundant tooltip.
       */}
 			<p
-				className={cn("metric mt-1 text-2xl", valueTone)}
+				className={cn("metric-xl mt-1.5", valueTone)}
 				{...(exact ? { title: exact } : {})}
 			>
-				{value}
+				{typeof value === "number" ? (
+					<Ticker value={value} format={format} placeholder={placeholder} />
+				) : (
+					display
+				)}
 				{exact && <span className="sr-only"> ({exact})</span>}
 			</p>
-			{hint && <p className="mt-0.5 text-xs text-ink-faint">{hint}</p>}
+			{hint && <p className="mt-1.5 truncate text-xs text-ink-faint">{hint}</p>}
 			{/* The chevron marks the tile as a control. It is aria-hidden because the
           link's own accessible name already carries label + value + hint. */}
 			{to && (
@@ -96,10 +119,10 @@ export function StatTile({
 			<Link
 				to={to}
 				className={cn(
-					"linear-tile hud-card group block px-4 py-3 transition-colors hover:border-hairline-focus",
+					"linear-tile hud-card group block px-4 py-3.5 transition-colors hover:border-hairline-focus",
 					className,
 				)}
-				aria-label={`${label}: ${value}${exact ? ` (${exact})` : ""}${hint ? `. ${hint}` : ""}`}
+				aria-label={`${label}: ${display}${exact ? ` (${exact})` : ""}${hint ? `. ${hint}` : ""}`}
 			>
 				{body}
 			</Link>
@@ -107,7 +130,7 @@ export function StatTile({
 	}
 
 	return (
-		<div className={cn("linear-tile hud-card px-4 py-3", className)}>
+		<div className={cn("linear-tile hud-card px-4 py-3.5", className)}>
 			{body}
 		</div>
 	)

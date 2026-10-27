@@ -33,6 +33,7 @@ import {
 	VERDICT_STATUSES,
 } from "#/libs/ai-status"
 import { formatRelative, humanize } from "#/libs/format"
+import { Reveal } from "#/libs/motion"
 import type { IMessage, IMessageEdit } from "#/libs/types"
 import { useWsEvent } from "#/libs/ws/context"
 
@@ -208,13 +209,14 @@ export function MessagesView({
 	}, [feedRows, search])
 
 	return (
-		<div className="space-y-4">
+		<Reveal className="space-y-4">
+			{/* Hero: a mono eyebrow names the surface, the title sits at the display
+          step so the page has a top, one line of context underneath. */}
 			<header className="flex flex-wrap items-end justify-between gap-3">
-				<div>
-					<h1 className="font-display text-xl font-semibold tracking-tight text-ink">
-						Messages
-					</h1>
-					<p className="text-xs text-ink-muted">
+				<div className="min-w-0">
+					<p className="field-label">Captured traffic</p>
+					<h1 className="display mt-1 text-ink">Messages</h1>
+					<p className="mt-2 text-sm text-ink-muted">
 						Live feed, enforcement log, and edit history
 					</p>
 				</div>
@@ -382,7 +384,7 @@ export function MessagesView({
 					/>
 				</TabsContent>
 			</Tabs>
-		</div>
+		</Reveal>
 	)
 }
 

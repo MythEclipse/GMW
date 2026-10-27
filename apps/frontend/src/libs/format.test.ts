@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { messageBody, messageLabel } from "./format"
+import { formatPercent, messageBody, messageLabel } from "./format"
 
 /**
  * Gateway placeholder cleanup.
@@ -86,5 +86,30 @@ describe("messageBody empty-body contract", () => {
 	test("null and undefined degrade to an empty string", () => {
 		expect(messageBody(null)).toBe("")
 		expect(messageBody(undefined)).toBe("")
+	})
+})
+
+/**
+ * Number formatting has to be locale-consistent.
+ *
+ * `formatPercent` used `toFixed()` and produced `1.35%` while `formatNumber`
+ * produced `1,35` for the same locale, so one card could show two decimal
+ * separators. These cases pin the separator and the placeholder contract.
+ */
+describe("formatPercent locale", () => {
+	test("uses the Indonesian decimal comma, like formatNumber", () => {
+		expect(formatPercent(1.35, 2)).toBe("1,35%")
+		expect(formatPercent(94.06, 1)).toBe("94,1%")
+	})
+
+	test("keeps whole numbers readable and appends the sign", () => {
+		expect(formatPercent(0, 0)).toBe("0%")
+		expect(formatPercent(100, 0)).toBe("100%")
+	})
+
+	test("renders a placeholder for missing values rather than NaN%", () => {
+		expect(formatPercent(null)).toBe("—")
+		expect(formatPercent(undefined)).toBe("—")
+		expect(formatPercent(Number.NaN)).toBe("—")
 	})
 })

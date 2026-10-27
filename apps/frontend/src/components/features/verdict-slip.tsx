@@ -1,7 +1,12 @@
 import { cn } from "cn"
 
 /**
- * The Record Office — a moderation record as a filed slip.
+ * A moderation record, as a slip in the decision column.
+ *
+ * This was "the Record Office" — paper stock, oxblood stamp, an accession
+ * number. The treatment is now the console's: a hairline panel with the verdict
+ * colour on the left tab, and the quotable id in mono. The evidence model did
+ * not change, and it is still the point.
  *
  * PRODUCT.md makes the evidence trail the product's positioning: a deletion is
  * only defensible in public if nothing in it is unexplained. So this component
@@ -23,13 +28,13 @@ import { cn } from "cn"
 export type TSlipVerdict = "clean" | "deleted" | "error"
 
 /**
- * The filing-tab colour per verdict. This is the ONE place a slip's left edge
- * takes its colour, so a drawer of ten can be scanned on the tabs alone.
+ * The tab colour per verdict. This is the ONE place a slip's left edge takes its
+ * colour, so a column of ten can be scanned on the tabs alone.
  *
- * Oxblood is spent only on `deleted`, filing green only on `clean`, and
- * `error` takes the neutral ink — an unread message is not an alert, it is an
- * absence. Each is applied via a named token class, never a raw hex: the
- * `shadcn/no-raw-colors` gate forbids one at the JSX site.
+ * Coral is spent only on `deleted`, slate on `clean` (nothing was done, which is
+ * not praise), and `error` takes the neutral ink — an unread message is not an
+ * alert, it is an absence. Each is applied via a named token class, never a raw
+ * hex: the `shadcn/no-raw-colors` gate forbids one at the JSX site.
  */
 const SLIP_TAB: Record<TSlipVerdict, string> = {
 	deleted: "border-l-vermilion",
@@ -114,7 +119,7 @@ function SlipField({
  * treatment, so "what am I reading" is answered by weight before position.
  */
 export function RecordSlip({
-	accession,
+	caseId,
 	channel,
 	verdict,
 	reason,
@@ -127,7 +132,7 @@ export function RecordSlip({
 	className,
 }: {
 	/** The record number a member quotes back. Stable, human-quotable. */
-	accession: string
+	caseId: string
 	channel: string
 	verdict: TSlipVerdict
 	/** Why the model decided this. Empty is rendered honestly, never hidden. */
@@ -152,14 +157,14 @@ export function RecordSlip({
 	return (
 		<article
 			className={cn(
-				active ? "record-slip-active" : "record-slip",
+				active ? "verdict-slip-active" : "verdict-slip",
 				SLIP_TAB[verdict],
 				className,
 			)}
 		>
 			<header className="flex flex-wrap items-start justify-between gap-2 border-b border-hairline px-4 py-3">
 				<div className="min-w-0">
-					<p className="accession">{accession}</p>
+					<p className="case-id">{caseId}</p>
 					<p className="mt-0.5 truncate text-sm text-ink-muted">
 						{channel}
 						<span className="mx-1.5 text-ink-faint">·</span>
@@ -167,8 +172,8 @@ export function RecordSlip({
 					</p>
 				</div>
 				{showStamp ? (
-					<span className={cn("accession-stamp", !removed && "opacity-70")}>
-						{removed ? "Removed" : "Filed"}
+					<span className={cn("verdict-stamp", !removed && "opacity-70")}>
+						{removed ? "Removed" : "Kept"}
 					</span>
 				) : null}
 			</header>
@@ -264,24 +269,24 @@ export function RecordSlip({
 }
 
 /**
- * A drawer of filed records. The slip being consulted is lifted out and shown
+ * A column of decided records. The slip being consulted is lifted out and shown
  * beside it, so the grid holds only the *other* records — which is what makes
  * "pulled forward of" mean something rather than being a highlight colour.
  */
 export function RecordDrawer({
 	children,
-	activeAccession,
+	activeCaseId,
 	className,
 }: {
 	children: React.ReactNode
-	/** The accession currently consulted, excluded from the drawer. */
-	activeAccession?: string
+	/** The case id currently consulted, excluded from the drawer. */
+	activeCaseId?: string
 	className?: string
 }) {
 	return (
 		<div
 			className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", className)}
-			data-active-accession={activeAccession}
+			data-active-case-id={activeCaseId}
 		>
 			{children}
 		</div>
@@ -294,7 +299,7 @@ export function RecordDrawer({
  * card is a button, so a keyboard reaches every record.
  */
 export function RecordSlipCompact({
-	accession,
+	caseId,
 	channel,
 	verdict,
 	summary,
@@ -302,7 +307,7 @@ export function RecordSlipCompact({
 	onSelect,
 	isActive,
 }: {
-	accession: string
+	caseId: string
 	channel: string
 	verdict: TSlipVerdict
 	summary: string
@@ -316,13 +321,13 @@ export function RecordSlipCompact({
 			onClick={onSelect}
 			aria-current={isActive || undefined}
 			className={cn(
-				"record-slip w-full px-3 py-2.5 text-left transition-colors",
+				"verdict-slip w-full px-3 py-2.5 text-left transition-colors",
 				SLIP_TAB[verdict],
 				"hover:border-hairline-focus focus-visible:outline-2",
 			)}
 		>
 			<div className="flex items-baseline justify-between gap-2">
-				<span className="accession">{accession}</span>
+				<span className="case-id">{caseId}</span>
 				<span className="font-mono text-micro-lg text-ink-faint tabular-nums">
 					{decidedAt}
 				</span>

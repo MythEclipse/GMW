@@ -217,7 +217,7 @@ function MediaImage({
 					onClick={onReveal}
 					style={{ "--media-ratio": ratio } as React.CSSProperties}
 					className={cn(
-						"media-frame flex w-full items-center justify-center rounded-md border border-hairline bg-surface-2/40 text-micro text-ink-muted transition-colors hover:text-ink-soft",
+						"media-frame flex max-h-72 w-full items-center justify-center rounded-md border border-hairline bg-surface-2/40 text-micro text-ink-muted transition-colors hover:text-ink-soft",
 						thumbClass,
 					)}
 				>
@@ -230,8 +230,13 @@ function MediaImage({
 					loading="lazy"
 					onError={onFailure}
 					style={{ "--media-ratio": ratio } as React.CSSProperties}
+					/* `w-full` + `object-cover` made a portrait screenshot ~800px tall: one
+             attachment then owned the whole viewport, and `object-cover` silently
+             cropped the evidence it was showing. `max-h-72` bounds the preview and
+             `object-contain` keeps the whole frame; without `w-full` the aspect
+             ratio resolves the width from that height, so nothing is squeezed. */
 					className={cn(
-						"media-frame w-full rounded-md border border-hairline bg-surface-2/40 object-cover",
+						"media-frame max-h-72 max-w-full rounded-md border border-hairline bg-surface-2/40 object-contain",
 						thumbClass,
 					)}
 				/>

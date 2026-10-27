@@ -35,6 +35,12 @@ import { Topbar } from "#/components/layout/topbar"
 export function Shell() {
 	return (
 		<div className="relative min-h-dvh">
+			{/* The console's ground. Fixed, behind everything, pure CSS: a 32px cell
+          grid that dissolves before it reaches the content, plus two accent
+          blooms marking where live data enters the page. `-z-10` keeps it under
+          the sticky chrome and the content without either of them needing a
+          background of its own. */}
+			<div className="field-grid -z-10" aria-hidden />
 			{/* The topbar and the ribbon are one sticky group: the ribbon reports a
           live failure, and a strip that scrolls out of view the moment you
           scroll down would defeat the point. Putting the ribbon as a sibling

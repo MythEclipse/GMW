@@ -8,7 +8,7 @@ import {
 	RecordSlip,
 	RecordSlipCompact,
 	type TSlipVerdict,
-} from "#/components/features/record-slip"
+} from "#/components/features/verdict-slip"
 import { Section, SectionGrid } from "#/components/layout/section"
 import {
 	Select,
@@ -36,6 +36,7 @@ import {
 	messageBody,
 	truncate,
 } from "#/libs/format"
+import { Reveal } from "#/libs/motion"
 import type { ICoverage, IHourBucket, IModerationActionRow } from "#/libs/types"
 import { useWsEvent } from "#/libs/ws/context"
 
@@ -64,9 +65,9 @@ const ACTION_ITEMS: Record<string, string> = {
 }
 
 /**
- * The accession number: a record's quotable address.
+ * The case id: a record's quotable address.
  *
- * Derived from the row's own id and the time it was filed — NOT invented per
+ * Derived from the row's own id and the time it was decided — NOT invented per
  * render, NOT a random string. The same decision must always produce the same
  * number, or quoting it back means nothing. `REC` + the filing date + the last
  * four of the id gives a member something short enough to type and stable
@@ -80,11 +81,11 @@ const ACTION_ITEMS: Record<string, string> = {
  * `created_at` is epoch milliseconds, so the date comes from the record itself
  * rather than from `new Date()`, which would make the number drift on re-render.
  */
-function accessionFor(row: IModerationActionRow): string {
-	const filed = new Date(row.created_at)
-	const yyyy = filed.getFullYear()
-	const mm = String(filed.getMonth() + 1).padStart(2, "0")
-	const dd = String(filed.getDate()).padStart(2, "0")
+function caseIdFor(row: IModerationActionRow): string {
+	const decided = new Date(row.created_at)
+	const yyyy = decided.getFullYear()
+	const mm = String(decided.getMonth() + 1).padStart(2, "0")
+	const dd = String(decided.getDate()).padStart(2, "0")
 	return `REC ${yyyy}-${mm}-${dd}-${row.id.slice(-4).toUpperCase()}`
 }
 
@@ -146,7 +147,7 @@ function drawerSummary(content: string | null | undefined): string {
 }
 
 /**
- * The filed decisions, as the drawer shows them: enough to recognise a record
+ * The decided records, as the column shows them: enough to recognise a record
  * and see its outcome, never so much that a drawer of twenty competes with the
  * consulted slip. Each entry is a whole button, so a keyboard reaches every
  * record.
@@ -170,19 +171,19 @@ function DrawerList({
 				 * Two different emptinesses, and they must not read the same. An
 				 * empty drawer because a filter excludes everything is a navigation
 				 * problem; an empty drawer because no enforcement has EVER run is a
-				 * fact about the record office, and it is the honest answer here —
-				 * messages are kept, so no actions are filed.
+				 * fact about this guild, and it is the honest answer here —
+				 * messages are kept, so no actions are recorded.
 				 */}
 				<EmptyState
 					title={
 						filtered
 							? "No decisions match this filter"
-							: "No enforcement has been filed"
+							: "No enforcement action yet"
 					}
 					description={
 						filtered
 							? "Loosen the filters above to see earlier records."
-							: "Messages are kept unless a rule matched one. Nothing has been removed yet."
+							: "The pipeline has not deleted anything itself. Deletions made by a moderator still appear as removed decisions above."
 					}
 				/>
 			</div>
@@ -190,11 +191,11 @@ function DrawerList({
 	}
 
 	return (
-		<RecordDrawer activeAccession={activeId ?? undefined}>
+		<RecordDrawer activeCaseId={activeId ?? undefined}>
 			{rows.map((row) => (
 				<RecordSlipCompact
 					key={row.id}
-					accession={accessionFor(row)}
+					caseId={caseIdFor(row)}
 					channel={row.server_nick ? `@${row.server_nick}` : "unknown member"}
 					verdict={verdictFor(row)}
 					summary={drawerSummary(row.content)}
@@ -292,7 +293,7 @@ export function ModerationView({ days }: { days: number }) {
 	/*
 	 * The consulted record, derived rather than stored: if a refetch drops the
 	 * selected row (a filter change, or newer records arriving), the selection
-	 * falls back to the newest filed decision instead of rendering an empty slip
+	 * falls back to the newest decided record instead of rendering an empty slip
 	 * beside a full drawer.
 	 */
 	const activeId =
@@ -307,16 +308,16 @@ export function ModerationView({ days }: { days: number }) {
 	 * leaving it in the drawer too would render the same record twice and make
 	 * the foreground copy decoration rather than a selection.
 	 *
-	 * Filtering on the stable accession rather than the row object keeps the two
+	 * Filtering on the stable case id rather than the row object keeps the two
 	 * in lockstep — the drawer and the slip derive the number the same way.
 	 */
-	const activeAccession = active ? accessionFor(active) : undefined
+	const activeCaseId = active ? caseIdFor(active) : undefined
 	const drawerRows = useMemo(
 		() =>
-			activeAccession
-				? rows.filter((row) => accessionFor(row) !== activeAccession)
+			activeCaseId
+				? rows.filter((row) => caseIdFor(row) !== activeCaseId)
 				: rows,
-		[rows, activeAccession],
+		[rows, activeCaseId],
 	)
 
 	const categoryBars = useMemo(
@@ -390,13 +391,14 @@ export function ModerationView({ days }: { days: number }) {
 	}
 
 	return (
-		<div className="space-y-4">
+		<Reveal className="space-y-4">
+			{/* Hero: a mono eyebrow names the surface, the title sits at the display
+          step so the page has a top, one line of context underneath. */}
 			<header className="flex flex-wrap items-end justify-between gap-3">
-				<div>
-					<h1 className="font-display text-xl font-semibold tracking-tight text-ink">
-						Moderation
-					</h1>
-					<p className="mt-0.5 text-sm text-ink-muted">
+				<div className="min-w-0">
+					<p className="field-label">Decision ledger</p>
+					<h1 className="display mt-1 text-ink">Moderation</h1>
+					<p className="mt-2 text-sm text-ink-muted">
 						Every decision, the rule it was judged against, and the reason
 						given.
 					</p>
@@ -411,7 +413,7 @@ export function ModerationView({ days }: { days: number }) {
 			 * answered "is the system healthy", which is the operator's question
 			 * — but PRODUCT.md's reader is a member who arrived to ask why their
 			 * message was removed. The count of decided messages is the one number
-			 * that belongs to the record office, so it leads at full scale, and the
+			 * that belongs to this ledger, so it leads at full scale, and the
 			 * supporting figures sit beside it as secondary readings rather than
 			 * as four peers competing for attention.
 			 */}
@@ -479,14 +481,16 @@ export function ModerationView({ days }: { days: number }) {
 					<div className="min-w-0">
 						{active ? (
 							<RecordSlip
-								accession={accessionFor(active)}
+								caseId={caseIdFor(active)}
 								channel={
 									active.server_nick
 										? `@${active.server_nick}`
 										: "unknown member"
 								}
 								verdict={verdictFor(active)}
-								reason={active.reason}
+								/* `analysis` is the model's own sentence; `reason` on an action
+                   row is the pipeline's action word, so it is only a fallback. */
+								reason={active.analysis ?? active.reason}
 								clause={clauseFor(active)}
 								evidence={active.evidence}
 								confidence={active.confidence}
@@ -510,10 +514,10 @@ export function ModerationView({ days }: { days: number }) {
 					<div className="min-w-0">
 						<div className="mb-2 flex flex-wrap items-center justify-between gap-2">
 							<h2 className="text-sm font-medium tracking-wide text-ink">
-								Filed decisions
+								Decision log
 								<span className="ml-2 text-xs font-normal text-ink-muted">
 									{drawerRows.length === 0
-										? "nothing else filed"
+										? "nothing else decided"
 										: `${drawerRows.length} more`}
 								</span>
 							</h2>
@@ -668,6 +672,6 @@ export function ModerationView({ days }: { days: number }) {
 					/>
 				</Section>
 			</SectionGrid>
-		</div>
+		</Reveal>
 	)
 }

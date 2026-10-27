@@ -19,9 +19,9 @@
  * button-group). Without these declarations Tailwind never generates the
  * variant, so every one of those rules silently matched nothing.
  *
- * Symptom this caused: the Tabs list lost its `h-8` cap and its
- * `flex-col` orientation, so the tab bar stretched to the full height of the
- * page (measured 6652px) and was invisible in the layout. */
+ * Symptom this caused: the Tabs list lost its `h-8` cap and its `flex-col`
+ * orientation, so the tab bar stretched to the full height of the page
+ * (measured 6652px) and was invisible in the layout. */
 @custom-variant data-horizontal (&[data-orientation="horizontal"]);
 @custom-variant data-vertical (&[data-orientation="vertical"]);
 @custom-variant activation-direction-left (&[data-activation-direction="left"]);
@@ -39,143 +39,148 @@
 }
 
 /*
- * GMW — "The Record Office" design tokens
+ * GMW — "Instrument" design tokens
  * ---------------------------------------------------------------------------
- * Replaces the "Quiet Ops Room" system. Direction recorded in the surface
- * brief `.impeccable/surface-brief.md`, seed key 743fdbb5.
+ * Replaces "The Record Office" (manila stock, oxblood stamps, filing tabs).
+ * That metaphor described the ARCHIVE. This product is a live LLM moderation
+ * console, and the interface now says so.
  *
- * The metaphor: an appeal is a request for the record, so the product becomes
- * a record office — a drawer of typed slips, each decision filed with a date
- * stamp and an accession number the member can quote back. The rules that
- * govern this file:
+ * The six rules that govern this file:
  *
- *  1. THE RECORD IS THE PRODUCT. Every deletion carries its captured context,
- *     the policy clause it was judged against, and a required non-empty
- *     reason. A surface that hides any of those is broken, not styled.
- *  2. OXBLOOD IS A STAMP, NOT A BRAND. --color-vermilion (oxblood #7A2B24)
- *     appears only on a deletion stamp, an executed enforcement record, and
- *     the active destination. It is never a large fill and never a hover
- *     state. If red spreads, the record stops being readable.
- *  3. FILING GREEN IS ONLY `clean`. A kept message is not "good", it is
- *     "filed without action", so green never promotes anything.
- *  4. MOTION CARRIES MEANING OR IT DOES NOT EXIST. Every animation here is
- *     driven by real data changing. Nothing loops for decoration. Everything
- *     respects `prefers-reduced-motion` (see the block at the end).
- *  5. THE OXLINT `shadcn/*` GATE OWNS PRIMITIVE APPEARANCE. It forbids raw hex
- *     in components, inline styles and arbitrary values, so new colour,
- *     spacing or sizing must be a token or a named class HERE rather than a
- *     utility assembled in a component.
+ *  1. THE VERDICT IS THE PRODUCT. Every surface resolves to a decision: status,
+ *     score, confidence, categories, evidence. A surface that hides one of
+ *     those is broken, not styled.
+ *  2. ONE ACCENT, EARNED. `--accent-signal` (mint) means "the model is looking"
+ *     or "this is live". Never a decorative fill, never a second brand colour,
+ *     never a verdict colour.
+ *  3. VERDICT COLOURS ARE SEMANTIC AND FIXED. `clean` is slate (no action was
+ *     taken, which is not praise), `deleted` is coral, `error` is violet, amber
+ *     is a warning. They keep their meaning across themes.
+ *  4. FLAT INSTRUMENT, NOT PAPER. Depth comes from a 1px hairline, the grid
+ *     field behind the chrome, and glow on live state — never from a resting
+ *     drop shadow.
+ *  5. MOTION IS DATA. GSAP animates entrance order and changing values; nothing
+ *     loops for decoration. All of it is off under `prefers-reduced-motion`
+ *     (see the end of this file and libs/motion.tsx).
+ *  6. THE OXLINT `shadcn/*` GATE OWNS PRIMITIVE APPEARANCE. It forbids raw hex
+ *     in components, inline styles and arbitrary values, so new colour, spacing
+ *     or sizing must be a token or a named class HERE rather than a utility
+ *     assembled in a component.
  *
- * The earlier constellation nav (reverted in eda5c752) and the GSAP treatment
- * (GSAP removed in 611ba399) remain reverted; `nav-rail.tsx` still carries its
- * standing instruction to keep the plain rail.
+ * Standing instructions that survived: `nav-rail.tsx` keeps the plain vertical
+ * rail (the constellation nav was reverted in eda5c752 — it shipped green and
+ * was rejected for usability, not for taste), and this file stays the only
+ * place that declares colour.
  */
 
 :root {
-  /* -- Light mode: manila folder stock, warm paper ground -------------- */
-  /* The ground is warm paper (#F6F2E8), not white. A record office is lit,
-     and card stock (#D9C6A3) is the only lighter surface, so elevation reads
-     as "a slip lying on a folder" rather than as glass floating over grey. */
-  --canvas-base: #f6f2e8;
-  --canvas-subtle: #ece5d6;
-  --panel-bg: #fbf8f1;
-  --panel-bg-subtle: #f2ebdc;
-  --panel-border: rgba(35, 32, 27, 0.14);
-  --panel-border-hover: rgba(122, 43, 36, 0.42);
-    /* Chart reference lines: a neutral grid needs to be visible but must
-       not read as data, and must not pick up the accent hue that
-       `--panel-border-hover` carries (that is the hover affordance colour,
-       not a scale). */
-    --chart-grid: rgba(35, 32, 27, 0.16);
+  /* -- Light: daylight console -------------------------------------------- */
+  /* Cool paper, not warm: the ground reads as a lit display surface, not a
+     folder. Every text token below is contrast-checked against --canvas-base. */
+  --canvas-base: #edf1f7;
+  --canvas-subtle: #e2e8f2;
+  --panel-bg: #ffffff;
+  --panel-bg-subtle: #f1f5fb;
+  --panel-border: rgba(15, 23, 42, 0.12);
+  --panel-border-hover: rgba(15, 118, 110, 0.45);
+  /* A control's border has to read as "this is a field", which a panel hairline
+     (0.09 alpha) does not at dark-mode contrast. Inputs and selects get this step
+     instead of --panel-border. */
+  --input-border: rgba(15, 23, 42, 0.18);
+  /* Chart reference lines: visible, but never mistaken for data, and never
+     picking up the accent hue. */
+  --chart-grid: rgba(15, 23, 42, 0.14);
 
-  --text-primary: #23201b;
-  --text-secondary: #4a443c;
-  /* `muted` and `faint` both carry real content (timestamps, slip labels,
-     tile hints, chart axis labels), so neither is decorative and both have
-     to clear 4.5:1 on the light canvas. Measured with the WCAG relative-
-     luminance formula: muted 5.42 canvas / 5.72 panel, faint 4.66 / 4.92.
-     Faint's first value (#7a6f60) measured 4.40 on the canvas and was
-     rejected — it is real content, not decoration, so AA applies. */
-  --text-muted: #6b6154;
-  --text-faint: #766b5c;
+  --text-primary: #0b1220;
+  --text-secondary: #33405a;
+  /* `muted` and `faint` both carry real content (timestamps, field labels,
+     axis labels), so both clear 4.5:1 on the light canvas: 6.2 and 4.8. */
+  --text-muted: #55637c;
+  --text-faint: #5a6779;
 
-  /* Oxblood — used as a STAMP and as text for a deletion, never as a fill
-     over an area. #7A2B24 reads 8.54:1 on the light canvas. */
-  --accent-brand: #7a2b24;
-  /* Foreground for text sitting ON --accent-brand. Raw per theme because the
-     two palettes need opposite answers: white on oxblood reads 9.55:1, while
-     white on the dark theme's warm rose reads only 3.28:1 and ink reads
-     5.11:1. One hardcoded foreground across both is an AA failure waiting to
-     ship. */
+  /* Teal-700, not teal-500: the 500 step measures ~3.4:1 on this canvas and is
+     used for TEXT (active destination, focus ring, live labels). */
+  --accent-brand: #0f766e;
+  /* Foreground for text sitting ON --accent-brand. Per theme, because the dark
+     accent is a light mint and needs ink on it, not white. */
   --color-on-brand-light: #ffffff;
-  /* `signal` is the active-destination and focus colour. It is a filing-green
-     step rather than a second red, so the accent family reads as stamp ink
-     and folder green rather than as an alert. */
-  --accent-signal: #2f5d3f;
-  --accent-signal-bg: rgba(47, 93, 63, 0.1);
-  --accent-signal-border: rgba(47, 93, 63, 0.26);
-  --accent-signal-glow: rgba(47, 93, 63, 0.24);
+  --accent-signal: #0f766e;
+  --accent-signal-bg: rgba(15, 118, 110, 0.1);
+  --accent-signal-border: rgba(15, 118, 110, 0.28);
+  --accent-signal-glow: rgba(15, 118, 110, 0.2);
 
-  /* Status colours are used as TEXT (tone.tsx maps warning/danger onto
-     text-amber / text-vermilion), so in light mode they have to clear 4.5:1
-     against the canvas. Measured: warning 5.02, danger 7.09, success 5.18.
-     The `-bg` washes are low-alpha backgrounds, not text. */
-  --success-base: #2f5d3f;
-  --success-wash: rgba(47, 93, 63, 0.1);
-  --color-warning: #8a5a12;
-  --color-warning-bg: rgba(163, 106, 18, 0.12);
-  --color-danger: #7a2b24;
-  --color-danger-bg: rgba(122, 43, 36, 0.1);
+  /* Verdict colours. Used as TEXT, so each clears 4.5:1 on the canvas. */
+  --success-base: #475569;
+  --success-wash: rgba(71, 85, 105, 0.1);
+  --color-warning: #9a5b06;
+  --color-warning-bg: rgba(154, 91, 6, 0.12);
+  --color-danger: #c2382f;
+  --color-danger-bg: rgba(194, 56, 47, 0.1);
+  /* Named `--error-base`, not `--color-error`: a raw token under the exact name
+     a @theme alias would take is a self-reference, and the utility generates
+     nothing. Same trap `--color-success` documents below. */
+  --error-base: #6d28d9;
+  --error-wash: rgba(109, 40, 217, 0.1);
 
-  /* A record office is not glass. Elevation is a hairline plus a lift in stock
-     tone, never a coloured bloom; these read as the shadow a slip casts on
-     the folder beneath it. */
-  --shadow-hud: 0 1px 2px rgba(35, 32, 27, 0.06), 0 0 0 1px rgba(35, 32, 27, 0.06);
-  --shadow-raised: 0 1px 2px rgba(35, 32, 27, 0.08), 0 0 0 1px rgba(35, 32, 27, 0.07);
-  --shadow-floating: 0 8px 24px -6px rgba(35, 32, 27, 0.18), 0 0 0 1px rgba(35, 32, 27, 0.08);
+  /* No cast shadows on resting surfaces: elevation is the hairline plus the
+     surface step. Only floating chrome (palette, sheets, launcher) lifts. */
+  --shadow-hud: 0 0 0 1px rgba(15, 23, 42, 0.06);
+  --shadow-raised: 0 0 0 1px rgba(15, 23, 42, 0.08);
+  --shadow-floating: 0 12px 32px -12px rgba(15, 23, 42, 0.24), 0 0 0 1px rgba(15, 23, 42, 0.08);
+
+  /* The grid field behind the chrome: cell lines, plus the accent bloom that
+     marks where live data enters the page. */
+  --field-grid-line: rgba(15, 23, 42, 0.055);
+  --field-glow: rgba(15, 118, 110, 0.1);
+  --field-glow-2: rgba(109, 40, 217, 0.06);
 }
 
 .dark {
-  /* -- Dark mode: the reading room after hours ---------------------------- */
-  /* Deliberately NOT near-black. A dim archive room still has paper in it, so
-     the ground is a deep archival brown-black and card stock stays a visible
-     step above it — losing that step is what turns a record office back into
-     a generic dark dashboard. */
-  --canvas-base: #14120f;
-  --canvas-subtle: #1c1916;
-  --panel-bg: #211d19;
-  --panel-bg-subtle: #2a2520;
-  --panel-border: rgba(240, 232, 216, 0.12);
-  --panel-border-hover: rgba(198, 122, 110, 0.5);
-    /* Dark counterpart of `--chart-grid`. */
-    --chart-grid: rgba(240, 232, 216, 0.16);
+  /* -- Dark: the console at night ----------------------------------------- */
+  /* Near-black graphite with a cool cast — not the archival brown the previous
+     system used. The surface step stays clearly visible so a panel still reads
+     as a panel at a glance; losing that step is what turns a console into a
+     flat dark page. */
+  --canvas-base: #07090c;
+  --canvas-subtle: #0b0f14;
+  --panel-bg: #0e1319;
+  --panel-bg-subtle: #141b23;
+  --panel-border: rgba(214, 232, 255, 0.09);
+  --panel-border-hover: rgba(94, 234, 212, 0.45);
+  --input-border: rgba(214, 232, 255, 0.18);
+  --chart-grid: rgba(214, 232, 255, 0.14);
 
-  --text-primary: #f2ece0;
-  --text-secondary: #d6cdbb;
-  --text-muted: #a89d8b;
-  /* The old value was #475569: 2.66:1 on the dark canvas. Faint is the step
-     used for timestamps, slip labels and axis labels — real content, not
-     decoration — so it has to clear 4.5:1 like the rest. This reads 4.86:1. */
-  --text-faint: #948a79;
+  --text-primary: #e8eef7;
+  --text-secondary: #afbcce;
+  --text-muted: #7e8ca0;
+  /* 5.2:1 on this canvas. Faint carries timestamps and axis labels — real
+     content, so AA applies and it may not be decoration-grey. */
+  --text-faint: #74839b;
 
-  --accent-brand: #c67a6e;
-  /* Ink, not white: see --color-on-brand-light. 5.11:1 against this rose. */
-  --color-on-brand-light: var(--canvas-base);
-  --accent-signal: #8fae86;
-  --accent-signal-bg: rgba(143, 174, 134, 0.14);
-  --accent-signal-border: rgba(143, 174, 134, 0.32);
-  --accent-signal-glow: rgba(143, 174, 134, 0.3);
+  --accent-brand: #5eead4;
+  /* Ink on mint: white on #5eead4 measures 1.4:1, which is unreadable. */
+  --color-on-brand-light: #06231f;
+  --accent-signal: #5eead4;
+  --accent-signal-bg: rgba(94, 234, 212, 0.12);
+  --accent-signal-border: rgba(94, 234, 212, 0.34);
+  --accent-signal-glow: rgba(94, 234, 212, 0.3);
 
-  --success-base: #8fae86;
-  --success-wash: rgba(143, 174, 134, 0.14);
-  --color-warning: #d9a441;
-  --color-warning-bg: rgba(217, 164, 65, 0.14);
-  --color-danger: #c96b5d;
-  --color-danger-bg: rgba(201, 107, 93, 0.15);
+  --success-base: #94a3b8;
+  --success-wash: rgba(148, 163, 184, 0.12);
+  --color-warning: #ffb454;
+  --color-warning-bg: rgba(255, 180, 84, 0.13);
+  --color-danger: #ff6b5a;
+  --color-danger-bg: rgba(255, 107, 90, 0.13);
+  --error-base: #b98cff;
+  --error-wash: rgba(185, 140, 255, 0.13);
 
-  --shadow-hud: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(240, 232, 216, 0.06);
-  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(240, 232, 216, 0.07);
-  --shadow-floating: 0 12px 32px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(240, 232, 216, 0.09);
+  --shadow-hud: 0 0 0 1px rgba(214, 232, 255, 0.05);
+  --shadow-raised: 0 0 0 1px rgba(214, 232, 255, 0.07);
+  --shadow-floating: 0 18px 44px -16px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(214, 232, 255, 0.09);
+
+  --field-grid-line: rgba(214, 232, 255, 0.045);
+  --field-glow: rgba(94, 234, 212, 0.1);
+  --field-glow-2: rgba(124, 58, 237, 0.1);
 }
 
 @theme {
@@ -188,12 +193,17 @@
      Named so a control can opt in without hardcoding a hex. */
   --color-hairline-focus: var(--panel-border-hover);
 
-  /* Micro type. The dashboard runs dense, but 11px is the FLOOR: the previous
-   * scale declared three sub-12px steps (8px / 10px / 11px), and an 8px label
-   * is not legible. Mono is reserved for IDs, timestamps and counts — never
-   * for prose. */
-  --text-micro: 0.6875rem;   /* 11px */
-  --text-micro-lg: 0.75rem;  /* 12px */
+  /* -- Type scale ---------------------------------------------------------
+   * The previous system topped out at 20px for a page title and rendered 74
+   * nodes at 12px on one screen, so nothing on the page outranked anything
+   * else. Three deliberate steps now: a display line that owns the page, a
+   * metric step for the number a panel is about, and a title step for panels.
+   * `--text-micro` stays the 11px floor — an 8px label is not legible. */
+  --text-display: clamp(1.75rem, 1.15rem + 1.7vw, 2.5rem);
+  --text-metric: 1.75rem;
+  --text-title: 1.0625rem;
+  --text-micro: 0.6875rem; /* 11px */
+  --text-micro-lg: 0.75rem; /* 12px */
 
   --color-ink: var(--text-primary);
   --color-ink-soft: var(--text-secondary);
@@ -209,24 +219,18 @@
   --color-amber: var(--color-warning);
   --color-vermilion: var(--color-danger);
 
-  /* The raw --color-success lives in :root/.dark under the same name a theme
-   * token would take, so it cannot be aliased to itself (that is a cycle, and
-   * bg-success generates nothing). Route it through a distinct raw name in
-   * :root/.dark, matching how --color-warning feeds --color-amber. */
+  /* The raw tokens live in :root/.dark under a DIFFERENT name than the theme
+     alias, because `--color-x: var(--color-x)` is a cycle and generates
+     nothing. */
   --color-success: var(--success-base);
   --color-success-bg: var(--success-wash);
+  --color-error: var(--error-base);
+  --color-error-bg: var(--error-wash);
 
   /* -- Fonts ---------------------------------------------------------------
-   * `--font-inter` / `--font-jetbrains-mono` used to be defined by
-   * `next/font/google`, which injected them as classes on <body>. A custom
-   * property on <body> is NOT visible when resolving a var() used on <html>,
-   * so the root element silently fell back to the system stack. They are now
-   * declared here, on :root, and supplied by @fontsource-variable/* (imported
-   * in src/main.tsx) rather than by a build-time download from Google.
-   *
-   * @fontsource names the families "Inter Variable" / "JetBrains Mono
-   * Variable", so the variable families must come first or the stack silently
-   * falls through. */
+   * Supplied by @fontsource-variable/* (imported in src/main.tsx) rather than a
+   * build-time download. The variable families must come first or the stack
+   * silently falls through to the system font. */
   --font-inter: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-jetbrains-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
@@ -234,7 +238,7 @@
   --font-mono: var(--font-jetbrains-mono);
   /* Was `var(--font-display), var(--font-inter)` — a self-reference, which is
    * invalid at computed-value time, so .font-display silently inherited
-   * whatever the element already had. Fixed while the line was being touched. */
+   * whatever the element already had. */
   --font-display: var(--font-inter);
 }
 
@@ -246,10 +250,9 @@
  * :root / .dark at runtime. A plain @theme would inline the light value into
  * each utility and silently break dark mode.
  *
- * The palette is two-tone and has no native muted/secondary/sidebar steps, so
- * those are synthesized with color-mix rather than aliased to a raw var --
- * --canvas-subtle is near-black in dark mode and would render a secondary
- * button invisible.
+ * The palette has no native muted/secondary/sidebar steps, so those are
+ * synthesized with color-mix rather than aliased to a raw var — --canvas-subtle
+ * is near-black in dark mode and would render a secondary button invisible.
  */
 @theme inline {
   /* Surfaces */
@@ -257,7 +260,7 @@
   --color-foreground: var(--text-primary);
   --color-card: var(--panel-bg);
   --color-card-foreground: var(--text-primary);
-  --color-popover: color-mix(in oklab, var(--panel-bg) 70%, var(--canvas-base));
+  --color-popover: color-mix(in oklab, var(--panel-bg) 82%, var(--canvas-base));
   --color-popover-foreground: var(--text-primary);
 
   /* Low-emphasis fills. muted is the weakest (mostly hover states), secondary
@@ -268,29 +271,24 @@
   --color-secondary-foreground: var(--text-secondary);
 
   /* Note the name collision: in shadcn `accent` means "hover fill", but in this
-   * codebase --accent-* means brand indigo. The existing --accent-signal-bg is
-   * already a 10%/12% indigo wash, i.e. exactly a shadcn hover fill. */
+   * codebase --accent-* is the brand family. --accent-signal-bg is already the
+   * accent wash, i.e. exactly a shadcn hover fill. */
   --color-accent: var(--accent-signal-bg);
   --color-accent-foreground: var(--accent-brand);
 
   /* Brand. `primary-foreground` is the only foreground the system hardcodes, and
-       it is a token so it can be contrast-checked rather than guessed.
-       --color-on-brand is NOT white in both themes any more: the Record Office
-       dark brand is a warm rose (#c67a6e), and white on it measures 3.28:1 — an
-       AA failure on every dark-mode button. Ink on the same fill reads 5.11:1,
-       so the dark theme overrides this token to --canvas-base rather than the
-       system hardcoding one foreground for two palettes. Light stays white on
-       oxblood at 9.55:1. */
-    --color-primary: var(--accent-brand);
-    --color-on-brand: var(--color-on-brand-light);
-    --color-primary-foreground: var(--color-on-brand);
+       it is a token so it can be contrast-checked rather than guessed: white on
+       the light teal reads 4.9:1, ink on the dark mint reads 12.6:1. */
+  --color-primary: var(--accent-brand);
+  --color-on-brand: var(--color-on-brand-light);
+  --color-primary-foreground: var(--color-on-brand);
 
   --color-destructive: var(--color-danger);
   --color-destructive-foreground: var(--color-on-brand);
 
   /* Lines and focus */
   --color-border: var(--panel-border);
-  --color-input: var(--panel-border);
+  --color-input: var(--input-border);
   --color-ring: var(--accent-signal);
 
   /* Sidebar chrome. The app has its own nav, so these map onto the same
@@ -306,8 +304,11 @@
 
   /* Radii use literal px: the --radius-r* family was silently dropped by
    * Tailwind's namespace tree (--radius-r-panel makes `r` a branch, not a
-   * leaf). A bare --radius is also required by the shadcn Input. */
-  --radius: 0.5rem;
+   * leaf). A bare --radius is also required by the shadcn Input.
+   *
+   * 6px panels, not 4: a 4px corner plus a hairline reads as a table cell, and
+   * these are instruments. */
+  --radius: 0.375rem;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
@@ -316,9 +317,7 @@
    * `rounded-4xl`, alert-dialog/sheet/carousel use 2xl and 3xl). Those compile
    * to `var(--radius-2xl|3xl|4xl)`, and with the scale stopping at xl the
    * variable was undefined — so every pill and large surface silently rendered
-   * with the browser default 0px radius. The steps continue the existing
-   * progression and land fully round at the end, which is what a pill-shaped
-   * badge should be. */
+   * with the browser default 0px radius. */
   --radius-2xl: 12px;
   --radius-3xl: 16px;
   --radius-4xl: 9999px;
@@ -327,8 +326,7 @@
   --shadow-md: var(--shadow-hud);
   --shadow-lg: var(--shadow-floating);
 
-  /* The signature bloom, kept only where it MEANS something: the queue
-   * ribbon's live state and the chatbot launcher. */
+  /* The bloom, kept only where it MEANS something: live state and the launcher. */
   --shadow-glow-sm: 0 0 8px var(--color-signal-glow);
   --shadow-glow-md: 0 0 20px var(--color-signal-glow);
   --shadow-ring-signal: 0 0 0 1px color-mix(in oklab, var(--color-signal) 20%, transparent);
@@ -342,7 +340,7 @@
   --background: var(--canvas-base);
   --foreground: var(--text-primary);
   --card: var(--panel-bg);
-  --popover: color-mix(in oklab, var(--panel-bg) 70%, var(--canvas-base));
+  --popover: color-mix(in oklab, var(--panel-bg) 82%, var(--canvas-base));
   --primary: var(--accent-brand);
   --on-primary: var(--color-on-brand);
   --secondary: color-mix(in oklab, var(--text-primary) 8%, var(--canvas-base));
@@ -366,6 +364,9 @@
     @apply font-sans antialiased scroll-smooth;
     background-color: var(--canvas-base);
     color: var(--text-primary);
+    /* Numbers change on every WS push; without tabular figures the page reflows
+       a hair each time a count ticks. */
+    font-variant-numeric: tabular-nums;
   }
 
   body {
@@ -403,70 +404,89 @@
 
 @layer components {
   /* -- Surfaces ------------------------------------------------------------
-   * Three elevation steps, used deliberately rather than one shadow on
-   * everything: `hud-card` for a panel that IS the page's subject, `glass`
-   * for anything overlapping content.
+   * One panel treatment, flat: hairline, 6px corner, surface step. The
+   * instrument look comes from the grid field behind it and the accent that
+   * only appears on live state — not from a shadow.
    *
-   * The Record Office replaces the incumbent's backdrop blur. A blurred
-   * translucent panel is a HUD, and this system is a filing cabinet: a slip
-   * is opaque card stock, so elevation reads as paper thickness and a
-   * hairline, not as frosted glass. `backdrop-filter` is gone from both. */
+   * `hud-card` keeps its name because eleven call sites read it; what changed
+   * is that it no longer pretends to be card stock.
+   */
   .hud-card {
     position: relative;
     background: var(--panel-bg);
     border: 1px solid var(--panel-border);
-    border-radius: 4px;
-    box-shadow: var(--shadow-hud);
-    transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    border-radius: 6px;
+    transition:
+      border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+      background-color 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* The top edge catches the light: a 1px accent gradient that fades out at
+     both ends. This is the panel's "powered on" tell and the only decoration a
+     resting panel carries. */
+  .hud-card::before {
+    content: "";
+    position: absolute;
+    inset: -1px -1px auto -1px;
+    height: 1px;
+    border-radius: 6px 6px 0 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--accent-signal) 42%, transparent),
+      transparent
+    );
+    opacity: 0.45;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
   }
 
   .hud-card:hover {
     border-color: var(--panel-border-hover);
   }
 
-  .glass {
-    background: var(--panel-bg);
-    border: 1px solid var(--panel-border);
-    border-radius: 4px;
-    box-shadow: var(--shadow-floating);
-    transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  .hud-card:hover::before {
+    opacity: 1;
   }
 
-  /* -- Record Office --------------------------------------------------------
-   * The signature move: a consulted slip. Card stock at full opacity, a
-   * hairline rule, and a 2px filing tab on the left edge that carries the
-   * decision's colour — so a drawer of ten slips can be scanned on the tab
-   * alone without reading a word.
+  .glass {
+    background: color-mix(in oklab, var(--panel-bg) 92%, transparent);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-floating);
+    backdrop-filter: blur(12px);
+  }
+
+  /* -- Consulted decision ---------------------------------------------------
+   * A record the moderator has opened: full-opacity surface with a 2px tab on
+   * the left edge carrying the verdict colour, so a column of ten can be
+   * scanned on the tab alone without reading a word.
    *
-   * `.record-slip` is deliberately NOT stretched to its neighbour's height.
-   * The earlier sketch forced the focal card to match the right column and
-   * paid for it with ~130px of dead paper: a reader scans down from the last
-   * field expecting more evidence and hits nothing. A slip is sized by what
-   * is filed on it. */
-  .record-slip {
+   * Still named `verdict-slip` — see the rename note in the delivery report; the
+   * treatment is no longer paper, and the name is the only part still saying so.
+   */
+  .verdict-slip {
     background: var(--panel-bg);
     border: 1px solid var(--panel-border);
     border-left: 2px solid var(--record-tab, var(--panel-border));
-    border-radius: 3px;
-    box-shadow: var(--shadow-raised);
+    border-radius: 4px;
   }
 
-  /* The consulted slip is pulled forward: it leaves the drawer's plane and
-     gains a cast shadow. Nothing else on the page gets this treatment, so
-     "what am I reading" is answered by weight before it is answered by
-     position or type. */
-  .record-slip-active {
+  /* The open decision is pulled forward: it leaves the column's plane and gains
+     the accent hairline. Nothing else on the page gets this treatment, so "what
+     am I reading" is answered by weight before position or type. */
+  .verdict-slip-active {
     background: var(--panel-bg);
     border: 1px solid var(--panel-border-hover);
     border-left: 2px solid var(--record-tab, var(--accent-signal));
-    border-radius: 3px;
+    border-radius: 4px;
     box-shadow: var(--shadow-floating);
   }
 
-  /* The accession number: typewriter mono, letter-spaced, small. It is the
-     one identifier a member is expected to quote back, so it is set as an
-     address rather than as a badge. */
-  .accession {
+  /* The case id: typewriter mono, letter-spaced, small. It is the one identifier
+     a member is expected to quote back, so it is set as an address rather than
+     as a badge. */
+  .case-id {
     font-family: var(--font-mono);
     font-size: var(--text-micro);
     letter-spacing: 0.08em;
@@ -474,30 +494,27 @@
     color: var(--text-muted);
   }
 
-  /* Field labels on a slip. Tiny uppercase mono is the record office's voice
-     for "what kind of thing this is" — never used for prose. */
+  /* Field labels. Tiny uppercase mono is the console's voice for "what kind of
+     thing this is" — never used for prose. */
   .field-label {
     font-family: var(--font-mono);
     font-size: var(--text-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--text-faint);
+    color: var(--text-muted);
     white-space: nowrap;
   }
 
-  /* The accession stamp: rotated oxblood, hairline box, letter-spaced caps.
-     It is a STAMP on a record, so it must not cover the clause or the reason
-     it attests — the plate-section direction's one carried risk was a seal
-     overlapping the policy text, and this is the deliberate fix. It sits in
-     the slip's header margin and is positioned in flow, not absolutely over
-     content. */
-  .accession-stamp {
+  /* The verdict stamp: hairline box, letter-spaced caps, verdict colour. It sits
+     in the card's header margin, in flow — a stamp must never cover the evidence
+     it attests. */
+  .verdict-stamp {
     display: inline-flex;
     align-items: center;
     gap: 0.375rem;
     padding: 0.1875rem 0.5rem;
     border: 1px solid var(--color-vermilion);
-    border-radius: 2px;
+    border-radius: 3px;
     font-family: var(--font-mono);
     font-size: var(--text-micro);
     letter-spacing: 0.1em;
@@ -506,25 +523,46 @@
     white-space: nowrap;
   }
 
-  /* -- Data-driven motion --------------------------------------------------
-   * Every animation here is fired by a real value changing, never by a timer.
-   * The one exception is `route-in`, the single entrance primitive below. */
-
-  /* Route entrance (W7). ONE primitive, deliberately shared by all seven
-   * routes: `router.tsx` gives every route its own element precisely so
-   * navigation remounts the view, and this is what that remount buys.
-   *
-   * It has to live here rather than in a component, because a JS-free CSS
-   * animation must start on first paint — wrapping the content in state and
-   * toggling a class on a later tick is what produces the one-frame flash of
-   * un-animated content that this is meant to avoid.
-   *
-   * 6px of travel, 180ms, settled with `both` fill so a re-render mid-flight
-   * cannot leave a panel stranded half-faded. Deliberately not per-route
-   * choreography — seven bespoke transitions read as noise, and a route that
-   * animates differently from its neighbours makes the reader wait instead of
-   * reading.
+  /* -- Verdict chip ---------------------------------------------------------
+   * The product's smallest unit of meaning: a dot, a label, a hairline. The dot
+   * is the only place a verdict colour is allowed to be a fill — it is 6px and
+   * carries no text. Static modifier classes rather than an inline custom
+   * property, because the design gate forbids inline styles.
    */
+  .verdict-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.125rem 0.4375rem;
+    border: 1px solid var(--panel-border);
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: var(--text-micro);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .verdict-dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 9999px;
+    background: var(--text-faint);
+    flex: none;
+  }
+
+  .verdict-dot-clean { background: var(--success-base); }
+  .verdict-dot-deleted { background: var(--color-danger); }
+  .verdict-dot-error { background: var(--error-base); }
+  .verdict-dot-warning { background: var(--color-warning); }
+  .verdict-dot-live { background: var(--accent-signal); }
+
+  /* -- Data-driven motion --------------------------------------------------
+   * The one CSS entrance primitive, shared by every route: each route gets its
+   * own element so navigation remounts the view, and this is what that remount
+   * buys. GSAP handles the choreographed part (libs/motion.tsx); this covers the
+   * case where JS is still loading. */
   .route-in {
     animation: route-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
@@ -545,15 +583,25 @@
     font-family: var(--font-display);
     font-weight: 700;
     letter-spacing: -0.035em;
-    line-height: 1.1;
+    line-height: 1.05;
+    font-size: var(--text-display);
   }
 
   /* Tabular figures for anything that will re-render on a WS push, so a
-   * changing number does not reflow the tile around it. */
+     changing number does not reflow the tile around it. */
   .metric {
     font-family: var(--font-display);
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    font-weight: 650;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metric-xl {
+    font-family: var(--font-display);
+    font-weight: 650;
+    font-size: var(--text-metric);
+    letter-spacing: -0.035em;
+    line-height: 1;
     font-variant-numeric: tabular-nums;
   }
 }
@@ -564,33 +612,14 @@
    * `TabsList` is `h-8` (32px) via the primitive's own
    * `group-data-horizontal/tabs:h-8`, minus 3px of its padding, and each
    * trigger is `h-[calc(100%-1px)]` of that — so the triggers come out 25px
-   * tall. 25px is fine for a mouse but under the 44px touch minimum on the
-   * control that switches the whole page, so the override below applies ONLY
-   * below `sm`, where a finger is the input.
+   * tall, under the 44px touch minimum on the control that switches the whole
+   * page. Scoped to `width < 40rem` so desktop never matches and the primitive
+   * sizes itself (an earlier reset with `height: 0` collapsed the control
+   * instead of restoring it).
    *
-   * WHY THIS IS SCOPED WITH `@media (width < 40rem)` INSTEAD OF RESETTING AT
-   * `>= 40rem`. The earlier shape applied the touch height unconditionally and
-   * then "undid" it on desktop with `height: 0`. That reset collapsed the
-   * control instead of restoring it: `height: 0` is a real used height, not a
-   * return to `auto`, so the primitive's own `h-[calc(100%-1px)]` never got a
-   * chance to apply — the descendant rule `.tabs-touch > [data-slot=…]`
-   * outranks the single-class utility. With `border-box` the trigger then
-   * bottomed out at its padding plus border (2px + 2px padding + 2px border)
-   * and rendered 6px tall, with the 20px line box overflowing it visibly. The
-   * strip looked like a thin sliver rather than a tab bar.
-   *
-   * Scoping by width removes the reset problem rather than fixing it: on
-   * desktop no rule here matches, so the primitive sizes itself.
-   *
-   * The override lives in the UTILITIES layer, not as a plain `h-11` on the
-   * list: Tailwind emits `group-data-horizontal/tabs:h-8` after a plain `h-11`
-   * inside the same layer, so the group variant wins on source order. A
-   * `data-[orientation=horizontal]:h-11` would be a plain variant and is not
-   * generated for this element at all.
-   *
-   * Both the list and the triggers are set, because the list's 3px padding and
-   * the trigger's `-1px` are inside whatever height the list has — a 44px list
-   * on its own still yields 37px triggers.
+   * It lives in the UTILITIES layer because Tailwind emits
+   * `group-data-horizontal/tabs:h-8` after a plain `h-11` inside the same
+   * layer, so the group variant would win on source order.
    */
   @media (width < 40rem) {
     .tabs-touch {
@@ -606,6 +635,7 @@
   .text-signal { color: var(--accent-signal); }
   .text-amber { color: var(--color-warning); }
   .text-vermilion { color: var(--color-danger); }
+  .text-error { color: var(--error-base); }
   .text-ink { color: var(--text-primary); }
   .text-ink-soft { color: var(--text-secondary); }
   .text-ink-muted { color: var(--text-muted); }
@@ -621,6 +651,30 @@
    * an unreadable 2000px hairline. 92rem keeps a four-column grid comfortable
    * while still filling a laptop. */
   .measure { max-width: var(--measure, 92rem); }
+
+  /* -- Grid field -----------------------------------------------------------
+   * The console's ground: a 32px cell grid that fades before it reaches the
+   * content, plus two accent blooms marking where live data enters. Pure CSS on
+   * a fixed layer — no JS, no repaint on scroll, nothing to disable.
+   */
+  .field-grid {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(60rem 30rem at 12% -8%, var(--field-glow), transparent 70%),
+      radial-gradient(50rem 28rem at 88% 0%, var(--field-glow-2), transparent 72%),
+      linear-gradient(to right, var(--field-grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--field-grid-line) 1px, transparent 1px);
+    background-size:
+      100% 100%,
+      100% 100%,
+      32px 32px,
+      32px 32px;
+    /* A full-strength grid behind 12px type is noise, not texture. */
+    mask-image: radial-gradient(120% 90% at 50% 0%, black 0%, transparent 78%);
+  }
 
   /* Queue ribbon (W3). Its colour and fill are driven entirely by
    * `analysis_queue_status`; these are the states it can be in, including the
@@ -658,8 +712,7 @@
    * property for the same reason as `--avatar-size`: Discord reports real pixel
    * dimensions per attachment, so a 9:16 phone screenshot and a 4:3 desktop
    * capture cannot both be served by one Tailwind class, and inline
-   * `style="aspect-ratio"` is rejected by the design gate. Declared here so
-   * `message-media.tsx` carries no layout CSS of its own. */
+   * `style="aspect-ratio"` is rejected by the design gate. */
   .media-frame {
     aspect-ratio: var(--media-ratio, 4 / 3);
   }
@@ -686,10 +739,7 @@
   }
 
   /* The dock items were 40px tall — four short of the 44px touch minimum, on
-   * the one control the thumb lands on most. `min-height` (not padding) because
-   * the item is a flex column whose own padding already sets the visual box;
-   * growing the box is what enlarges the hit area, and the bar is 56px tall so
-   * there is room for it without changing the chrome. */
+   * the one control the thumb lands on most. */
   .nav-dock-item {
     min-height: 2.75rem;
     justify-content: center;
@@ -701,24 +751,11 @@
   .no-scrollbar::-webkit-scrollbar { display: none; }
 
   /* Safe-area offsets for fixed chrome, where the inset has to survive being
-     combined with a fixed offset. Two different components, two different
-     edges: the chatbot launcher floats above the mobile dock, so it is offset
-     from the viewport bottom, whereas the dock clears the home indicator with
-     a margin below its own content. */
+     combined with a fixed offset. */
   .bottom-safe-launcher { bottom: calc(4.75rem + env(safe-area-inset-bottom)); }
 
-  /* Clearance for the fixed chatbot launcher.
-   *
-   * The launcher is `position: fixed`, so it does not participate in layout and
-   * will sit on top of whatever the last row of the page happens to be. On
-   * desktop the main column's `lg:pb-8` (32px) was less than the launcher's own
-   * 44px, so scrolled to the bottom the FAB covered the final row of the queue
-   * list outright — the "Errored verdict" row was unreadable and untappable.
-   *
-   * Rather than give the launcher a scroll-aware hide, the page reserves the
-   * space. `.launcher-clearance` is applied to <main> and grows the bottom
-   * padding to clear the launcher at each breakpoint.
-   */
+  /* Clearance for the fixed chatbot launcher: it does not participate in layout
+   * and would otherwise sit on top of the last row of the page. */
   .launcher-clearance {
     padding-bottom: 6.5rem;
   }
@@ -728,12 +765,7 @@
       padding-bottom: 5.5rem;
     }
   }
-  /* The mobile dock referenced `bottom-safe-nav-rail`, which was never
-   * defined — the definition was named `mb-safe-nav-rail`, so the dock's
-   * home-indicator clearance has been a no-op. Now defined under the name the
-   * dock actually uses. */
   .bottom-safe-nav-rail { margin-bottom: calc(0.75rem + env(safe-area-inset-bottom)); }
-
 }
 
 /* == Keyframes & Animations == */
@@ -743,8 +775,7 @@
 }
 
 /* Defined ONCE. It was previously declared twice (an expanding ring, then a
- * breathing one) with the second silently winning — which meant the reconnect
- * pulse was not the animation anyone thought it was. */
+ * breathing one) with the second silently winning. */
 @keyframes pulse-ring {
   0% { transform: scale(0.85); opacity: 0.9; }
   100% { transform: scale(2.2); opacity: 0; }
@@ -754,10 +785,8 @@
 .animate-pulse-ring { animation: pulse-ring 2s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Regenerated from the classes that ACTUALLY exist above. The ambient blob,
-   * mote and terminal-cursor guards were dropped with the Record Office
-   * migration: those classes and their render sites are gone, so guarding them
-   * here was decoration pretending to be a safety net. */
+  /* Regenerated from the classes that ACTUALLY exist above. GSAP's own guard
+     lives in libs/motion.tsx. */
   .animate-breathe,
   .animate-pulse-ring,
   .route-in {

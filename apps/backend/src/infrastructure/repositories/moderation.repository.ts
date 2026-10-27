@@ -264,12 +264,29 @@ export class ModerationRepository {
 			),
 		]
 		const contents = new Map<string, string>()
+		// The model's actual sentence lives on `verdicts.analysis`, not on the
+		// action row: `moderation_actions.reason` is written by the pipeline as the
+		// action word ("deleted"), so the dashboard's "reason given by the model"
+		// panel was quoting the action type back at the reader. Read the verdict
+		// alongside the action, keyed the same way as the content lookup.
+		const analyses = new Map<string, string>()
 		if (messageIds.length > 0) {
 			const msgs = await this.db
 				.select({ id: messagesTable.id, content: messagesTable.content })
 				.from(messagesTable)
 				.where(inArray(messagesTable.id, messageIds))
 			for (const m of msgs) contents.set(m.id, m.content)
+
+			const verdicts = await this.db
+				.select({
+					message_id: verdictsTable.message_id,
+					analysis: verdictsTable.analysis,
+				})
+				.from(verdictsTable)
+				.where(inArray(verdictsTable.message_id, messageIds))
+			for (const v of verdicts) {
+				if (v.analysis) analyses.set(v.message_id, v.analysis)
+			}
 		}
 
 		const data = rows.slice(0, limit).map((r) => ({
@@ -279,6 +296,7 @@ export class ModerationRepository {
 			guild_id: String(r.guild_id ?? ""),
 			action_type: String(r.action_type ?? "unknown"),
 			reason: r.reason ? String(r.reason) : null,
+			analysis: r.message_id ? (analyses.get(r.message_id) ?? null) : null,
 			executed_by: r.executed_by ? String(r.executed_by) : null,
 			status: String(r.status ?? "unknown"),
 			error: r.error ? String(r.error) : null,

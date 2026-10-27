@@ -315,7 +315,10 @@ export interface IModerationActionRow {
 	user_id: string | null
 	guild_id: string
 	action_type: string
+	/** The pipeline's action word ("deleted"), not a sentence. */
 	reason: string | null
+	/** The model's own explanation, from `verdicts.analysis`. */
+	analysis: string | null
 	executed_by: string | null
 	status: string
 	error: string | null

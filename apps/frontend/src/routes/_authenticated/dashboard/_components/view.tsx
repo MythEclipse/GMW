@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router"
+import { cn } from "cn"
 import { useMemo } from "react"
 import { AreaChart } from "#/components/features/charts/area-activity"
 import { RankedBars } from "#/components/features/charts/bars"
@@ -16,10 +17,12 @@ import {
 import {
 	channelLabel,
 	formatCompact,
+	formatDay,
 	formatNumber,
 	formatPercent,
 	messageLabel,
 } from "#/libs/format"
+import { Reveal } from "#/libs/motion"
 import type { IDashboardStats } from "#/libs/types"
 import { useWsEvent } from "#/libs/ws/context"
 
@@ -69,12 +72,28 @@ export function DashboardView({ days }: { days: number }) {
 		const total = stats.data?.total_messages ?? 0
 		if (total === 0) return []
 		const rows = [
-			{ label: "Clean", value: stats.data?.total_clean ?? 0 },
-			{ label: "Deleted", value: stats.data?.total_flagged ?? 0 },
-			{ label: "Errored", value: stats.data?.total_error ?? 0 },
+			{
+				label: "Clean",
+				value: stats.data?.total_clean ?? 0,
+				dot: "verdict-dot-clean",
+			},
+			{
+				label: "Deleted",
+				value: stats.data?.total_flagged ?? 0,
+				dot: "verdict-dot-deleted",
+			},
+			{
+				label: "Errored",
+				value: stats.data?.total_error ?? 0,
+				dot: "verdict-dot-error",
+			},
 		]
 		const judged = rows.reduce((sum, r) => sum + r.value, 0)
-		rows.push({ label: "No verdict yet", value: Math.max(0, total - judged) })
+		rows.push({
+			label: "No verdict yet",
+			value: Math.max(0, total - judged),
+			dot: "verdict-dot",
+		})
 		return rows.map((r) => ({
 			...r,
 			secondary: formatPercent((r.value / total) * 100),
@@ -147,29 +166,53 @@ export function DashboardView({ days }: { days: number }) {
 	}
 
 	return (
-		<div className="space-y-4">
-			<header className="flex flex-wrap items-end justify-between gap-2">
-				<div>
-					<h1 className="font-display text-xl font-semibold tracking-tight text-ink">
-						Overview
-					</h1>
-					<p className="text-xs text-ink-muted">
+		<Reveal className="space-y-4">
+			{/* Hero. The page title is the one element at the display step, so the
+          page has a top; the eyebrow is the console's own voice about what the
+          reader is looking at, not a second heading. */}
+			<header className="flex flex-wrap items-end justify-between gap-3">
+				<div className="min-w-0">
+					<p className="field-label">Live moderation console</p>
+					<h1 className="display mt-1 text-ink">Overview</h1>
+					<p className="mt-2 text-sm text-ink-muted">
 						Last {days} days of activity across the monitored guild
 					</p>
+				</div>
+				<div className="flex flex-wrap items-center gap-1.5">
+					<span className="verdict-chip">
+						<span className="verdict-dot verdict-dot-live" aria-hidden />
+						{formatNumber(stats.data?.total_messages)} captured
+					</span>
+					<span className="verdict-chip">
+						<span className="verdict-dot verdict-dot-deleted" aria-hidden />
+						{formatNumber(stats.data?.total_flagged)} deleted
+					</span>
+					<span className="verdict-chip">
+						<span
+							className={cn(
+								"verdict-dot",
+								backlogged > 0 ? "verdict-dot-warning" : "verdict-dot-clean",
+							)}
+							aria-hidden
+						/>
+						{formatNumber(backlogged)} in queue
+					</span>
 				</div>
 			</header>
 
 			<StatGrid cols={4}>
 				<StatTile
 					label="Messages"
-					value={formatCompact(stats.data?.total_messages)}
+					value={stats.data?.total_messages}
+					format={formatCompact}
 					exact={formatNumber(stats.data?.total_messages)}
 					hint={`${formatNumber(stats.data?.today_messages)} today`}
 					to="/messages"
 				/>
 				<StatTile
 					label="Deleted"
-					value={formatCompact(stats.data?.total_flagged)}
+					value={stats.data?.total_flagged}
+					format={formatCompact}
 					hint={
 						flaggedRate === null
 							? undefined
@@ -180,7 +223,7 @@ export function DashboardView({ days }: { days: number }) {
 				/>
 				<StatTile
 					label="In queue"
-					value={formatNumber(backlogged)}
+					value={backlogged}
 					hint={
 						queue?.dead
 							? `${formatNumber(queue.dead)} abandoned`
@@ -191,7 +234,8 @@ export function DashboardView({ days }: { days: number }) {
 				/>
 				<StatTile
 					label="Judged"
-					value={formatPercent(judgedShare)}
+					value={judgedShare}
+					format={(n) => formatPercent(n)}
 					hint={
 						judgedShare === null
 							? "Nothing captured yet"
@@ -203,7 +247,7 @@ export function DashboardView({ days }: { days: number }) {
 				/>
 				<StatTile
 					label="Active members"
-					value={formatNumber(stats.data?.active_users_24h)}
+					value={stats.data?.active_users_24h}
 					hint={`${formatNumber(stats.data?.total_users)} total`}
 				/>
 				<StatTile
@@ -220,17 +264,22 @@ export function DashboardView({ days }: { days: number }) {
 					}
 				/>
 				<StatTile
-					label="Average / day"
-					value={averagePerDay === null ? "—" : formatNumber(averagePerDay)}
+					label="Average per day"
+					value={averagePerDay}
 					hint={`Last ${days} days`}
 				/>
 				<StatTile
 					label="Busiest day"
-					value={busiestDay === null ? "—" : formatCompact(busiestDay.messages)}
+					value={busiestDay?.messages}
+					format={formatCompact}
 					exact={
 						busiestDay === null ? undefined : formatNumber(busiestDay.messages)
 					}
-					hint={busiestDay?.day ?? "No messages in this window"}
+					hint={
+						busiestDay
+							? formatDay(busiestDay.day)
+							: "No messages in this window"
+					}
 				/>
 			</StatGrid>
 
@@ -253,6 +302,15 @@ export function DashboardView({ days }: { days: number }) {
 					title="Verdict mix"
 					description="Every captured message by how it was judged"
 				>
+					<div className="mb-4 flex flex-wrap gap-1.5">
+						{verdictMix.map((v) => (
+							<span key={v.label} className="verdict-chip">
+								<span className={cn("verdict-dot", v.dot)} aria-hidden />
+								{v.label}
+								<span className="text-ink-faint">{v.secondary}</span>
+							</span>
+						))}
+					</div>
 					<RankedBars data={verdictMix} emptyLabel="Nothing captured yet" />
 				</Section>
 			</SectionGrid>
@@ -379,7 +437,7 @@ export function DashboardView({ days }: { days: number }) {
 			>
 				<QueueBreakdown queue={queue} />
 			</Section>
-		</div>
+		</Reveal>
 	)
 }
 

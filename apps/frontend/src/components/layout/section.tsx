@@ -6,11 +6,19 @@ import { cn } from "cn"
 import type { ReactNode } from "react"
 
 /**
- * Section wrapper: a titled HUD panel with an optional action slot.
+ * Section wrapper: a titled panel with an optional action slot.
  *
- * The `hud-card` treatment (border, blur, lift-on-hover) lives in the CSS layer
- * so a panel never has to restate it, and so the oxlint `shadcn/no-restyle`
- * rule has a single class to recognise.
+ * The `hud-card` treatment (hairline, accent top edge, hover border) lives in
+ * the CSS layer so a panel never has to restate it, and so the oxlint
+ * `shadcn/no-restyle` rule has a single class to recognise.
+ *
+ * The title sits at the page's title step (17px, semibold) rather than at body
+ * size. Every band used to be 12-14px, which is why nothing on the page
+ * outranked anything else.
+ *
+ * No "PANEL" eyebrow above it: ten panels all labelled "Panel" is noise, not
+ * structure. A section that needs to say what kind of thing it is says it in its
+ * own title.
  */
 export function Section({
 	title,
@@ -33,12 +41,14 @@ export function Section({
 				<header className="flex items-start justify-between gap-3 border-b border-hairline px-4 py-3">
 					<div className="min-w-0">
 						{title && (
-							<h2 className="truncate text-sm font-medium tracking-wide text-ink">
+							<h2 className="truncate text-title font-semibold tracking-tight text-ink">
 								{title}
 							</h2>
 						)}
 						{description && (
-							<p className="mt-0.5 text-xs text-ink-muted">{description}</p>
+							<p className="mt-1 text-xs leading-relaxed text-ink-muted">
+								{description}
+							</p>
 						)}
 					</div>
 					{action && <div className="shrink-0">{action}</div>}
