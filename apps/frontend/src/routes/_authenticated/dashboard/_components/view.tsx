@@ -114,10 +114,15 @@ export function DashboardView({ days }: { days: number }) {
 		[daily],
 	)
 
+	// Divided by the WINDOW, not by the days that happen to have messages: a day
+	// with no messages is a day with no activity, and dividing by the non-empty
+	// days would report "2 messages per day" for a guild that sent two messages
+	// in a fortnight. One decimal, because a rate that rounds to 0 reads as a bug.
 	const averagePerDay = useMemo(() => {
 		if (daily.length === 0) return null
-		return daily.reduce((sum, d) => sum + d.messages, 0) / daily.length
-	}, [daily])
+		const total = daily.reduce((sum, d) => sum + d.messages, 0)
+		return Math.round((total / days) * 10) / 10
+	}, [daily, days])
 
 	const channelBars = useMemo(
 		() =>
@@ -216,11 +221,7 @@ export function DashboardView({ days }: { days: number }) {
 				/>
 				<StatTile
 					label="Average / day"
-					value={
-						averagePerDay === null
-							? "—"
-							: formatNumber(Math.round(averagePerDay))
-					}
+					value={averagePerDay === null ? "—" : formatNumber(averagePerDay)}
 					hint={`Last ${days} days`}
 				/>
 				<StatTile
