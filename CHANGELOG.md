@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/asepharyana/GMW/compare/v1.2.0...v1.2.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **dashboard:** divide average/day by the window, not by active days ([9b6ca47](https://github.com/asepharyana/GMW/commit/9b6ca4706873a952bf0fa0b8cc2158c14d2a9297))
+
 # [1.2.0](https://github.com/asepharyana/GMW/compare/v1.1.0...v1.2.0) (2026-10-27)
 
 
