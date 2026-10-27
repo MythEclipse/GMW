@@ -74,6 +74,11 @@ export function StatTile({
 				? format(value)
 				: value
 
+	// A formatter returns "—" for a missing value, so an `exact` built from the
+	// same data would attach a tooltip and an sr-only "(—)" to a tile that has
+	// nothing to say. Only carry it when there is a number behind it.
+	const exactText = value == null ? undefined : exact
+
 	const body = (
 		<>
 			<p className="field-label truncate">{label}</p>
@@ -93,14 +98,14 @@ export function StatTile({
       */}
 			<p
 				className={cn("metric-xl mt-1.5", valueTone)}
-				{...(exact ? { title: exact } : {})}
+				{...(exactText ? { title: exactText } : {})}
 			>
 				{typeof value === "number" ? (
 					<Ticker value={value} format={format} placeholder={placeholder} />
 				) : (
 					display
 				)}
-				{exact && <span className="sr-only"> ({exact})</span>}
+				{exactText && <span className="sr-only"> ({exactText})</span>}
 			</p>
 			{hint && <p className="mt-1.5 truncate text-xs text-ink-faint">{hint}</p>}
 			{/* The chevron marks the tile as a control. It is aria-hidden because the
@@ -122,7 +127,7 @@ export function StatTile({
 					"linear-tile hud-card group block px-4 py-3.5 transition-colors hover:border-hairline-focus",
 					className,
 				)}
-				aria-label={`${label}: ${display}${exact ? ` (${exact})` : ""}${hint ? `. ${hint}` : ""}`}
+				aria-label={`${label}: ${display}${exactText ? ` (${exactText})` : ""}${hint ? `. ${hint}` : ""}`}
 			>
 				{body}
 			</Link>
