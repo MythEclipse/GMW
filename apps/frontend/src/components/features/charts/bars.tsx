@@ -59,9 +59,12 @@ export function RankedBars({
 								{datum.secondary ?? formatCompact(datum.value)}
 							</span>
 						</div>
-						<div className="h-1 w-full overflow-hidden rounded-full bg-surface-2">
+						{/* 5px, and the track is a mix of ink rather than `surface-2`: on a
+                dark panel a 4px bar in the same surface step as its own background
+                is invisible, which made a ranked list look like a text list. */}
+						<div className="bar-track">
 							<div
-								className="meter-fill h-full rounded-full bg-signal"
+								className="bar-fill meter-fill"
 								style={{ "--meter-width": `${pct}%` } as React.CSSProperties}
 							/>
 						</div>

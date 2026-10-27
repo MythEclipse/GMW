@@ -684,6 +684,28 @@
   .ribbon-alert { background-color: var(--color-danger); }
   .ribbon-unknown { background-color: var(--text-faint); }
 
+  /* Ranked-list bar. The track has to be visible against the panel it sits on,
+   * and the fill has to read as data rather than as decoration: 5px tall, a
+   * signal gradient that fades toward the tail, no rounding on the track so the
+   * row's baseline stays flat. */
+  .bar-track {
+    height: 5px;
+    width: 100%;
+    overflow: hidden;
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--text-primary) 9%, transparent);
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 9999px;
+    background: linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--color-signal) 90%, transparent),
+      color-mix(in oklab, var(--color-signal) 55%, transparent)
+    );
+  }
+
   /* Per-item values that must stay dynamic (meter fills, heat cells, motes)
    * are passed in as custom properties and read here, so the components carry
    * no inline width/opacity/left declarations. */
