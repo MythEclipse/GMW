@@ -188,7 +188,7 @@ apps/
     drizzle/migrations/            0000_baseline.sql = the schema of record
     tests/  tests-gateway/         vitest suites (unit + Postgres-backed)
   frontend/
-    src/routes/                    TanStack Router routes (the seven dashboard pages)
+    src/routes/                    TanStack Router routes (the three dashboard pages)
     src/libs/navigation.ts         single source of truth for nav + command palette
 infra/
   systemd/  nginx/  docker/        deploy definitions
@@ -206,24 +206,20 @@ does not appear in `src/domain/`, `getDatabase()` does not appear in
 
 ## The dashboard
 
-Seven destinations, one per router the backend exposes. `navItems` in
-`apps/frontend/src/libs/navigation.ts` is the only source of truth — the rail,
-the mobile dock and the command palette all read it.
+Three destinations. `navItems` in `apps/frontend/src/libs/navigation.ts` is
+the only source of truth — the rail, the mobile dock and the command palette
+all read it.
 
 | Route | What it shows |
 |---|---|
 | `/dashboard` | guild-wide moderation health, activity, top channels |
 | `/messages` | live message stream with verdict and queue state |
 | `/moderation` | verdicts, enforcement actions, trends, coverage |
-| `/channels` | per-channel volume, flagged rate, and culture |
-| `/users` | most active members and their moderation profile |
-| `/analysis` | search across analysed messages and their verdicts |
-| `/glossary` | channel slang, term glossary, and flagged domains |
 
-Backend routers: `dashboard`, `messages`, `moderation`, `analysis`, `chatbot`,
-`knowledge`, `config`, `uiState`. Reads are public; the two writing procedures
-(`uiState.update`, `chatbot.clearHistory`) require the `x-mutation-token`
-header — `presentation/orpc/mutation-guard.ts`.
+Backend routers: `dashboard`, `messages`, `moderation`, `chatbot`, `config`,
+`uiState`. Reads are public; the two writing procedures (`uiState.update`,
+`chatbot.clearHistory`) require the `x-mutation-token` header —
+`presentation/orpc/mutation-guard.ts`.
 
 Realtime: capture publishes to Redis, `presentation/ws/server.ts` republishes to
 the browser, and `verdictNotifier` polls `verdicts` so badges update live

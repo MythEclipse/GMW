@@ -58,12 +58,9 @@ because nothing in it is unexplained.
   capture, and the moderation worker (`apps/backend/src/index.ts`).
 - One PostgreSQL database and one Redis. Redis is the event bus — capture
   publishes to it, the WebSocket server republishes to the browser.
-- Seven destinations, one per backend router. `navItems` in
+- Three destinations: `/dashboard`, `/messages`, `/moderation`. `navItems` in
   `apps/frontend/src/libs/navigation.ts` is the single source of truth for the
   desktop rail, the mobile dock and the command palette.
-- `/analysis` is search across analysed messages and their verdicts — the
-  closest thing the product has to a "look this up" mode, and the natural home
-  for a member tracing a specific decision.
 - Auto-delete has no dry-run and no disable switch. It is gated by confidence
   threshold, allow/exclude category and channel/user lists, and evidence rules
   instead: an `error` verdict is never eligible, and a message whose sender

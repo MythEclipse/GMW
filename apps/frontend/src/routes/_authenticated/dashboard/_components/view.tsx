@@ -125,7 +125,6 @@ export function DashboardView({ days }: { days: number }) {
 					label="Active members"
 					value={formatNumber(stats.data?.active_users_24h)}
 					hint={`${formatNumber(stats.data?.total_users)} total`}
-					to="/users"
 				/>
 			</StatGrid>
 

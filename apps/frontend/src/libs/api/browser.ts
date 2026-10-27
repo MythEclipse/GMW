@@ -22,13 +22,6 @@ export const browserApi = {
 	dashboard: {
 		stats: () => client().dashboard.stats({}),
 		activity: (days: number) => client().dashboard.activity({ days }),
-		users: (input: { limit?: number; cursor?: string; search?: string }) =>
-			client().dashboard.users(input),
-		userDetail: (userId: string) => client().dashboard.userDetail({ userId }),
-		channels: (input: { limit?: number; search?: string; guildId?: string }) =>
-			client().dashboard.channels(input),
-		channelDetail: (channelId: string) =>
-			client().dashboard.channelDetail({ channelId }),
 		reactions: (limit: number) => client().dashboard.reactions({ limit }),
 		reactors: (limit: number) => client().dashboard.reactors({ limit }),
 	},
@@ -68,10 +61,6 @@ export const browserApi = {
 			client().moderation.byCategory({ days, category }),
 		coverage: (days: number) => client().moderation.coverage({ days }),
 	},
-	analysis: {
-		search: (input: { q: string; channelId?: string; limit?: number }) =>
-			client().analysis.search(input),
-	},
 	chatbot: {
 		chat: (input: {
 			message: string
@@ -89,12 +78,6 @@ export const browserApi = {
 			client().chatbot.history(input),
 		clearHistory: (input: { userId?: string }) =>
 			client().chatbot.clearHistory(input),
-	},
-	knowledge: {
-		channelCultures: (input: { limit?: number; search?: string }) =>
-			client().knowledge.channelCultures(input),
-		glossary: (input: { limit?: number; search?: string }) =>
-			client().knowledge.glossary(input),
 	},
 	config: {
 		get: () => client().config.get({}),

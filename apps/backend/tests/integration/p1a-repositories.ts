@@ -23,10 +23,8 @@ import {
 	termGlossaryCacheTable,
 	uiStateTable,
 } from "../../src/infrastructure/database/schema.js"
-import { AnalysisRepository } from "../../src/infrastructure/repositories/analysis.repository.js"
 import { ChatbotRepository } from "../../src/infrastructure/repositories/chatbot.repository.js"
 import { HealthRepository } from "../../src/infrastructure/repositories/health.repository.js"
-import { KnowledgeRepository } from "../../src/infrastructure/repositories/knowledge.repository.js"
 import { UiStateRepository } from "../../src/infrastructure/repositories/ui-state.repository.js"
 
 let failures = 0
@@ -118,9 +116,7 @@ async function main() {
 	// DatabaseHandle, and constructing one calls getDatabase(), which throws
 	// until the pool exists.
 	const healthRepository = new HealthRepository(getDatabase())
-	const analysisRepository = new AnalysisRepository(getDatabase())
 	const chatbotRepository = new ChatbotRepository(getDatabase())
-	const knowledgeRepository = new KnowledgeRepository(getDatabase())
 	const uiStateService = new UiStateService(
 		new UiStateRepository(getDatabase()),
 	)
@@ -128,70 +124,6 @@ async function main() {
 	console.log("\nhealth.repository")
 	const health = await healthRepository.checkDatabaseConnection()
 	check("SELECT 1 reports connected", health.connected === true, health)
-
-	console.log("\nanalysis.repository")
-	// Scoped to the fixture's own guild: `search({})` legitimately matches every
-	// row in a shared database, so an unscoped count would assert nothing.
-	const search = await analysisRepository.search({
-		q: "dunia",
-		guildId: "p1a-verify-guild",
-	})
-	check("finds the seeded message", search.length === 1, search.length)
-	check("maps content", search[0]?.content === "halo dunia", search[0]?.content)
-	check(
-		"coerces created_at to a number",
-		typeof search[0]?.created_at === "number",
-	)
-	check(
-		"empty query still matches (ilike %%)",
-		(await analysisRepository.search({ guildId: "p1a-verify-guild" })).length >=
-			1,
-	)
-	check(
-		"non-matching query returns empty",
-		(await analysisRepository.search({ q: "zzzznotfound" })).length === 0,
-	)
-	check(
-		"guildId filter excludes other guilds",
-		(await analysisRepository.search({ guildId: "p1a-no-such-guild" }))
-			.length === 0,
-	)
-
-	console.log("\nknowledge.repository")
-	const cultures = (
-		await knowledgeRepository.listChannelCultures(50, "p1a-verify-chan")
-	).filter((c) => c.channel_id === FIXTURE_CHANNEL_ID)
-	check("returns the seeded culture", cultures.length === 1, cultures.length)
-	check(
-		"resolves channel_name from messages.metadata",
-		cultures[0]?.channel_name === "general",
-		cultures[0]?.channel_name,
-	)
-	check(
-		"search matches culture_summary",
-		(await knowledgeRepository.listChannelCultures(50, "bahasa santai")).some(
-			(c) => c.channel_id === FIXTURE_CHANNEL_ID,
-		),
-	)
-	check(
-		"non-matching search is empty",
-		(await knowledgeRepository.listChannelCultures(50, "zzzznotfound"))
-			.length === 0,
-	)
-	const glossary = (
-		await knowledgeRepository.listGlossary(50, "p1a-verify-term")
-	).filter((t) => t.term === "p1a-verify-term")
-	check("returns the seeded term", glossary.length === 1, glossary.length)
-	check(
-		"maps resolved_at to a number",
-		typeof glossary[0]?.resolved_at === "number",
-	)
-	check(
-		"search matches definition",
-		(await knowledgeRepository.listGlossary(50, "greeting")).some(
-			(t) => t.term === "p1a-verify-term",
-		),
-	)
 
 	console.log("\nui-state")
 	// Restore the fixture value first — this check mutates it, and the harness

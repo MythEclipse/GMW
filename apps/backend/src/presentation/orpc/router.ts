@@ -16,10 +16,8 @@ import { mutationProcedure } from "./mutation-guard.js"
  */
 export function buildRouter(useCases: UseCases) {
 	const {
-		analysis: analysisService,
 		chatbot: chatbotService,
 		dashboard: dashboardService,
-		knowledge: knowledgeService,
 		messages: messagesService,
 		moderation: moderationService,
 		uiState: uiStateService,
@@ -33,44 +31,6 @@ export function buildRouter(useCases: UseCases) {
 				z.object({ days: z.coerce.number().int().min(1).max(90).default(14) }),
 			)
 			.handler(({ input }) => dashboardService.getActivity(input.days)),
-		users: os
-			.input(
-				z.object({
-					limit: z.coerce.number().int().positive().default(20),
-					cursor: z.string().optional(),
-					search: z.string().optional(),
-				}),
-			)
-			.handler(({ input }) =>
-				dashboardService.listUsers({
-					limit: input.limit,
-					cursor: input.cursor,
-					search: input.search,
-				}),
-			),
-		userDetail: os
-			.input(z.object({ userId: z.string() }))
-			.handler(({ input }) => dashboardService.getUserDetail(input.userId)),
-		channels: os
-			.input(
-				z.object({
-					limit: z.coerce.number().int().positive().default(20),
-					search: z.string().optional(),
-					guildId: z.string().optional(),
-				}),
-			)
-			.handler(({ input }) =>
-				dashboardService.listChannels({
-					limit: input.limit,
-					search: input.search,
-					guildId: input.guildId,
-				}),
-			),
-		channelDetail: os
-			.input(z.object({ channelId: z.string() }))
-			.handler(({ input }) =>
-				dashboardService.getChannelDetail(input.channelId),
-			),
 		reactions: os
 			.input(
 				z.object({ limit: z.coerce.number().int().positive().default(20) }),
@@ -242,25 +202,6 @@ export function buildRouter(useCases: UseCases) {
 			.handler(({ input }) => moderationService.getCoverage(input.days)),
 	}
 
-	// ── Analysis (search) ──────────────────────────────────────────────
-	const analysisRouter = {
-		search: os
-			.input(
-				z.object({
-					q: z.string().default(""),
-					channelId: z.string().optional(),
-					limit: z.coerce.number().int().positive().default(20),
-				}),
-			)
-			.handler(({ input }) =>
-				analysisService.search({
-					q: input.q,
-					channelId: input.channelId,
-					limit: input.limit,
-				}),
-			),
-	}
-
 	// ── Chatbot ───────────────────────────────────────────────────────
 	const chatbotRouter = {
 		chat: os
@@ -308,29 +249,6 @@ export function buildRouter(useCases: UseCases) {
 			}),
 	}
 
-	// ── Knowledge (public read-only culture glossary + term KB) ───────
-	const knowledgeRouter = {
-		channelCultures: os
-			.input(
-				z.object({
-					limit: z.coerce.number().int().positive().default(50),
-					search: z.string().optional(),
-				}),
-			)
-			.handler(({ input }) =>
-				knowledgeService.listChannelCultures(input.limit, input.search),
-			),
-		glossary: os
-			.input(
-				z.object({
-					limit: z.coerce.number().int().positive().default(50),
-					search: z.string().optional(),
-				}),
-			)
-			.handler(({ input }) =>
-				knowledgeService.listGlossary(input.limit, input.search),
-			),
-	}
 	const configRouter = {
 		get: os.handler(() => ({
 			// Derived from the EFFECTIVE list, not `MONITOR_GUILD_ID` directly.
@@ -369,11 +287,9 @@ export function buildRouter(useCases: UseCases) {
 		dashboard: dashboardRouter,
 		messages: messagesRouter,
 		moderation: moderationRouter,
-		analysis: analysisRouter,
 		chatbot: chatbotRouter,
 		config: configRouter,
 		uiState: uiStateRouter,
-		knowledge: knowledgeRouter,
 	}
 }
 

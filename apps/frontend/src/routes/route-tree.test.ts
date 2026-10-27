@@ -76,10 +76,6 @@ describe("route tree shape", () => {
 			"/_authenticated/dashboard",
 			"/_authenticated/messages",
 			"/_authenticated/moderation",
-			"/_authenticated/channels",
-			"/_authenticated/users",
-			"/_authenticated/analysis",
-			"/_authenticated/glossary",
 		]) {
 			expect(childIds, `${expected} is not under the layout`).toContain(
 				expected,

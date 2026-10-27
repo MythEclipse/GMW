@@ -226,38 +226,6 @@ export interface IDashboardActivity {
 	hourly: IHourlyActivity[]
 }
 
-export interface IUserSummary {
-	user_id: string
-	username: string
-	avatar_url: string | null
-	profile_summary: string | null
-	total_messages?: number
-	flagged_count?: number
-	last_seen_at?: number | null
-	[key: string]: unknown
-}
-
-export interface IUserPage {
-	data: IUserSummary[]
-	nextCursor: string | null
-}
-
-export interface IChannelSummary {
-	channel_id: string
-	channel_name: string
-	guild_id: string
-	total_messages: number
-	flagged_count: number
-	last_message_at: number | null
-	culture_summary: string | null
-	last_analyzed_at: number | null
-}
-
-export interface IChannelPage {
-	data: IChannelSummary[]
-	nextCursor: string | null
-}
-
 export interface ITopReaction {
 	message_id: string
 	content: string
@@ -348,24 +316,6 @@ export interface ICoverage {
 	outcomes: Record<string, number>
 	coverage_rate: number
 	failed_rate: number
-}
-
-// ── Knowledge ───────────────────────────────────────────────────────────────
-
-export interface IChannelCulture {
-	channel_id: string
-	guild_id: string
-	channel_name: string
-	culture_summary: string
-	[key: string]: unknown
-}
-
-export interface IGlossaryTerm {
-	term: string
-	definition: string
-	source_url: string | null
-	resolved_at: number
-	hit_count: number
 }
 
 // ── Chatbot / config / ui-state ─────────────────────────────────────────────

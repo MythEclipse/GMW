@@ -12,13 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthenticatedSplatRouteImport } from './routes/_authenticated/$'
-import { Route as AuthenticatedAnalysisRouteRouteImport } from './routes/_authenticated/analysis/route'
-import { Route as AuthenticatedChannelsRouteRouteImport } from './routes/_authenticated/channels/route'
 import { Route as AuthenticatedDashboardRouteRouteImport } from './routes/_authenticated/dashboard/route'
-import { Route as AuthenticatedGlossaryRouteRouteImport } from './routes/_authenticated/glossary/route'
 import { Route as AuthenticatedMessagesRouteRouteImport } from './routes/_authenticated/messages/route'
 import { Route as AuthenticatedModerationRouteRouteImport } from './routes/_authenticated/moderation/route'
-import { Route as AuthenticatedUsersRouteRouteImport } from './routes/_authenticated/users/route'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,28 +30,10 @@ const AuthenticatedSplatRoute = AuthenticatedSplatRouteImport.update({
   path: '/$',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedAnalysisRouteRoute =
-  AuthenticatedAnalysisRouteRouteImport.update({
-    id: '/analysis',
-    path: '/analysis',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedChannelsRouteRoute =
-  AuthenticatedChannelsRouteRouteImport.update({
-    id: '/channels',
-    path: '/channels',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
 const AuthenticatedDashboardRouteRoute =
   AuthenticatedDashboardRouteRouteImport.update({
     id: '/dashboard',
     path: '/dashboard',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedGlossaryRouteRoute =
-  AuthenticatedGlossaryRouteRouteImport.update({
-    id: '/glossary',
-    path: '/glossary',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedMessagesRouteRoute =
@@ -70,81 +48,42 @@ const AuthenticatedModerationRouteRoute =
     path: '/moderation',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedUsersRouteRoute = AuthenticatedUsersRouteRouteImport.update({
-  id: '/users',
-  path: '/users',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/analysis': typeof AuthenticatedAnalysisRouteRoute
-  '/channels': typeof AuthenticatedChannelsRouteRoute
   '/dashboard': typeof AuthenticatedDashboardRouteRoute
-  '/glossary': typeof AuthenticatedGlossaryRouteRoute
   '/messages': typeof AuthenticatedMessagesRouteRoute
   '/moderation': typeof AuthenticatedModerationRouteRoute
-  '/users': typeof AuthenticatedUsersRouteRoute
   '/$': typeof AuthenticatedSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/analysis': typeof AuthenticatedAnalysisRouteRoute
-  '/channels': typeof AuthenticatedChannelsRouteRoute
   '/dashboard': typeof AuthenticatedDashboardRouteRoute
-  '/glossary': typeof AuthenticatedGlossaryRouteRoute
   '/messages': typeof AuthenticatedMessagesRouteRoute
   '/moderation': typeof AuthenticatedModerationRouteRoute
-  '/users': typeof AuthenticatedUsersRouteRoute
   '/$': typeof AuthenticatedSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
-  '/_authenticated/analysis': typeof AuthenticatedAnalysisRouteRoute
-  '/_authenticated/channels': typeof AuthenticatedChannelsRouteRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRouteRoute
-  '/_authenticated/glossary': typeof AuthenticatedGlossaryRouteRoute
   '/_authenticated/messages': typeof AuthenticatedMessagesRouteRoute
   '/_authenticated/moderation': typeof AuthenticatedModerationRouteRoute
-  '/_authenticated/users': typeof AuthenticatedUsersRouteRoute
   '/_authenticated/$': typeof AuthenticatedSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/analysis'
-    | '/channels'
-    | '/dashboard'
-    | '/glossary'
-    | '/messages'
-    | '/moderation'
-    | '/users'
-    | '/$'
+  fullPaths: '/' | '/dashboard' | '/messages' | '/moderation' | '/$'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/analysis'
-    | '/channels'
-    | '/dashboard'
-    | '/glossary'
-    | '/messages'
-    | '/moderation'
-    | '/users'
-    | '/$'
+  to: '/' | '/dashboard' | '/messages' | '/moderation' | '/$'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
-    | '/_authenticated/analysis'
-    | '/_authenticated/channels'
     | '/_authenticated/dashboard'
-    | '/_authenticated/glossary'
     | '/_authenticated/messages'
     | '/_authenticated/moderation'
-    | '/_authenticated/users'
     | '/_authenticated/$'
   fileRoutesById: FileRoutesById
 }
@@ -176,32 +115,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSplatRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/analysis': {
-      id: '/_authenticated/analysis'
-      path: '/analysis'
-      fullPath: '/analysis'
-      preLoaderRoute: typeof AuthenticatedAnalysisRouteRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/channels': {
-      id: '/_authenticated/channels'
-      path: '/channels'
-      fullPath: '/channels'
-      preLoaderRoute: typeof AuthenticatedChannelsRouteRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AuthenticatedDashboardRouteRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/glossary': {
-      id: '/_authenticated/glossary'
-      path: '/glossary'
-      fullPath: '/glossary'
-      preLoaderRoute: typeof AuthenticatedGlossaryRouteRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/messages': {
@@ -218,35 +136,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedModerationRouteRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/users': {
-      id: '/_authenticated/users'
-      path: '/users'
-      fullPath: '/users'
-      preLoaderRoute: typeof AuthenticatedUsersRouteRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
   }
 }
 
 interface AuthenticatedRouteChildren {
-  AuthenticatedAnalysisRouteRoute: typeof AuthenticatedAnalysisRouteRoute
-  AuthenticatedChannelsRouteRoute: typeof AuthenticatedChannelsRouteRoute
   AuthenticatedDashboardRouteRoute: typeof AuthenticatedDashboardRouteRoute
-  AuthenticatedGlossaryRouteRoute: typeof AuthenticatedGlossaryRouteRoute
   AuthenticatedMessagesRouteRoute: typeof AuthenticatedMessagesRouteRoute
   AuthenticatedModerationRouteRoute: typeof AuthenticatedModerationRouteRoute
-  AuthenticatedUsersRouteRoute: typeof AuthenticatedUsersRouteRoute
   AuthenticatedSplatRoute: typeof AuthenticatedSplatRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
-  AuthenticatedAnalysisRouteRoute: AuthenticatedAnalysisRouteRoute,
-  AuthenticatedChannelsRouteRoute: AuthenticatedChannelsRouteRoute,
   AuthenticatedDashboardRouteRoute: AuthenticatedDashboardRouteRoute,
-  AuthenticatedGlossaryRouteRoute: AuthenticatedGlossaryRouteRoute,
   AuthenticatedMessagesRouteRoute: AuthenticatedMessagesRouteRoute,
   AuthenticatedModerationRouteRoute: AuthenticatedModerationRouteRoute,
-  AuthenticatedUsersRouteRoute: AuthenticatedUsersRouteRoute,
   AuthenticatedSplatRoute: AuthenticatedSplatRoute,
 }
 

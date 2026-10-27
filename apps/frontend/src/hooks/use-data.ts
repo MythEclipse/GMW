@@ -8,13 +8,10 @@ import {
 } from "@tanstack/react-query"
 import { browserApi } from "#/libs/api/browser"
 import type {
-	IChannelCulture,
-	IChannelPage,
 	IDashboardActivity,
 	IDashboardStats,
 	IFlaggedChannel,
 	IFlaggedDomain,
-	IGlossaryTerm,
 	IGuild,
 	IMessageEdit,
 	IMessagePage,
@@ -26,7 +23,6 @@ import type {
 	ITextChannel,
 	ITopReaction,
 	ITopReactor,
-	IUserPage,
 } from "#/libs/types"
 
 /**
@@ -73,11 +69,6 @@ const shared = {
 export const qk = {
 	stats: ["dashboard", "stats"] as const,
 	activity: (days: number) => ["dashboard", "activity", days] as const,
-	users: (search: string) => ["dashboard", "users", search || "*"] as const,
-	userDetail: (id: string) => ["dashboard", "userDetail", id] as const,
-	channels: (search: string) =>
-		["dashboard", "channels", search || "*"] as const,
-	channelDetail: (id: string) => ["dashboard", "channelDetail", id] as const,
 	reactions: (limit: number) => ["dashboard", "reactions", limit] as const,
 	reactors: (limit: number) => ["dashboard", "reactors", limit] as const,
 	guilds: ["messages", "guilds"] as const,
@@ -96,12 +87,6 @@ export const qk = {
 	flaggedChannels: (days: number) => ["moderation", "channels", days] as const,
 	hourly: (days: number) => ["moderation", "hourly", days] as const,
 	coverage: (days: number) => ["moderation", "coverage", days] as const,
-	search: (q: string, channelId: string | undefined) =>
-		["analysis", "search", q, channelId ?? "all"] as const,
-	cultures: (search: string) =>
-		["knowledge", "cultures", search || "*"] as const,
-	glossary: (search: string) =>
-		["knowledge", "glossary", search || "*"] as const,
 } as const
 
 /** A paged list whose backend hands back an opaque resume token. */
@@ -127,33 +112,6 @@ export function useActivity(days: number) {
 			browserApi.dashboard.activity(days) as Promise<IDashboardActivity>,
 		...shared,
 		refetchInterval: LIVE,
-	})
-}
-
-export function useUsers(search: string) {
-	return useQuery({
-		queryKey: qk.users(search),
-		queryFn: () =>
-			browserApi.dashboard.users({
-				limit: 20,
-				search: search || undefined,
-			}) as Promise<IUserPage>,
-		...shared,
-		placeholderData: (prev) => prev,
-	})
-}
-
-export function useChannels(search: string, guildId?: string) {
-	return useQuery({
-		queryKey: [...qk.channels(search), guildId ?? "*"],
-		queryFn: () =>
-			browserApi.dashboard.channels({
-				limit: 50,
-				search: search || undefined,
-				guildId,
-			}) as Promise<IChannelPage>,
-		...shared,
-		placeholderData: (prev) => prev,
 	})
 }
 
@@ -377,49 +335,6 @@ export function useCoverage<T>(days: number) {
 		queryFn: () => browserApi.moderation.coverage(days) as Promise<T>,
 		...shared,
 		refetchInterval: LIVE,
-	})
-}
-
-// ── Analysis / knowledge ────────────────────────────────────────────────────
-
-export function useAnalysisSearch<T>(q: string, channelId: string | undefined) {
-	return useQuery({
-		// An empty query issues NO request — the old `null` SWR key. The route
-		// seed is what fills the initial view; typing is what starts querying.
-		queryKey: q
-			? qk.search(q, channelId)
-			: (["analysis", "search", "", "*"] as const),
-		queryFn: () =>
-			browserApi.analysis.search({ q, channelId, limit: 20 }) as Promise<T>,
-		enabled: Boolean(q),
-		...shared,
-		placeholderData: (prev) => prev,
-	})
-}
-
-export function useChannelCultures(search: string) {
-	return useQuery({
-		queryKey: qk.cultures(search),
-		queryFn: () =>
-			browserApi.knowledge.channelCultures({
-				limit: 50,
-				search: search || undefined,
-			}) as Promise<IChannelCulture[]>,
-		...shared,
-		placeholderData: (prev) => prev,
-	})
-}
-
-export function useGlossary(search: string) {
-	return useQuery({
-		queryKey: qk.glossary(search),
-		queryFn: () =>
-			browserApi.knowledge.glossary({
-				limit: 50,
-				search: search || undefined,
-			}) as Promise<IGlossaryTerm[]>,
-		...shared,
-		placeholderData: (prev) => prev,
 	})
 }
 

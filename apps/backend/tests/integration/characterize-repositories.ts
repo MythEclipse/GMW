@@ -209,28 +209,11 @@ async function collect(): Promise<Record<string, unknown>> {
 		// ── dashboard ─────────────────────────────────────────────────────
 		["dashboard.getStats", () => dashboardRepository.getStats()],
 		["dashboard.getActivity", () => dashboardRepository.getActivity(14)],
-		["dashboard.listUsers", () => dashboardRepository.listUsers({ limit: 20 })],
-		[
-			"dashboard.listUsers.search",
-			() => dashboardRepository.listUsers({ limit: 20, search: "alpha" }),
-		],
-		[
-			"dashboard.listChannels",
-			() => dashboardRepository.listChannels({ limit: 20, guildId: GUILD }),
-		],
-		[
-			"dashboard.getChannelDetail",
-			() => dashboardRepository.getChannelDetail(CH_A),
-		],
 		[
 			"dashboard.getTopReactions",
 			() => dashboardRepository.getTopReactions(10),
 		],
 		["dashboard.getTopReactors", () => dashboardRepository.getTopReactors(10)],
-		[
-			"dashboard.getUserDetail",
-			() => dashboardRepository.getUserDetail("char-user-1"),
-		],
 
 		// ── chatbot tools ─────────────────────────────────────────────────
 		// Every executor that touches the database. Each returns a JSON STRING, so

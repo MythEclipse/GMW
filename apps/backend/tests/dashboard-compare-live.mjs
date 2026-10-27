@@ -13,15 +13,9 @@
  *   * rows whose channelName is empty-string vs missing vs a real name
  *   * reactions for messages that do not exist (the old JOIN dropped them)
  *
- * Two caveats, stated so the numbers are readable:
- *   * The ORIGINAL `listUsers`/`getUserDetail` selected `m.warn_count` from a
- *     subquery that never computed it, so they threw `column "m.warn_count"
- *     does not exist` on every call. For comparison they are run with the one
- *     column renamed to its known intent (flagged_count), and the port reports
- *     warn_count as that same flagged count. This is a deliberate repair, not
- *     a drift.
- *   * `messages.metadata` is `text`, and the JSON path is identical, so the
- *     channel-name fallback resolves the same as the SQL COALESCE.
+ * One caveat, stated so the numbers are readable: `messages.metadata` is
+ * `text`, and the JSON path is identical, so the channel-name fallback
+ * resolves the same as the SQL COALESCE.
  *
  * Run with:
  *   DSN=postgresql://postgres:postgres@127.0.0.1:5433/gmw_compare \
@@ -140,109 +134,6 @@ try {
 		},
 	)
 
-	// --- listUsers (old SQL is the warn_count-broken one; see header) ----
-	// Parity SQL projects flagged_count AS warn_count, the port's repair.
-	await compare(
-		"listUsers groups by (user_id,username,avatar_url)",
-		`SELECT m.user_id, m.username, m.avatar_url,
-                        m.total_messages,
-                        m.flagged_count, m.clean_count,
-                        m.flagged_count AS warn_count,
-                        m.last_message_at
-                 FROM (
-                   SELECT msg.user_id, msg.username, msg.avatar_url,
-                          COUNT(*)::int AS total_messages,
-                          COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged_count,
-                          COUNT(*) FILTER (WHERE v.status = 'clean')::int AS clean_count,
-                          MAX(msg.created_at) AS last_message_at
-                   FROM messages msg LEFT JOIN verdicts v ON v.message_id = msg.id
-                   GROUP BY msg.user_id, msg.username, msg.avatar_url
-                 ) m ORDER BY m.last_message_at DESC NULLS LAST LIMIT 21`,
-		async () => {
-			const r = await repo.listUsers({ limit: 20 })
-			return r.data.map((u) => ({
-				user_id: u.user_id,
-				username: u.username,
-				avatar_url: u.avatar_url,
-				total_messages: u.total_messages,
-				flagged_count: u.flagged_count,
-				clean_count: u.clean_count,
-				warn_count: u.warn_count,
-				last_message_at: u.last_message_at,
-			}))
-		},
-		{ unordered: false },
-	)
-
-	// --- listChannels ---------------------------------------------------
-	await compare(
-		"listChannels groups by (channel_id,guild_id,channelName)",
-		`SELECT m.channel_id, m.channel_name, m.guild_id,
-                        m.total_messages, m.flagged_count, m.last_message_at,
-                        c.culture_summary, c.last_analyzed_at
-                 FROM (
-                   SELECT msg.channel_id, msg.guild_id,
-                          COALESCE(NULLIF((msg.metadata::jsonb -> 'channel' ->> 'channelName'), ''), msg.channel_id) AS channel_name,
-                          COUNT(*)::int AS total_messages,
-                          COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged_count,
-                          MAX(msg.created_at) AS last_message_at
-                   FROM messages msg LEFT JOIN verdicts v ON v.message_id = msg.id
-                   GROUP BY msg.channel_id, msg.guild_id, (msg.metadata::jsonb -> 'channel' ->> 'channelName')
-                 ) m LEFT JOIN channel_cultures c ON c.channel_id = m.channel_id
-                 ORDER BY m.total_messages DESC, m.channel_id, m.channel_name LIMIT 21`,
-		async () => {
-			const r = await repo.listChannels({ limit: 20 })
-			return r.data.map((c) => ({
-				channel_id: c.channel_id,
-				channel_name: c.channel_name,
-				guild_id: c.guild_id,
-				total_messages: c.total_messages,
-				flagged_count: c.flagged_count,
-				last_message_at: c.last_message_at,
-				culture_summary: c.culture_summary,
-				last_analyzed_at: c.last_analyzed_at,
-			}))
-		},
-		{ unordered: true },
-	)
-
-	// --- getChannelDetail ----------------------------------------------
-	// The harness parity SQL reproduces the group-then-LEFT-JOIN shape; the
-	// port fetches messages and reduces, the semantics match.
-	await compare(
-		"getChannelDetail aggregate",
-		`SELECT m.channel_id, m.channel_name, m.guild_id, m.total_messages,
-                        m.flagged_count, m.clean_count, c.culture_summary, c.last_analyzed_at
-                 FROM (
-                   SELECT msg.channel_id, msg.guild_id,
-                          COALESCE(NULLIF((msg.metadata::jsonb -> 'channel' ->> 'channelName'), ''), msg.channel_id) AS channel_name,
-                          COUNT(*)::int AS total_messages,
-                          COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged_count,
-                          COUNT(*) FILTER (WHERE v.status = 'clean')::int AS clean_count
-                   FROM messages msg LEFT JOIN verdicts v ON v.message_id = msg.id
-                   WHERE msg.channel_id = $1
-                   GROUP BY msg.channel_id, msg.guild_id, (msg.metadata::jsonb -> 'channel' ->> 'channelName')
-                 ) m LEFT JOIN channel_cultures c ON c.channel_id = m.channel_id
-                 ORDER BY m.total_messages DESC
-                 LIMIT 1`,
-		async () => {
-			const d = await repo.getChannelDetail("ch3")
-			return [
-				{
-					channel_id: d?.channel_id,
-					channel_name: d?.channel_name,
-					guild_id: d?.guild_id,
-					total_messages: d?.total_messages,
-					flagged_count: d?.flagged_count,
-					clean_count: d?.clean_count,
-					culture_summary: d?.culture_summary,
-					last_analyzed_at: d?.last_analyzed_at ?? null,
-				},
-			]
-		},
-		{ params: ["ch3"] },
-	)
-
 	// --- getTopReactions -----------------------------------------------
 	await compare(
 		"getTopReactions net reactions",
@@ -294,42 +185,6 @@ try {
 				emojis_used: x.emojis_used,
 			}))
 		},
-	)
-
-	// --- getUserDetail --------------------------------------------------
-	await compare(
-		"getUserDetail aggregate",
-		`SELECT m.user_id, m.username, m.avatar_url, m.total_messages,
-                        m.flagged_count, m.clean_count, m.flagged_count AS warn_count,
-                        p.profile_summary, p.last_analyzed_at
-                 FROM (
-                   SELECT msg.user_id, msg.username, msg.avatar_url,
-                          COUNT(*)::int AS total_messages,
-                          COUNT(*) FILTER (WHERE v.status = 'deleted')::int AS flagged_count,
-                          COUNT(*) FILTER (WHERE v.status = 'clean')::int AS clean_count
-                   FROM messages msg LEFT JOIN verdicts v ON v.message_id = msg.id
-                   WHERE msg.user_id = $1
-                   GROUP BY msg.user_id, msg.username, msg.avatar_url
-                 ) m LEFT JOIN user_profiles p ON p.user_id = m.user_id`,
-		async () => {
-			const d = await repo.getUserDetail("u01")
-			return d
-				? [
-						{
-							user_id: d.user_id,
-							username: d.username,
-							avatar_url: d.avatar_url,
-							total_messages: d.total_messages,
-							flagged_count: d.flagged_count,
-							clean_count: d.clean_count,
-							warn_count: d.warn_count,
-							profile_summary: d.profile_summary,
-							last_analyzed_at: d.last_analyzed_at ?? null,
-						},
-					]
-				: []
-		},
-		{ params: ["u01"] },
 	)
 
 	// --- getStats: totals line ------------------------------------------

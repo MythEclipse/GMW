@@ -73,10 +73,6 @@ describe("feature routes render their own page", () => {
 		["/dashboard", "Loading overview"],
 		["/messages", "Loading messages"],
 		["/moderation", "Loading moderation"],
-		["/channels", "Loading channels"],
-		["/users", "Loading members"],
-		["/analysis", "Loading analysis"],
-		["/glossary", "Loading glossary"],
 	]
 
 	for (const [url, label] of ROUTES) {

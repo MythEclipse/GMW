@@ -5,10 +5,8 @@
 -- the fixtures have to include the cases where a naive loop disagrees with the
 -- database:
 --
---   * MULTIPLE groups per key. `listUsers` groups by (user_id, username,
---     avatar_url); a user who renamed or changed avatar must produce SEVERAL
---     rows, not one merged row. Same for channels by (channel_id, guild_id,
---     channelName) and reactors by (user_id, username).
+--   * MULTIPLE groups per key. `getTopReactors` groups by (user_id, username);
+--     a user who renamed must produce SEVERAL rows, not one merged row.
 --   * Net reactions that go NEGATIVE and net to exactly ZERO. Both must be
 --     filtered out by `reaction_count > 0`; a `!= 0` filter would leak them.
 --   * A message whose adds and removes cancel exactly, and one where removes

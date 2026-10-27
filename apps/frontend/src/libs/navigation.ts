@@ -1,14 +1,14 @@
 /**
  * Navigation.
  *
- * Exactly seven destinations, one per router the backend actually exposes
- * (dashboard, messages, channels, users, moderation, analysis, knowledge).
+ * Exactly three destinations, one per router the frontend still exposes:
+ * dashboard, messages and moderation.
  *
- * The earlier frontend also linked /voice, /recordings and /media; those
- * backend modules no longer exist, so the routes are gone rather than left as
- * dead ends. `href` is the ONLY source of truth — the desktop rail, the mobile
- * dock and the command palette all read this array, so adding a destination
- * once makes it appear everywhere.
+ * The four reference/audit pages that used to sit here — channels, users,
+ * analysis and glossary — were removed along with their backend routers, so
+ * the routes are gone rather than left as dead ends. `href` is the ONLY source
+ * of truth — the desktop rail, the mobile dock and the command palette all
+ * read this array, so adding a destination once makes it appear everywhere.
  */
 export interface INavItem {
 	href: string
@@ -45,38 +45,6 @@ export const navItems: readonly INavItem[] = [
 		description: "Verdicts, enforcement actions, and coverage",
 		keywords: ["moderation", "verdict", "flag", "action", "enforce", "delete"],
 		order: 3,
-	},
-	{
-		href: "/channels",
-		label: "Channels",
-		shortLabel: "Chans",
-		description: "Per-channel volume, flagged rate, and culture",
-		keywords: ["channel", "guild", "volume", "culture"],
-		order: 4,
-	},
-	{
-		href: "/users",
-		label: "Users",
-		shortLabel: "Users",
-		description: "Most active members and their moderation profile",
-		keywords: ["user", "member", "profile", "author", "top"],
-		order: 5,
-	},
-	{
-		href: "/analysis",
-		label: "Analysis",
-		shortLabel: "Search",
-		description: "Search across analysed messages and their verdicts",
-		keywords: ["analysis", "search", "query", "find", "grep"],
-		order: 6,
-	},
-	{
-		href: "/glossary",
-		label: "Glossary",
-		shortLabel: "Gloss",
-		description: "Channel slang, term glossary, and flagged domains",
-		keywords: ["glossary", "slang", "term", "culture", "dictionary", "scam"],
-		order: 7,
 	},
 ] as const
 
