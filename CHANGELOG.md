@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/asepharyana/GMW/compare/v1.3.0...v1.3.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **frontend:** make ranked bars visible on a dark panel ([979002a](https://github.com/asepharyana/GMW/commit/979002a5e2aa15e2aa80ac45d5f3d01bf5935d44))
+
 # [1.3.0](https://github.com/asepharyana/GMW/compare/v1.2.1...v1.3.0) (2026-10-27)
 
 
