@@ -35,8 +35,9 @@ const MIGRATION_LOCK_KEY_2 = 531
  * production healthy against a schema with no `verdicts` table. That class of
  * bug cannot exist when there is a single migration to be wrong about.
  *
- * Consequence to be aware of: an existing deployment MUST be rebuilt rather
- * than migrated onto. `scripts/reset-data.sh` is the supported path.
+ * Consequence to be aware of: a database built by the OLD migration chain cannot
+ * be migrated onto — it has to be rebuilt once. `scripts/reset-data.sh` does
+ * that, and it is a manual operation: deploys never touch data.
  *
  * IMPORTANT — this leaves the pool OPEN.
  *

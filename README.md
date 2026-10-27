@@ -329,10 +329,20 @@ Service definitions live in `infra/systemd/`:
 Production config is declarative: the runtime env file is written by CI from
 secrets. Do not hand-edit env on the server — the next deploy overwrites it.
 
-`RESET_RUNTIME_DATA` stays **unset**. Every deploy wipes the runtime data by
-design; the post-reset state (`guilds = []` while `monitorGuildId` still comes
-from env) is a normal production state that every view must render, not a bug to
-be softened with a flag.
+A deploy **never touches runtime data**. It builds, switches the release symlink,
+restarts the units, and leaves every row in place; migrations run on boot and skip
+what the ledger already records.
+
+Wiping is a separate, manual operation — destructive, no undo:
+
+```bash
+scripts/reset-data.sh --dry-run   # list the tables and their row counts
+scripts/reset-data.sh             # drop the schema, restart the backend
+```
+
+An empty database is still a state every view must render — a fresh host starts
+empty, and `guilds = []` with `monitorGuildId` coming from env is normal — but it
+is no longer something a deploy produces.
 
 ---
 
@@ -391,7 +401,8 @@ Do not undo these without an argument that addresses why they were introduced:
 7. **The system prompt is built last** — after vision descriptions and history
    lookups resolve — because every one of those flags is part of the prompt
    cache key.
-8. **`RESET_RUNTIME_DATA` stays unset.**
+8. **A deploy never touches runtime data.** Wiping is `scripts/reset-data.sh`,
+   run by hand, and it restarts the backend itself.
 
 ## Releases and container images
 

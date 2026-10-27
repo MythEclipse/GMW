@@ -21,11 +21,12 @@ set -euo pipefail
 # Env:
 #   REMOTE_REPO       — git remote to fetch (default: https://github.com/asepharyana/GMW.git)
 #   DEPLOY_REF        — branch, tag, or sha to deploy (default: main)
-#   RESET_RUNTIME_DATA— 1 (default) wipes Postgres `dcbot` before the restart;
-#                       0 skips the wipe for an incident deploy that must keep
-#                       its rows.
+#   Runtime data           — NEVER touched. This script does not drop, truncate
+#                            or migrate the database; `scripts/reset-data.sh` is
+#                            a separate, manual operation for a deliberate wipe.
+#
 #   KEEP_RELEASES       — how many releases to keep in TOTAL, live included
-#                       (default 2 = the live one + one rollback). Step 11
+#                       (default 2 = the live one + one rollback). Step 10
 #                       prunes the rest.
 
 REMOTE_REPO="${REMOTE_REPO:-https://github.com/asepharyana/GMW.git}"
@@ -234,47 +235,7 @@ sudo find "$RELEASE_DIR" -xdev -type l -exec chown -h gmw:gmw {} + 2>/dev/null |
 sudo chown -h gmw:gmw "$CURRENT_LINK"
 
 # ---------------------------------------------------------------------------
-# 8. Reset runtime data (Postgres)
-# ---------------------------------------------------------------------------
-# Wipes GMW's runtime data so the service comes up against an empty schema.
-# This used to be a separate CI step between the Nix build and the restart;
-# it now lives here, immediately before the restart, which preserves the
-# original invariant without the CI step: the build must fully succeed
-# BEFORE any data is destroyed. A failed tsc above aborts before this runs.
-#
-# On by default. Set RESET_RUNTIME_DATA=0 for an incident deploy that must
-# not touch data (bad migration roll-back, debugging a live row).
-if [ "${RESET_RUNTIME_DATA:-1}" = "1" ]; then
-  log "Resetting runtime data (Postgres dcbot)"
-  # reset-data.sh itself STOPs the three writers before wiping and LEAVES
-  # them down on success, so the wipe cannot race a live gateway. Bringing
-  # them back is our job below — on both the success and the failure path,
-  # so a failed reset can never leave prod dark.
-  WRITERS="gmw-backend"
-  if ! sudo /usr/local/bin/bws-exec gmw bash "$RELEASE_DIR/scripts/reset-data.sh"; then
-    echo "::error::runtime data reset FAILED — restarting writers" >&2
-    sudo systemctl start $WRITERS || true
-    exit 1
-  fi
-  sudo systemctl start $WRITERS
-  # Verify liveness, not just the exit code: `systemctl start` returns 0 for
-  # a unit that then dies, and a unit stopped forcefully reports `failed`
-  # for the whole TimeoutStopUSec window.
-  for u in $WRITERS; do
-    state=$(sudo systemctl is-active "$u" 2>/dev/null || echo inactive)
-    echo "  $u -> $state"
-    [ "$state" = "active" ] || {
-      echo "::error::$u is $state after the data reset — prod is degraded" >&2
-      exit 1
-    }
-  done
-  log "runtime data reset OK; writers active"
-else
-  log "RESET_RUNTIME_DATA=0 — skipping the Postgres wipe"
-fi
-
-# ---------------------------------------------------------------------------
-# 9. Enable + restart services
+# 8. Enable + restart services
 # ---------------------------------------------------------------------------
 log "Enabling and restarting services"
 sudo systemctl enable gmw-backend gmw-frontend
@@ -292,7 +253,7 @@ sudo rm -f /etc/systemd/system/gmw-discord-gateway.service /etc/systemd/system/g
 sudo systemctl daemon-reload
 
 # ---------------------------------------------------------------------------
-# 10. Health check
+# 9. Health check
 # ---------------------------------------------------------------------------
 # `systemctl is-active` alone is NOT a health signal: with Restart=always a unit
 # that exits 200ms after start reports `active` on the first poll, then flips to
@@ -391,7 +352,7 @@ fi
 log "All services active and answering"
 
 # ---------------------------------------------------------------------------
-# 11. Prune old releases
+# 10. Prune old releases
 # ---------------------------------------------------------------------------
 # Keep the live release plus exactly ONE rollback target. Everything older is
 # unreachable: the `current` symlink points at the live one, and a rollback is

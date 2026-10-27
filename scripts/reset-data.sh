@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 #
-# reset-data.sh — wipe GMW's runtime data on the VPS, for a clean post-deploy state.
+# reset-data.sh — wipe GMW's runtime data on the VPS. MANUAL, never automatic.
+#
+# Deploys do NOT call this. A deploy keeps every row it finds; this script is the
+# deliberate, one-off "start from empty" operation, run by hand:
+#
+#     scripts/reset-data.sh --dry-run    # list what would go, change nothing
+#     scripts/reset-data.sh              # drop the schema and restart the backend
+#
+# It is destructive and there is no undo.
 #
 # SCOPE, precisely:
 #   * Postgres `dcbot`   — the ENTIRE `public` schema, dropped and rebuilt.
@@ -52,28 +60,20 @@ echo "database : $(printf '%s' "$DATABASE_URL" | sed -E 's#://[^@]*@#://***@#')"
 # Units are matched BY NAME, never by binary path: two unrelated services on
 # this host also run `bun run dist/index.js`.
 #
-# On success the units are deliberately LEFT DOWN — the deploy step restarts
-# them right after this runs, and a reset that ends with the writers back up
-# has restored what was just removed. If this script exits non-zero the trap
-# below brings them back, so a failed reset can never leave prod dark.
+# The units are restarted by this script before it exits — on success AND on
+# failure. They used to be left down for the deploy step to bring back, which
+# was correct only while a deploy called this script; run by hand it would have
+# ended with production dark and nobody watching.
 WRITERS=(gmw-backend)
 STOPPED=()
 
 restore_writers() {
-  # No-op on the success path: WIPE_OK=1 is set before the final exit, so the
-  # units are meant to stay down for the deploy step's restart. Only a real
-  # failure (WIPE_OK still 0) brings them back, so a failed reset can never
-  # leave prod dark.
-  [ "$WIPE_OK" = "1" ] && return 0
   [ ${#STOPPED[@]} -eq 0 ] && return 0
-  echo "--- restoring writers after a FAILED reset ---"
+  echo "--- restarting writers ---"
   for u in "${STOPPED[@]}"; do
     systemctl start "$u" 2>/dev/null && echo "  started $u"
   done
 }
-
-# Set to 1 only on the success path (final line of the script).
-WIPE_OK=0
 
 if [ "$DRY_RUN" = 0 ]; then
   for u in "${WRITERS[@]}"; do
@@ -105,6 +105,8 @@ if [ "$DRY_RUN" = 0 ]; then
         *) echo "FATAL: $u is '$state', not stopped" >&2; restore_writers; exit 1 ;;
       esac
     done
+    # Safety net: any unexpected exit between here and the final
+    # verification still brings the writers back.
     trap restore_writers EXIT
   fi
 fi
@@ -221,22 +223,22 @@ echo "  migration ledger cleared      : $NOW_LEDGER rows of schema remain"
 [ "$NOW_LEDGER" = "0" ] || { echo "  x SCHEMA NOT FULLY DROPPED" >&2; FAIL=1; }
 
 if [ "$FAIL" = 0 ]; then
-  WIPE_OK=1
-  echo "=== reset complete (writers left down for the deploy restart) ==="
+  echo "=== reset complete ==="
 else
-  echo "=== reset FAILED (writers restored) ===" >&2
+  echo "=== reset FAILED ===" >&2
 fi
 
-# The reset succeeding says nothing about prod being up. The caller's next
-# step is the restart, so the one thing worth reporting from here is that the
-# writers ARE down — if any is still active, the wipe raced it and its result
-# is not to be trusted.
+# A wipe that leaves production down is not a finished operation, so the
+# writers come back here and are verified, not merely started: `systemctl start`
+# returns 0 for a unit that dies a second later.
 if [ "$DRY_RUN" = 0 ]; then
-  echo "--- writers (must be down; the deploy step restarts them) ---"
+  restore_writers
+  echo "--- writers ---"
   for u in "${WRITERS[@]}"; do
     state=$(systemctl is-active "$u" 2>/dev/null | tr -d '[:space:]' || true)
     [ -n "$state" ] || state="unknown"
     echo "  $u -> $state"
+    [ "$state" = "active" ] || { echo "  x $u is $state — production is degraded" >&2; FAIL=1; }
   done
 fi
 exit "$FAIL"
