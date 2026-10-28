@@ -28,7 +28,7 @@
     "discord.js-selfbot-v13": "^3.7.1",
     "dotenv": "^18.0.9",
     "drizzle-orm": "^0.45.4",
-    "hono": "^4.13.13",
+    "hono": "^4.13.14",
     "ioredis": "^6.0.0",
     "lru-cache": "^11.5.3",
     "openai": "^7.43.0",
