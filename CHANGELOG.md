@@ -1,3 +1,10 @@
+## [1.3.7](https://github.com/asepharyana/GMW/compare/v1.3.6...v1.3.7) (2026-10-29)
+
+
+### Bug Fixes
+
+* **hooks:** add timeout handling to useRouteSeed for fetch requests ([da17c75](https://github.com/asepharyana/GMW/commit/da17c75dfa289219a2ca7fc7a89eb144227d6e35))
+
 ## [1.3.6](https://github.com/asepharyana/GMW/compare/v1.3.5...v1.3.6) (2026-10-28)
 
 
