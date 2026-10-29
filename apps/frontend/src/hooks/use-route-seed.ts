@@ -73,6 +73,7 @@ export interface ISeedEntry<T> {
 export function useRouteSeed<T>(
 	fetcher: () => Promise<T>,
 	seed?: (result: T) => ISeedEntry<unknown>[],
+	timeoutMs = 20_000,
 ): IRouteSeed<T> {
 	const [data, setData] = useState<T | null>(null)
 	const [error, setError] = useState<Error | null>(null)
@@ -104,9 +105,21 @@ export function useRouteSeed<T>(
 		setIsPending(true)
 		setError(null)
 
-		fetcherRef
-			.current()
+		let timeout: ReturnType<typeof setTimeout> | undefined
+		const request = fetcherRef.current()
+		const timedOut = new Promise<never>((_, reject) => {
+			timeout = setTimeout(() => {
+				reject(
+					new Error(
+						`The request timed out after ${Math.round(timeoutMs / 1000)} seconds. Check the backend connection and try again.`,
+					),
+				)
+			}, timeoutMs)
+		})
+
+		Promise.race([request, timedOut])
 			.then((result) => {
+				if (timeout) clearTimeout(timeout)
 				if (cancelled || ticket !== latest.current) return
 				// Prime the cache BEFORE flipping isPending, so the view's first render
 				// already finds its data and does not flash an empty list.
@@ -120,6 +133,7 @@ export function useRouteSeed<T>(
 				setIsPending(false)
 			})
 			.catch((err: unknown) => {
+				if (timeout) clearTimeout(timeout)
 				if (cancelled || ticket !== latest.current) return
 				setError(err instanceof Error ? err : new Error(String(err)))
 				setIsPending(false)
