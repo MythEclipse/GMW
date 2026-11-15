@@ -327,7 +327,7 @@ describe("moderation worker state machine", () => {
 		expect(rows[0].n).toBe(0)
 		// `skipped`, not `pending`: a deletion takes the row out of the queue, so
 		// it is not left lying there as work the worker is refusing to pick up.
-		// See migration 0001 and the test below.
+		// See migration 0002 and the test below.
 		expect(await statesOf()).toEqual({ analyzed: 2, skipped: 2 })
 	})
 

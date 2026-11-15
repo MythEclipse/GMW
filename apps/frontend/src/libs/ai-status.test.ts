@@ -15,7 +15,7 @@ import { pipelineLabel, pipelineLabelFor } from "./ai-status"
  * worker would ever do, because `claim_messages()` skips `deleted_at IS NOT
  * NULL`. The queue never drained it and nothing else re-pended it.
  *
- * The database fix (migration 0001) moves deleted rows to `skipped` on the way
+ * The database fix (migration 0002) moves deleted rows to `skipped` on the way
  * in. This guard covers rows written before it, and the live-feed copy of a
  * message between a deletion event and the next refetch.
  */
